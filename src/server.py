@@ -931,7 +931,11 @@ def _destructive_versioning_provider() -> Optional[Tuple[Any, Any, str, Optional
         return None
 
 
-_destructive_hook.register_project_root_provider(_destructive_versioning_provider)
+# Late-binding wrapper: resolve the provider attribute at call time so tests
+# (and hot-patching) that replace _destructive_versioning_provider on this
+# module are honored by the hook.
+_destructive_hook.register_project_root_provider(
+    lambda: _destructive_versioning_provider())
 
 
 # ─── Resolve 21 AI-ops ledger plumbing ────────────────────────────────────────
@@ -19067,7 +19071,7 @@ def _auto_edit_ffprobe_ok(path: str) -> Tuple[bool, str]:
     if _shutil.which("ffprobe") is None:
         return True, "ffprobe not installed — existence check only"
     try:
-        proc = subprocess.run(
+        proc = safe_run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=nw=1", path],
             capture_output=True, timeout=30, check=False,
@@ -19079,11 +19083,8 @@ def _auto_edit_ffprobe_ok(path: str) -> Tuple[bool, str]:
     return True, ""
 
 
-# NOTE: not wrapped in @_destructive_op — the hook is sync-only and this tool is
-# async. Its mutating actions are additive (build_timeline creates a NEW
-# timeline; revisions rebuild) and every execute path is confirm-token gated
-# inline, mirroring the edit_engine ceremony.
 @mcp.tool()
+@_destructive_op("auto_edit")
 async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Autonomous brief-to-rendered-video pipeline (Phase 1: talking head).
 
@@ -19106,6 +19107,8 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         the markdown checkpoint summary.
       revise_cut(brief_id, notes?, edits?) -> revision+1 — structured overrides
         (reorder/keep/drop/title), new plan_id, old revisions stay loadable.
+        Edits apply sequentially: drop indices re-evaluate after each op, so
+        multi-drop batches should list indices in descending order.
       get_cut_summary(plan_id, format?) -> {summary} — markdown (default) or json.
       approve_cut(plan_id, music_bed_consent?, confirm_token?) — THE one human
         checkpoint. The confirm-token preview embeds the cut summary and the
@@ -19140,13 +19143,21 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             deliverable=p.get("deliverable") or "youtube_1080p",
             title_text=p.get("title_text") or p.get("titleText"),
         )
+        probe_targets = []
         for path in list(files) + ([music] if music else []):
             if not isinstance(path, str) or not os.path.isfile(path):
                 problems.append(f"file not found: {path!r}")
                 continue
-            ok, why = _auto_edit_ffprobe_ok(path)
-            if not ok:
-                problems.append(f"unreadable media {path!r}: {why}")
+            probe_targets.append(path)
+        if probe_targets:
+            # The probes are independent; run them concurrently instead of
+            # paying one spawn+probe latency per file back to back.
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(4, len(probe_targets))) as pool:
+                for path, (ok, why) in zip(
+                        probe_targets, pool.map(_auto_edit_ffprobe_ok, probe_targets)):
+                    if not ok:
+                        problems.append(f"unreadable media {path!r}: {why}")
         if problems:
             return _err("invalid brief: " + "; ".join(problems))
         mp = proj.GetMediaPool()
@@ -19217,7 +19228,10 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                 analysis = await media_analysis(
                     "batch_job_status", {"job_id": brief["analysis_job_id"]})
                 job_state = str((analysis or {}).get("status") or "").lower()
-                if job_state in ("completed", "complete", "done", "succeeded"):
+                # Terminal job statuses are completed | completed_with_errors |
+                # canceled (media_analysis_jobs); a partly-failed batch still
+                # readies the brief — planning fails honestly on missing clips.
+                if job_state in ("completed", "completed_with_errors"):
                     brief = _auto_edit_mod.advance_brief(
                         project_root, brief["plan_id"], "ready")["brief"]
             except Exception as exc:
@@ -19239,8 +19253,24 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             brief = _auto_edit_mod.load_brief(project_root, brief["plan_id"]) or brief
         music_gain_db = None
         if brief.get("music") and os.path.isfile(str(brief["music"])):
-            bed = _music_analysis_mod.analyze_music_bed(str(brief["music"]))
-            music_gain_db = bed.get("gain_db")
+            music_path = str(brief["music"])
+            try:
+                music_mtime = os.path.getmtime(music_path)
+            except OSError:
+                music_mtime = None
+            gain_cache = brief.get("music_gain_cache") or {}
+            if gain_cache.get("path") == music_path and gain_cache.get("mtime") == music_mtime:
+                music_gain_db = gain_cache.get("gain_db")
+            else:
+                # Full ffmpeg loudness pass — measure once per music file and
+                # cache on the brief so re-planning doesn't re-decode it.
+                bed = _music_analysis_mod.analyze_music_bed(music_path)
+                music_gain_db = bed.get("gain_db")
+                if music_gain_db is not None:
+                    _auto_edit_mod.advance_brief(
+                        project_root, brief["plan_id"], str(brief.get("state") or "ready"),
+                        music_gain_cache={"path": music_path, "mtime": music_mtime,
+                                          "gain_db": music_gain_db})
         built = _auto_edit_mod.build_cut_list_for_brief(
             project_root, brief, music_gain_db=music_gain_db)
         if not built.get("success"):
@@ -19445,6 +19475,31 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
 
         # 2..5) Speech + mirrored audio, b-roll overlays, music — one append pass.
         rows = _auto_edit_build_rows(plan, record_offset)
+        # Overlay rows (and offline-analyzed sources) may carry only the
+        # analysis-DB clip_uuid, which _find_clip cannot resolve; translate
+        # any unknown id to a media-pool clip via the DB's recorded file path.
+        pending_ids = {row["clip_id"] for row in rows
+                       if row.get("clip_id") and not _find_clip(root_folder, row["clip_id"])}
+        if pending_ids:
+            from src.utils import timeline_brain_db as _tbdb
+            translated: Dict[str, Any] = {}
+            try:
+                conn = _tbdb.connect(project_root)
+                for cid in pending_ids:
+                    db_row = conn.execute(
+                        "SELECT file_path, clip_name FROM clips WHERE clip_uuid = ?",
+                        (cid,)).fetchone()
+                    if db_row is None:
+                        continue
+                    mp_clip = _find_clip_by_file_path(
+                        root_folder, str(db_row["file_path"] or db_row["clip_name"] or ""))
+                    if mp_clip:
+                        translated[cid] = mp_clip.GetUniqueId()
+            except Exception:
+                pass
+            for row in rows:
+                if row.get("clip_id") in translated:
+                    row["clip_id"] = translated[row["clip_id"]]
         built = []
         build_errors = []
         punch_targets = []
@@ -19477,11 +19532,11 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             try:
                 items = tl.GetItemListInTrack("video", 1) or []
                 base = int(timeline_start or 0)
+                items_by_record: Dict[int, Any] = {}
+                for it in items:
+                    items_by_record.setdefault(int(it.GetStart()) - base, it)
                 for target in punch_targets:
-                    hit = next(
-                        (it for it in items
-                         if int(it.GetStart()) - base == target["record_frame"]),
-                        None)
+                    hit = items_by_record.get(target["record_frame"])
                     if hit is None:
                         punch_results.append({**target, "applied": False, "reason": "item not found"})
                         continue
@@ -19624,24 +19679,38 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             job_id = prepared["job_id"]
 
             def _render_work():
+                render_started = time.time()
                 started = bool(proj.StartRendering([job_id], False))
                 if not started:
                     return {"success": False, "error": "StartRendering returned false", "job_id": job_id}
                 while proj.IsRenderingInProgress():
                     time.sleep(2)
                 status = _ser(proj.GetRenderJobStatus(job_id))
-                outputs = sorted(
-                    (os.path.join(target_dir, f) for f in os.listdir(target_dir)
-                     if f.startswith(custom_name)),
-                    key=lambda path: os.path.getmtime(path), reverse=True)
+                job_failed = str((status or {}).get("JobStatus") if isinstance(status, dict)
+                                 else "").lower() in ("failed", "cancelled", "canceled")
+                # Only files written by THIS render count — a prior finish of
+                # the same plan leaves same-prefix files behind (2s tolerance
+                # for coarse filesystem mtimes).
+                outputs = []
+                for fname in os.listdir(target_dir):
+                    if not fname.startswith(custom_name):
+                        continue
+                    full = os.path.join(target_dir, fname)
+                    if os.path.getmtime(full) >= render_started - 2:
+                        outputs.append(full)
+                outputs.sort(key=os.path.getmtime, reverse=True)
                 output_path = outputs[0] if outputs else None
-                return {
-                    "success": bool(output_path and os.path.isfile(output_path)),
+                out = {
+                    "success": bool(output_path and os.path.isfile(output_path)) and not job_failed,
                     "job_id": job_id,
                     "status": status,
                     "output_path": output_path,
-                    **({} if output_path else {"error": "no output file found after render"}),
                 }
+                if not output_path:
+                    out["error"] = "no output file found after render"
+                elif job_failed:
+                    out["error"] = "render job did not complete"
+                return out
 
             render_result = _run_maybe_background("auto_edit.finish_render", p, _render_work)
             result["render"] = render_result

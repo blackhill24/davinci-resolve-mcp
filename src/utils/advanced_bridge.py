@@ -33,6 +33,8 @@ import subprocess
 import tempfile
 from typing import Any, Dict, List, Optional
 
+from src.utils.proc import safe_run
+
 
 def _repo_root() -> str:
     # src/utils/advanced_bridge.py → repo root is two levels up.
@@ -86,13 +88,13 @@ def run_node_bridge(
         return {"success": False, "error": f"advanced bridge missing: {bridge}"}
 
     try:
-        # stdin=DEVNULL: never let a child race-read a protocol/stdin stream.
-        proc = subprocess.run(
+        # safe_run defaults stdin to DEVNULL: never let a child race-read a
+        # protocol/stdin stream.
+        proc = safe_run(
             [node, bridge, *[str(a) for a in argv]],
             capture_output=True,
             text=True,
             timeout=timeout,
-            stdin=subprocess.DEVNULL,
             cwd=root,
         )
     except subprocess.TimeoutExpired:

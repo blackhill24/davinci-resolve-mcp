@@ -885,6 +885,23 @@ def find_similar(
         query_model = str(row["model_name"])
         exclude = (entity_type, entity_uuid)
 
+    return _scan_similar(
+        conn, query_vector, query_model,
+        kind=kind, entity_types=entity_types, limit=limit, exclude=exclude,
+    )
+
+
+def _scan_similar(
+    conn: sqlite3.Connection,
+    query_vector: List[float],
+    query_model: str,
+    *,
+    kind: str,
+    entity_types: Optional[Sequence[str]] = None,
+    limit: int = 10,
+    exclude: Optional[Tuple[str, str]] = None,
+) -> Dict[str, Any]:
+    """Brute-force cosine scan for one prepared query vector."""
     where = "embedding_kind = ? AND model_name = ?"
     args: List[Any] = [kind, query_model]
     if entity_types:
@@ -919,4 +936,54 @@ def find_similar(
         "model": query_model,
         "candidates_scanned": len(rows),
         "results": results,
+    }
+
+
+def find_similar_texts(
+    project_root: str,
+    *,
+    texts: Sequence[str],
+    kind: str = "text",
+    entity_types: Optional[Sequence[str]] = None,
+    limit: int = 10,
+) -> Dict[str, Any]:
+    """Batched text queries: one embedding inference for the whole list.
+
+    ``results_per_query[i]`` holds the hits for ``texts[i]`` (same entries as
+    ``find_similar``'s ``results``). kind='text' embeds every query in a
+    single ``embed_texts`` call — the win over N ``find_similar`` calls;
+    visual/audio kinds fall back to per-text encoding.
+    """
+    conn = timeline_brain_db.connect(project_root)
+    kind = (kind or "text").strip().lower()
+    if kind not in ("text", "visual", "audio"):
+        return {"success": False, "error": f"kind must be 'text', 'visual', or 'audio', got {kind!r}"}
+    cleaned = [str(t) for t in texts]
+    if not cleaned:
+        return {"success": True, "kind": kind, "results_per_query": []}
+    if kind == "text":
+        embedded = embed_texts(cleaned)
+        if not embedded.get("success"):
+            return embedded
+        vectors = embedded["vectors"]
+        model = str(embedded["model"])
+    else:
+        encoder = embed_text_for_audio_query if kind == "audio" else embed_text_for_visual_query
+        vectors = []
+        model = ""
+        for text in cleaned:
+            encoded = encoder(text)
+            if not encoded.get("success"):
+                return encoded
+            vectors.append(encoded["vector"])
+            model = str(encoded["model"])
+    return {
+        "success": True,
+        "kind": kind,
+        "model": model,
+        "results_per_query": [
+            _scan_similar(conn, vector, model,
+                          kind=kind, entity_types=entity_types, limit=limit)["results"]
+            for vector in vectors
+        ],
     }

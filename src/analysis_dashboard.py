@@ -14818,7 +14818,9 @@ _ADVANCED_LINEAGE_OPS = {"list", "show", "diff", "verdicts"}
 
 
 def _advanced_root() -> str:
-    return os.path.join(_repo_root(), "resolve-advanced")
+    from src.utils.advanced_bridge import advanced_root
+
+    return advanced_root()
 
 
 def _run_advanced_bridge(surface: str, op: str, args: Optional[Dict[str, Any]] = None,
@@ -14832,10 +14834,10 @@ def _run_advanced_bridge(surface: str, op: str, args: Optional[Dict[str, Any]] =
 
 
 def _advanced_capabilities_payload() -> Dict[str, Any]:
-    import shutil
+    from src.utils.advanced_bridge import node_path
 
     payload = _run_advanced_bridge("capabilities", "get")
-    payload["node"] = shutil.which("node")
+    payload["node"] = node_path()
     payload["root"] = _advanced_root()
     return payload
 

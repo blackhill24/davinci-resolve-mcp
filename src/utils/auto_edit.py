@@ -30,7 +30,7 @@ _TRANSITIONS = {
     "created": {"analyzing", "ready"},
     "analyzing": {"ready"},
     "ready": {"planned"},
-    "planned": {"planned", "approved"},   # planned→planned = revision
+    "planned": {"approved"},              # revisions stay planned (self-transitions always pass)
     "approved": {"planned", "built"},     # re-plan after approval = new checkpoint
     "built": {"planned", "finished"},
     "finished": set(),
@@ -241,7 +241,8 @@ def build_cut_list_for_brief(
     """Assemble a CutList from analysis evidence for a talking-head brief.
 
     similar_fn: b-roll matcher with the ``embeddings.find_similar`` keyword
-    signature (injectable for tests; defaults to the real index).
+    signature (injectable for tests; the default path batches every excerpt
+    through ``embeddings.find_similar_texts`` in one inference).
     """
     conn = timeline_brain_db.connect(project_root)
     speech_sources: List[Dict[str, Any]] = []
@@ -257,10 +258,16 @@ def build_cut_list_for_brief(
     if not speech_sources:
         return {"success": False, "error": "no transcribed speech source in the brief",
                 "problems": problems}
-
-    if similar_fn is None:
-        from src.utils import embeddings
-        similar_fn = embeddings.find_similar
+    rates = {round(float(edit_engine._clip_fps(s["clip"])), 3)
+             for s in speech_sources + broll_clips}
+    if len(rates) > 1:
+        # Frame math below assumes one fps for source frames, the duration
+        # budget, and the record cursor — mixed rates would silently misplace
+        # segments on the timeline.
+        return {"success": False,
+                "error": f"mixed frame rates in brief {sorted(rates)} — "
+                         "Phase 1 requires all files at a single fps",
+                "problems": problems}
 
     segments: List[Dict[str, Any]] = []
     removed: List[Dict[str, Any]] = []
@@ -320,7 +327,7 @@ def build_cut_list_for_brief(
     removed.extend(dropped)
 
     _assign_smoothing_and_overlays(
-        project_root, segments, fps=fps,
+        project_root, segments,
         has_broll=bool(broll_clips), similar_fn=similar_fn,
         broll_uuids={str(b["clip"]["clip_uuid"]) for b in broll_clips},
     )
@@ -363,8 +370,11 @@ def _fit_to_duration(
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Keep segments in story order until the duration budget is spent.
 
-    Whole segments are dropped (never blind mid-sentence trims); drops are
-    recorded as semantic Cuts so the checkpoint summary can show them.
+    Whole segments are dropped (never blind mid-sentence trims), and always
+    from the tail: once one segment overflows the budget, it and everything
+    after it go — keeping a later, shorter segment would punch a hole in the
+    middle of the story. Drops are recorded as semantic Cuts so the checkpoint
+    summary can show them.
     """
     if not target_seconds:
         return segments, []
@@ -374,7 +384,7 @@ def _fit_to_duration(
     used = 0
     for seg in segments:
         length = seg["source_end_frame"] - seg["source_start_frame"]
-        if used + length <= budget or not kept:
+        if not dropped and (used + length <= budget or not kept):
             kept.append(seg)
             used += length
         else:
@@ -388,29 +398,53 @@ def _fit_to_duration(
     return kept, dropped
 
 
+def _similar_hits_by_text(
+    project_root: str,
+    texts: List[str],
+    similar_fn: Optional[Callable[..., Dict[str, Any]]],
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Shot-similarity hits per excerpt.
+
+    The default path embeds every excerpt in ONE inference
+    (``embeddings.find_similar_texts``); an injected ``similar_fn`` keeps the
+    one-query ``find_similar`` contract and is called once per unique text.
+    """
+    if similar_fn is None:
+        from src.utils import embeddings
+        batched = embeddings.find_similar_texts(
+            project_root, texts=texts, kind="text", entity_types=["shot"], limit=5)
+        if not batched.get("success"):
+            return {}
+        return dict(zip(texts, batched.get("results_per_query") or []))
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for text in texts:
+        result = similar_fn(
+            project_root, text=text, kind="text", entity_types=["shot"], limit=5)
+        out[text] = (result.get("results") or []) if result.get("success") else []
+    return out
+
+
 def _assign_smoothing_and_overlays(
     project_root: str,
     segments: List[Dict[str, Any]],
     *,
-    fps: float,
     has_broll: bool,
-    similar_fn: Callable[..., Dict[str, Any]],
+    similar_fn: Optional[Callable[..., Dict[str, Any]]],
     broll_uuids: set,
 ) -> None:
     """Resolve pending jump-cut smoothing: b-roll when a match exists, else punch-in."""
-    for seg in segments:
-        if seg.get("jumpcut_smoothing") != "pending":
-            continue
+    pending = [seg for seg in segments if seg.get("jumpcut_smoothing") == "pending"]
+    texts: List[str] = []
+    if has_broll:
+        texts = list(dict.fromkeys(
+            seg["transcript_excerpt"] for seg in pending if seg.get("transcript_excerpt")))
+    hits_by_text = _similar_hits_by_text(project_root, texts, similar_fn) if texts else {}
+    for seg in pending:
         match = None
-        if has_broll and seg.get("transcript_excerpt"):
-            result = similar_fn(
-                project_root, text=seg["transcript_excerpt"], kind="text",
-                entity_types=["shot"], limit=5,
-            )
-            for hit in (result.get("results") or []) if result.get("success") else []:
-                if str(hit.get("clip_uuid")) in broll_uuids:
-                    match = hit
-                    break
+        for hit in hits_by_text.get(seg.get("transcript_excerpt") or "", []):
+            if str(hit.get("clip_uuid")) in broll_uuids:
+                match = hit
+                break
         if match:
             seg["jumpcut_smoothing"] = "broll"
             seg["_broll_match"] = match
@@ -421,7 +455,7 @@ def _assign_smoothing_and_overlays(
 
 def _collect_overlays(segments: List[Dict[str, Any]], *, fps: float) -> List[Dict[str, Any]]:
     overlays: List[Dict[str, Any]] = []
-    for seg in segments:
+    for idx, seg in enumerate(segments):
         match = seg.pop("_broll_match", None)
         if not match:
             continue
@@ -439,7 +473,7 @@ def _collect_overlays(segments: List[Dict[str, Any]], *, fps: float) -> List[Dic
             "source_end_frame": int(round(float(shot_start) * fps)) + duration,
             "duration_frames": duration,
             "track_index": 2,
-            "over_segment_index": segments.index(seg),
+            "over_segment_index": idx,
             "rationale": f"jump-cut cover; similarity {match.get('score')}",
         })
     return overlays
@@ -534,6 +568,10 @@ def apply_revision(
 ) -> Dict[str, Any]:
     """Structured overrides on a CutList: reorder / keep / drop / title.
 
+    Edits apply sequentially — each op sees the list as the previous op left
+    it, so drop indices re-evaluate after every edit (drop several segments in
+    descending index order, or one per revision).
+
     Produces revision+1 as a NEW saved plan (append-rebuild: old revisions
     stay loadable); the caller re-shows the checkpoint for the new revision.
     """
@@ -573,8 +611,17 @@ def apply_revision(
             if restored is None:
                 return {"success": False,
                         "error": "keep found no dropped segment to restore"}
+            def _seg_key(s: Dict[str, Any]) -> Tuple[str, int]:
+                return (str(s.get("clip_uuid")), s["source_start_frame"])
+
+            chronological = all(_seg_key(a) <= _seg_key(b)
+                                for a, b in zip(segments, segments[1:]))
             segments.append(restored)
-            segments.sort(key=lambda s: (str(s.get("clip_uuid")), s["source_start_frame"]))
+            if chronological:
+                # Slot the restored segment back into source order — but only
+                # when the cut still IS in source order; a custom `reorder`
+                # must survive a later keep, so then the restore goes last.
+                segments.sort(key=_seg_key)
         elif op == "title":
             text = str(edit.get("text") or "").strip()
             if not text:

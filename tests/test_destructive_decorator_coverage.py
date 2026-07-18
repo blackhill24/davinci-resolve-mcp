@@ -36,7 +36,7 @@ class DestructiveDecoratorCoverage(unittest.TestCase):
             # versa — followed by the def line.
             pattern = re.compile(
                 rf"@_destructive_op\(\"{re.escape(tool_name)}\"\)\s*\n"
-                rf"def\s+{re.escape(tool_name)}\s*\(",
+                rf"(?:async\s+)?def\s+{re.escape(tool_name)}\s*\(",
                 re.MULTILINE,
             )
             if not pattern.search(self.source):
@@ -54,7 +54,7 @@ class DestructiveDecoratorCoverage(unittest.TestCase):
         """Every `@_destructive_op(X)` should sit between `@mcp.tool()` and `def X`."""
         # Find every destructive_op decoration and its function name.
         pattern = re.compile(
-            r"@mcp\.tool\(\)\s*\n@_destructive_op\(\"(?P<tool>[a-z_]+)\"\)\s*\ndef\s+(?P<fn>[a-z_]+)",
+            r"@mcp\.tool\(\)\s*\n@_destructive_op\(\"(?P<tool>[a-z_]+)\"\)\s*\n(?:async\s+)?def\s+(?P<fn>[a-z_]+)",
             re.MULTILINE,
         )
         for match in pattern.finditer(self.source):

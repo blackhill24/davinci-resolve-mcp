@@ -50,7 +50,7 @@ def _destructive_op_tools():
     tree = ast.parse(SERVER.read_text())
     out = {}
     for node in ast.walk(tree):
-        if not isinstance(node, ast.FunctionDef):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for dec in node.decorator_list:
             if (

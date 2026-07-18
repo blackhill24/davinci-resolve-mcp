@@ -25,6 +25,7 @@ every tool that owns destructive actions is decorated.
 from __future__ import annotations
 
 import functools
+import inspect
 import logging
 from typing import Any, Callable, Dict, FrozenSet, Optional, Tuple
 
@@ -71,6 +72,14 @@ DESTRUCTIVE_ACTIONS_BY_TOOL: Dict[str, FrozenSet[str]] = {
         "execute_selects",
         "execute_tighten",
         "execute_swap",
+    }),
+    # auto_edit execute paths: build_timeline creates the timeline from the
+    # approved CutList; finish grades/subtitles/renders it. approve_cut only
+    # records the checkpoint decision (plan JSON, no timeline mutation) so it
+    # stays confirm-token gated without version-on-mutate.
+    "auto_edit": frozenset({
+        "build_timeline",
+        "finish",
     }),
     "timeline": frozenset({
         "delete_clips",
@@ -398,197 +407,254 @@ def _extract_metric(params: Optional[Dict[str, Any]]) -> Tuple[Optional[str], Op
 # ── Decorator ────────────────────────────────────────────────────────────────
 
 
+class _MutationHookCall:
+    """One tool invocation's trip through the version-on-mutate hook.
+
+    ``pre()`` runs every decision and pre-mutation step (pending-confirm
+    bypass, context resolution, metric capture, archive, strict refusal) and
+    may set ``refusal`` — the caller returns that instead of running the
+    handler. ``post(result)`` runs the logging/annotation phase for whichever
+    mode ``pre()`` chose. The split exists so the sync and async wrapper
+    twins in :func:`destructive_op` share one hook implementation.
+    """
+
+    def __init__(self, tool_name: str, action: str, params: Optional[Dict[str, Any]]):
+        self.tool_name = tool_name
+        self.action = action
+        self.params = params
+        self.mode = "plain"  # plain | pending_confirm | media_pool | timeline
+        self.refusal: Optional[Dict[str, Any]] = None
+        self.run_id: Optional[str] = None
+        self.metric: Optional[str] = None
+        self.direction: Optional[str] = None
+        self.rationale: Optional[str] = None
+        self.initiator: Optional[str] = None
+        self.project_h: Any = None
+        self.project_root: Optional[str] = None
+        self.project_name: Optional[str] = None
+        self.before_value: Optional[float] = None
+        self.timeline_before_name: Optional[str] = None
+        self.archive_result: Dict[str, Any] = {"archived": False}
+
+    def pre(self) -> None:
+        tool_name, action, params = self.tool_name, self.action, self.params
+        if not is_destructive(tool_name, action, params):
+            return  # plain passthrough
+
+        # F4 — token-issuance calls don't mutate; skip the archive entirely
+        # so that token preview/cancel paths don't litter the version chain.
+        # post() still annotates `_versioning` on the result so callers can
+        # see *why* nothing was archived.
+        if _PENDING_CONFIRM_CHECK is not None:
+            try:
+                will_gate = bool(_PENDING_CONFIRM_CHECK(tool_name, action, params))
+            except Exception as exc:
+                logger.debug("pending-confirm check raised: %s", exc)
+                will_gate = False
+            if will_gate:
+                self.mode = "pending_confirm"
+                return
+
+        strict = is_strict_required(tool_name, action, params)
+
+        ctx = _resolve_versioning_context()
+        if ctx is None:
+            if strict:
+                self.refusal = {
+                    "success": False,
+                    "error": (
+                        f"strict mode: '{tool_name}.{action}' refuses to run because the "
+                        "version-on-mutate context (project_root) couldn't be resolved. "
+                        "Open a project in Resolve, or pass strict=false to override."
+                    ),
+                }
+            # No Resolve / no project — let the underlying handler run; it
+            # will either succeed (e.g. in dry-run) or surface its own error.
+            return
+
+        resolve_h, project_h, project_root, project_name = ctx
+        self.project_h = project_h
+        self.project_root = project_root
+        self.project_name = project_name
+        self.run_id = _extract_analysis_run_id(params, project_root=project_root)
+        self.metric, self.direction, self.rationale = _extract_metric(params)
+        self.initiator = _extract_initiator(params)
+
+        # Media-pool destructive ops don't archive a timeline; they log to
+        # a separate provenance table. Branch here so the rest of the hook
+        # only handles the timeline path.
+        if tool_name == "media_pool":
+            self.mode = "media_pool"
+            return
+
+        self.mode = "timeline"
+        try:
+            current_tl = project_h.GetCurrentTimeline()
+            if current_tl is not None:
+                self.timeline_before_name = current_tl.GetName()
+                if self.metric:
+                    self.before_value = brain_edits.capture_metric(self.metric, current_tl)
+        except Exception as exc:
+            logger.debug("pre-capture failed: %s", exc)
+
+        archive_exc: Optional[Exception] = None
+        auto_save = bool(_read_preference(
+            "timeline_versioning_auto_save_after_archive", False,
+        ))
+        try:
+            self.archive_result = timeline_versioning.ensure_versioned_before_mutation(
+                resolve=resolve_h,
+                project=project_h,
+                project_root=project_root,
+                analysis_run_id=self.run_id,
+                reason=f"{tool_name}.{action}",
+                initiator=self.initiator,
+                auto_save=auto_save,
+            )
+        except Exception as exc:
+            archive_exc = exc
+            logger.warning(
+                "version-on-mutate hook failed (%sstrict mode): %s",
+                "blocking under " if strict else "continuing past in non-",
+                exc,
+            )
+
+        # Strict mode: archive must have either landed OR been a legitimate
+        # no-op (already_archived_for_run | no_current_timeline). If the
+        # hook raised, OR returned archived=False with an unexpected reason,
+        # refuse the underlying call.
+        if strict:
+            skipped_ok = (
+                self.archive_result.get("archived") is False
+                and self.archive_result.get("skipped_reason") in {
+                    "already_archived_for_run",
+                }
+            )
+            if archive_exc is not None or (
+                not self.archive_result.get("archived") and not skipped_ok
+            ):
+                self.refusal = {
+                    "success": False,
+                    "error": (
+                        f"strict mode: refused '{tool_name}.{action}' because the "
+                        "pre-mutation archive could not be created. "
+                        f"reason={self.archive_result.get('skipped_reason') or 'archive_failed'} "
+                        f"exception={type(archive_exc).__name__ if archive_exc else 'none'}"
+                    ),
+                    "_versioning": {
+                        "analysis_run_id": self.run_id,
+                        "archived": False,
+                        "strict_block": True,
+                    },
+                }
+
+    def post(self, result: Any) -> Any:
+        if self.mode == "pending_confirm":
+            if isinstance(result, dict):
+                result.setdefault("_versioning", {
+                    "analysis_run_id": None,
+                    "archived": False,
+                    "skipped_reason": "pending_confirm_token",
+                })
+            return result
+
+        if self.mode == "media_pool":
+            try:
+                media_pool_changes.log_media_pool_change(
+                    project_root=self.project_root,
+                    analysis_run_id=self.run_id,
+                    action=self.action,
+                    params=self.params if isinstance(self.params, dict) else None,
+                    after_state=_summarise_result(result),
+                    initiator=self.initiator,
+                )
+            except Exception as exc:
+                logger.warning("media_pool_change log failed: %s", exc)
+            if isinstance(result, dict):
+                result.setdefault("_versioning", {
+                    "analysis_run_id": self.run_id,
+                    "category": "media_pool",
+                    "initiator": self.initiator,
+                })
+            return result
+
+        if self.mode != "timeline":
+            return result  # plain passthrough
+
+        after_value: Optional[float] = None
+        timeline_after_name: Optional[str] = self.timeline_before_name
+        try:
+            current_tl = self.project_h.GetCurrentTimeline()
+            if current_tl is not None:
+                timeline_after_name = current_tl.GetName()
+                if self.metric:
+                    after_value = brain_edits.capture_metric(self.metric, current_tl)
+        except Exception as exc:
+            logger.debug("post-capture failed: %s", exc)
+
+        try:
+            brain_edits.log_brain_edit(
+                project_root=self.project_root,
+                analysis_run_id=self.run_id,
+                edit_type=f"{self.tool_name}.{self.action}",
+                tool_name=self.tool_name,
+                action_name=self.action,
+                timeline_before=self.timeline_before_name,
+                timeline_after=timeline_after_name,
+                target_metric=self.metric,
+                metric_direction=self.direction,
+                before_value=self.before_value,
+                after_value=after_value,
+                rationale=self.rationale,
+                params=self.params if isinstance(self.params, dict) else None,
+                result_summary=_summarise_result(result),
+                project_name=self.project_name,
+                initiator=self.initiator,
+            )
+        except Exception as exc:
+            logger.warning("brain_edit log failed: %s", exc)
+
+        # Annotate the result with versioning context so the caller (and the
+        # control panel) can show what happened. Don't shadow existing keys.
+        if isinstance(result, dict):
+            result.setdefault("_versioning", {
+                "analysis_run_id": self.run_id,
+                "archived": self.archive_result.get("archived"),
+                "archived_version": self.archive_result.get("version"),
+                "metric": self.metric,
+                "before_value": self.before_value,
+                "after_value": after_value,
+            })
+        return result
+
+
 def destructive_op(tool_name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Wrap a top-level tool function with the version-on-mutate hook.
 
     The wrapped function must accept `action: str` as its first positional
     argument and `params: Optional[Dict]` as its second (matches the existing
-    compound-tool signature).
+    compound-tool signature). Sync and async tool functions are both
+    supported — async handlers get an async wrapper twin over the same
+    pre/post hook implementation.
     """
 
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
-        @functools.wraps(fn)
-        def wrapper(action: str, params: Optional[Dict[str, Any]] = None, *args, **kwargs) -> Any:
-            if not is_destructive(tool_name, action, params):
-                return fn(action, params, *args, **kwargs)
-
-            # F4 — token-issuance calls don't mutate; skip the archive entirely
-            # so that token preview/cancel paths don't litter the version chain.
-            # The wrapper still annotates `_versioning` on the result so callers
-            # can see *why* nothing was archived.
-            if _PENDING_CONFIRM_CHECK is not None:
-                try:
-                    will_gate = bool(_PENDING_CONFIRM_CHECK(tool_name, action, params))
-                except Exception as exc:
-                    logger.debug("pending-confirm check raised: %s", exc)
-                    will_gate = False
-                if will_gate:
-                    result = fn(action, params, *args, **kwargs)
-                    if isinstance(result, dict):
-                        result.setdefault("_versioning", {
-                            "analysis_run_id": None,
-                            "archived": False,
-                            "skipped_reason": "pending_confirm_token",
-                        })
-                    return result
-
-            strict = is_strict_required(tool_name, action, params)
-
-            ctx = _resolve_versioning_context()
-            if ctx is None:
-                if strict:
-                    return {
-                        "success": False,
-                        "error": (
-                            f"strict mode: '{tool_name}.{action}' refuses to run because the "
-                            "version-on-mutate context (project_root) couldn't be resolved. "
-                            "Open a project in Resolve, or pass strict=false to override."
-                        ),
-                    }
-                # No Resolve / no project — let the underlying handler run; it
-                # will either succeed (e.g. in dry-run) or surface its own error.
-                return fn(action, params, *args, **kwargs)
-
-            resolve_h, project_h, project_root, project_name = ctx
-            run_id = _extract_analysis_run_id(params, project_root=project_root)
-            metric, direction, rationale = _extract_metric(params)
-            initiator = _extract_initiator(params)
-
-            # Media-pool destructive ops don't archive a timeline; they log to
-            # a separate provenance table. Branch here so the rest of the
-            # wrapper only handles the timeline path.
-            if tool_name == "media_pool":
-                result = fn(action, params, *args, **kwargs)
-                try:
-                    media_pool_changes.log_media_pool_change(
-                        project_root=project_root,
-                        analysis_run_id=run_id,
-                        action=action,
-                        params=params if isinstance(params, dict) else None,
-                        after_state=_summarise_result(result),
-                        initiator=initiator,
-                    )
-                except Exception as exc:
-                    logger.warning("media_pool_change log failed: %s", exc)
-                if isinstance(result, dict):
-                    result.setdefault("_versioning", {
-                        "analysis_run_id": run_id,
-                        "category": "media_pool",
-                        "initiator": initiator,
-                    })
-                return result
-
-            before_value: Optional[float] = None
-            timeline_before_name: Optional[str] = None
-            try:
-                current_tl = project_h.GetCurrentTimeline()
-                if current_tl is not None:
-                    timeline_before_name = current_tl.GetName()
-                    if metric:
-                        before_value = brain_edits.capture_metric(metric, current_tl)
-            except Exception as exc:
-                logger.debug("pre-capture failed: %s", exc)
-
-            archive_result: Dict[str, Any] = {"archived": False}
-            archive_exc: Optional[Exception] = None
-            auto_save = bool(_read_preference(
-                "timeline_versioning_auto_save_after_archive", False,
-            ))
-            try:
-                archive_result = timeline_versioning.ensure_versioned_before_mutation(
-                    resolve=resolve_h,
-                    project=project_h,
-                    project_root=project_root,
-                    analysis_run_id=run_id,
-                    reason=f"{tool_name}.{action}",
-                    initiator=initiator,
-                    auto_save=auto_save,
-                )
-            except Exception as exc:
-                archive_exc = exc
-                logger.warning(
-                    "version-on-mutate hook failed (%sstrict mode): %s",
-                    "blocking under " if strict else "continuing past in non-",
-                    exc,
-                )
-
-            # Strict mode: archive must have either landed OR been a legitimate
-            # no-op (already_archived_for_run | no_current_timeline). If the
-            # hook raised, OR returned archived=False with an unexpected reason,
-            # refuse the underlying call.
-            if strict:
-                skipped_ok = (
-                    archive_result.get("archived") is False
-                    and archive_result.get("skipped_reason") in {
-                        "already_archived_for_run",
-                    }
-                )
-                if archive_exc is not None or (
-                    not archive_result.get("archived") and not skipped_ok
-                ):
-                    return {
-                        "success": False,
-                        "error": (
-                            f"strict mode: refused '{tool_name}.{action}' because the "
-                            "pre-mutation archive could not be created. "
-                            f"reason={archive_result.get('skipped_reason') or 'archive_failed'} "
-                            f"exception={type(archive_exc).__name__ if archive_exc else 'none'}"
-                        ),
-                        "_versioning": {
-                            "analysis_run_id": run_id,
-                            "archived": False,
-                            "strict_block": True,
-                        },
-                    }
-
-            # Run the underlying handler regardless of hook outcome.
-            result = fn(action, params, *args, **kwargs)
-
-            after_value: Optional[float] = None
-            timeline_after_name: Optional[str] = timeline_before_name
-            try:
-                current_tl = project_h.GetCurrentTimeline()
-                if current_tl is not None:
-                    timeline_after_name = current_tl.GetName()
-                    if metric:
-                        after_value = brain_edits.capture_metric(metric, current_tl)
-            except Exception as exc:
-                logger.debug("post-capture failed: %s", exc)
-
-            try:
-                brain_edits.log_brain_edit(
-                    project_root=project_root,
-                    analysis_run_id=run_id,
-                    edit_type=f"{tool_name}.{action}",
-                    tool_name=tool_name,
-                    action_name=action,
-                    timeline_before=timeline_before_name,
-                    timeline_after=timeline_after_name,
-                    target_metric=metric,
-                    metric_direction=direction,
-                    before_value=before_value,
-                    after_value=after_value,
-                    rationale=rationale,
-                    params=params if isinstance(params, dict) else None,
-                    result_summary=_summarise_result(result),
-                    project_name=project_name,
-                    initiator=initiator,
-                )
-            except Exception as exc:
-                logger.warning("brain_edit log failed: %s", exc)
-
-            # Annotate the result with versioning context so the caller (and the
-            # control panel) can show what happened. Don't shadow existing keys.
-            if isinstance(result, dict):
-                result.setdefault("_versioning", {
-                    "analysis_run_id": run_id,
-                    "archived": archive_result.get("archived"),
-                    "archived_version": archive_result.get("version"),
-                    "metric": metric,
-                    "before_value": before_value,
-                    "after_value": after_value,
-                })
-            return result
+        if inspect.iscoroutinefunction(fn):
+            @functools.wraps(fn)
+            async def wrapper(action: str, params: Optional[Dict[str, Any]] = None, *args, **kwargs) -> Any:
+                call = _MutationHookCall(tool_name, action, params)
+                call.pre()
+                if call.refusal is not None:
+                    return call.refusal
+                return call.post(await fn(action, params, *args, **kwargs))
+        else:
+            @functools.wraps(fn)
+            def wrapper(action: str, params: Optional[Dict[str, Any]] = None, *args, **kwargs) -> Any:
+                call = _MutationHookCall(tool_name, action, params)
+                call.pre()
+                if call.refusal is not None:
+                    return call.refusal
+                return call.post(fn(action, params, *args, **kwargs))
 
         wrapper.__wrapped_tool_name__ = tool_name  # type: ignore[attr-defined]
         wrapper.__is_destructive_wrapped__ = True  # type: ignore[attr-defined]

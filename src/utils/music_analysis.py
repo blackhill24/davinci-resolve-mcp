@@ -16,11 +16,11 @@ import array
 import math
 import os
 import statistics
-import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.utils.media_analysis import _ffmpeg_stderr_filter, _parse_loudness, _run_command
+from src.utils.proc import safe_run
 
 # Broadcast-style dialogue programs sit near -23 LUFS; a music bed reads well
 # roughly 7 dB under that. Both are overridable per call.
@@ -174,7 +174,7 @@ def _decode_pcm_mono(
         "-ac", "1", "-ar", str(sample_rate), "-f", "f32le", "-",
     ]
     try:
-        proc = subprocess.run(args, capture_output=True, stdin=subprocess.DEVNULL)
+        proc = safe_run(args, capture_output=True)
     except OSError:
         return None, sample_rate
     if proc.returncode != 0:
@@ -203,15 +203,19 @@ def onset_novelty(
     n = len(samples)
     if n < frame or hop <= 0:
         return [], []
+    # Prefix sums of squares: each window's energy by subtraction — one O(n)
+    # pass instead of re-squaring every sample per overlapping frame.
+    prefix = [0.0] * (n + 1)
+    acc = 0.0
+    for idx, v in enumerate(samples):
+        acc += v * v
+        prefix[idx + 1] = acc
     times: List[float] = []
     energies: List[float] = []
     i = 0
     while i + frame <= n:
-        acc = 0.0
-        for j in range(i, i + frame):
-            v = samples[j]
-            acc += v * v
-        energies.append(math.sqrt(acc / frame))
+        window = prefix[i + frame] - prefix[i]
+        energies.append(math.sqrt(max(window, 0.0) / frame))
         times.append((i + frame / 2) / sample_rate)
         i += hop
     novelty = [0.0]

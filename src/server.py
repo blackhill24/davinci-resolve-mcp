@@ -2,7 +2,7 @@
 """
 DaVinci Resolve MCP Server (Compound Tools)
 
-34 compound tools covering 100% of the DaVinci Resolve Scripting API (336 methods)
+35 compound tools covering 100% of the DaVinci Resolve Scripting API (336 methods)
 plus Fusion Fuse, DCTL, and Resolve-page Script authoring tools.
 Each tool groups related operations via an 'action' parameter.
 
@@ -116,6 +116,8 @@ from src.utils.fusion_group_settings import (
 from src.utils import analysis_runs as _analysis_runs
 from src.utils import brain_edits as _brain_edits
 from src.utils import edit_engine as _edit_engine_mod
+from src.utils import auto_edit as _auto_edit_mod
+from src.utils import music_analysis as _music_analysis_mod
 from src.utils import media_pool_changes as _media_pool_changes
 from src.utils import timeline_versioning as _timeline_versioning
 from src.utils import project_spec as _project_spec
@@ -578,6 +580,34 @@ either cut. Edits reference existing Media Pool items — never transcode/proxy/
 source media (see AGENTS.md).
 
 Depth: docs/kernels/timeline-edit-kernel.md, docs/guides/editorial-decision-guide.md."""
+
+
+@mcp.prompt(
+    name="auto_edit_workflow",
+    title="Auto Edit Workflow",
+    description="Route a brief-to-rendered-video task (talking head / interview) through the autonomous auto_edit pipeline with its single approval checkpoint.",
+)
+def auto_edit_workflow() -> str:
+    return """The auto_edit pipeline turns a brief (source files, optional music,
+target length, title) into a rendered video with ONE human checkpoint.
+
+- start_brief(files, music?, target_duration_seconds?, title_text?) — validates
+  media (exist + ffprobe), scaffolds Footage/Music bins, kicks the analysis
+  batch. Poll brief_status; complete commit_vision handoffs while it runs.
+- plan_cut(brief_id) — word-level Pass-1 (fillers/false starts; cue fallback),
+  dead-air windows, duration fit, jump-cut smoothing (b-roll via similarity,
+  else punch-in), music gain from ebur128 loudness. Returns a markdown summary.
+- Show the summary verbatim; iterate with revise_cut (reorder/drop/keep/title).
+- approve_cut(plan_id, music_bed_consent?) — THE checkpoint (confirm-token
+  gated). The preview carries the summary + the music-bed-render consent line;
+  a ducked bed is a DERIVATIVE and renders only with explicit consent.
+- build_timeline(plan_id) — append-rebuild (V1 speech + mirrored audio, V2
+  b-roll, punch-in zoom, A2 music). Revisions rebuild; never hand-patch.
+- finish(plan_id, grade?, subtitles?, render?) — grade/subtitles/validated
+  render; verify the reported output_path exists.
+
+Depth: docs/kernels/auto-edit-kernel.md, docs/guides/editorial-decision-guide.md
+(“Auto-Edit Heuristics”). Source media is READ-ONLY (see AGENTS.md)."""
 
 
 @mcp.prompt(
@@ -1046,6 +1076,11 @@ _TOKEN_GATED_DESTRUCTIVE_ACTIONS = frozenset({
     ("edit_engine", "execute_selects"),
     ("edit_engine", "execute_tighten"),
     ("edit_engine", "execute_swap"),
+    # auto_edit brief-to-render pipeline: approve_cut is THE one human
+    # checkpoint; build_timeline/finish execute the approved CutList.
+    ("auto_edit", "approve_cut"),
+    ("auto_edit", "build_timeline"),
+    ("auto_edit", "finish"),
     ("graph", "apply_grade_from_drx"),
     ("graph", "reset_all_grades"),
     # 21.0 AI ops that render/generate NEW media files (additive, but expensive
@@ -18934,6 +18969,708 @@ def edit_engine(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
         "execute_swap",
         "list_plans",
         "get_plan",
+    ])
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TOOL: auto_edit — brief-to-rendered-video pipeline (Phase 1: talking head)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _auto_edit_project_context(p: Dict[str, Any], *, need_resolve: bool):
+    """(resolve, proj, project_root, err) — same contract as edit_engine's."""
+    analysis_root = p.get("analysis_root") or p.get("analysisRoot")
+    explicit_root = str(analysis_root) if analysis_root and os.path.isdir(str(analysis_root)) else None
+    if not need_resolve and explicit_root:
+        # Offline actions with an explicit evidence root never touch Resolve.
+        return None, None, explicit_root, None
+    vctx = _destructive_versioning_provider()
+    if vctx is not None:
+        r, proj, project_root, _name = vctx
+        return r, proj, explicit_root or project_root, None
+    return None, None, None, _err(
+        "No project context — open a Resolve project (or pass analysis_root for offline actions)."
+    )
+
+
+def _find_clip_by_file_path(folder, path: str):
+    """Media pool clip whose File Path matches (exact, then basename)."""
+    target = str(path)
+    base = os.path.basename(target)
+    by_name = None
+    stack = [folder]
+    while stack:
+        f = stack.pop()
+        for clip in (f.GetClipList() or []):
+            try:
+                clip_path = str(clip.GetClipProperty("File Path") or "")
+            except Exception:
+                clip_path = ""
+            if clip_path == target:
+                return clip
+            if by_name is None and os.path.basename(clip_path) == base:
+                by_name = clip
+        stack.extend(f.GetSubFolderList() or [])
+    return by_name
+
+
+def _auto_edit_build_rows(plan: Dict[str, Any], record_offset: int = 0) -> List[Dict[str, Any]]:
+    """CutList -> AppendToTimeline row dicts (pure; offline-testable).
+
+    Ordering follows the proven append-rebuild mechanism: V1 speech with
+    mirrored audio, V2 b-roll overlays as positioned appends, then the music
+    on A2 trimmed to the cut. All frame ranges are half-open; record frames
+    shift by ``record_offset`` (the intro-title footprint at the head of V1).
+    """
+    rows: List[Dict[str, Any]] = []
+    for seg in plan.get("segments") or []:
+        base = {
+            "clip_id": seg.get("clip_id") or seg.get("clip_uuid"),
+            "start_frame": int(seg["source_start_frame"]),
+            "end_frame": int(seg["source_end_frame"]),
+            "record_frame": int(seg.get("record_start_frame", 0)) + record_offset,
+        }
+        rows.append({**base, "track_index": 1, "media_type": 1, "role": "speech",
+                     "punch_in": seg.get("punch_in")})
+        for audio_track in (seg.get("audio_track_indices") or [1]):
+            rows.append({**base, "track_index": int(audio_track), "media_type": 2,
+                         "role": "speech_audio"})
+    for overlay in plan.get("overlays") or []:
+        rows.append({
+            "clip_id": overlay.get("clip_id") or overlay.get("clip_uuid"),
+            "start_frame": int(overlay["source_start_frame"]),
+            "end_frame": int(overlay["source_end_frame"]),
+            "record_frame": int(overlay.get("record_start_frame", 0)) + record_offset,
+            "track_index": int(overlay.get("track_index") or 2),
+            "media_type": 1,
+            "role": "broll",
+        })
+    music = plan.get("music")
+    if music:
+        duration = int(music.get("record_end_frame", 0)) - int(music.get("record_start_frame", 0))
+        if duration > 0:
+            rows.append({
+                "clip_path": music.get("bed_path") or music.get("path"),
+                "start_frame": 0,
+                "end_frame": duration,
+                "record_frame": int(music.get("record_start_frame", 0)) + record_offset,
+                "track_index": int(music.get("track_index") or 2),
+                "media_type": 2,
+                "role": "music",
+            })
+    return rows
+
+
+def _auto_edit_ffprobe_ok(path: str) -> Tuple[bool, str]:
+    """Light ffprobe validation; degrades to extension-only when absent."""
+    import shutil as _shutil
+    if _shutil.which("ffprobe") is None:
+        return True, "ffprobe not installed — existence check only"
+    try:
+        proc = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1", path],
+            capture_output=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"ffprobe failed: {exc}"
+    if proc.returncode != 0:
+        return False, (proc.stderr or b"").decode("utf-8", "replace")[:200] or "unreadable media"
+    return True, ""
+
+
+# NOTE: not wrapped in @_destructive_op — the hook is sync-only and this tool is
+# async. Its mutating actions are additive (build_timeline creates a NEW
+# timeline; revisions rebuild) and every execute path is confirm-token gated
+# inline, mirroring the edit_engine ceremony.
+@mcp.tool()
+async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Autonomous brief-to-rendered-video pipeline (Phase 1: talking head).
+
+    The user states a brief (files, music, target length); analysis runs; the
+    decision layer assembles a CutList; ONE human checkpoint (approve_cut,
+    confirm-token gated, includes the music-bed-render consent line) approves
+    it; then the timeline is append-rebuilt and finished (grade/subtitles/
+    render). Revisions rebuild — timelines are stateless artifacts.
+
+    Actions:
+      start_brief(files, music?, target_duration_seconds?, genre?, deliverable?,
+        title_text?, options?) -> {brief_id, analysis_job_id} — validates files
+        (exist + ffprobe), scaffolds Footage/Music bins (safe import), kicks a
+        media_analysis batch job (transcription + visuals per defaults; the
+        host completes commit_vision for deep passes).
+      brief_status(brief_id) | status(brief_id) -> {brief, analysis?} — brief
+        state; polls the analysis job and advances analyzing -> ready.
+      plan_cut(brief_id) -> {plan_id, plan, summary} — build the CutList from
+        evidence (word-level Pass-1, story beats, b-roll similarity) and render
+        the markdown checkpoint summary.
+      revise_cut(brief_id, notes?, edits?) -> revision+1 — structured overrides
+        (reorder/keep/drop/title), new plan_id, old revisions stay loadable.
+      get_cut_summary(plan_id, format?) -> {summary} — markdown (default) or json.
+      approve_cut(plan_id, music_bed_consent?, confirm_token?) — THE one human
+        checkpoint. The confirm-token preview embeds the cut summary and the
+        music-bed-render consent line; consent decides static vs rendered_bed.
+      build_timeline(plan_id, title_generator?, confirm_token?) -> {timeline_name,
+        readback} — append-rebuild from the approved CutList: intro title, V1
+        speech + mirrored audio, V2 b-roll, punch-in zoom, A2 music (ducked bed
+        only when consented). Readback-verified.
+      finish(plan_id, grade?, subtitles?, render?, confirm_token?) -> {output}
+        — grade (lut_path | cdl | drx_path), optional subtitles, validated
+        render; reports the output path.
+      list_briefs() -> {briefs}
+    """
+    p = params or {}
+
+    def _plan_id_param() -> str:
+        return str(p.get("plan_id") or p.get("planId") or "")
+
+    def _brief_id_param() -> str:
+        return str(p.get("brief_id") or p.get("briefId") or "")
+
+    if action == "start_brief":
+        r, proj, project_root, err = _auto_edit_project_context(p, need_resolve=True)
+        if err:
+            return err
+        files = p.get("files") or []
+        music = p.get("music")
+        problems = _auto_edit_mod.validate_brief_inputs(
+            files=files, music=music,
+            target_duration_seconds=p.get("target_duration_seconds") or p.get("targetDurationSeconds"),
+            genre=p.get("genre") or "talking_head",
+            deliverable=p.get("deliverable") or "youtube_1080p",
+            title_text=p.get("title_text") or p.get("titleText"),
+        )
+        for path in list(files) + ([music] if music else []):
+            if not isinstance(path, str) or not os.path.isfile(path):
+                problems.append(f"file not found: {path!r}")
+                continue
+            ok, why = _auto_edit_ffprobe_ok(path)
+            if not ok:
+                problems.append(f"unreadable media {path!r}: {why}")
+        if problems:
+            return _err("invalid brief: " + "; ".join(problems))
+        mp = proj.GetMediaPool()
+        if not mp:
+            return _err("No media pool")
+        imported: Dict[str, Any] = {}
+        for bin_name, paths in (("Footage", list(files)), ("Music", [music] if music else [])):
+            if not paths:
+                continue
+            _folder, folder_err = _ensure_folder_path(mp, bin_name)
+            if folder_err:
+                return folder_err
+            result = _safe_import_media(mp, {"paths": paths, "target_folder": bin_name})
+            if result.get("error"):
+                return result
+            imported[bin_name] = result
+        created = _auto_edit_mod.create_brief(
+            project_root,
+            files=list(files), music=music,
+            target_duration_seconds=p.get("target_duration_seconds") or p.get("targetDurationSeconds"),
+            genre=str(p.get("genre") or "talking_head"),
+            deliverable=str(p.get("deliverable") or "youtube_1080p"),
+            title_text=p.get("title_text") or p.get("titleText"),
+            options=p.get("options") or {},
+        )
+        if not created.get("success"):
+            return _err("; ".join(created.get("problems") or [created.get("error") or "brief failed"]))
+        brief_id = created["brief_id"]
+        analysis_job_id = None
+        analysis_warning = None
+        try:
+            kicked = await media_analysis("start_batch_job", {
+                "target": {"type": "bin", "path": "Footage", "recursive": False},
+                "name": f"auto_edit {brief_id}",
+                "analysis_root": project_root,
+            })
+            analysis_job_id = (kicked or {}).get("job_id")
+            if not analysis_job_id:
+                analysis_warning = (kicked or {}).get("error") or "analysis kick returned no job_id"
+        except Exception as exc:
+            analysis_warning = f"analysis kick failed: {type(exc).__name__}: {exc}"
+        _auto_edit_mod.advance_brief(
+            project_root, brief_id,
+            "analyzing" if analysis_job_id else "created",
+            analysis_job_id=analysis_job_id,
+        )
+        out = {
+            "success": True,
+            "brief_id": brief_id,
+            "analysis_job_id": analysis_job_id,
+            "imported": imported,
+            "next": "poll brief_status until state=ready, then plan_cut",
+        }
+        if analysis_warning:
+            out["warning"] = analysis_warning + " — run media_analysis manually, then plan_cut."
+        return out
+
+    if action in ("brief_status", "status"):
+        _r, _proj, project_root, err = _auto_edit_project_context(p, need_resolve=False)
+        if err:
+            return err
+        brief = _auto_edit_mod.load_brief(project_root, _brief_id_param())
+        if not brief:
+            return _err(f"brief not found: {_brief_id_param()!r}")
+        analysis = None
+        if brief.get("state") == "analyzing" and brief.get("analysis_job_id"):
+            try:
+                analysis = await media_analysis(
+                    "batch_job_status", {"job_id": brief["analysis_job_id"]})
+                job_state = str((analysis or {}).get("status") or "").lower()
+                if job_state in ("completed", "complete", "done", "succeeded"):
+                    brief = _auto_edit_mod.advance_brief(
+                        project_root, brief["plan_id"], "ready")["brief"]
+            except Exception as exc:
+                analysis = {"error": f"{type(exc).__name__}: {exc}"}
+        return {"success": True, "brief": brief,
+                **({"analysis": analysis} if analysis is not None else {})}
+
+    if action == "plan_cut":
+        _r, _proj, project_root, err = _auto_edit_project_context(p, need_resolve=False)
+        if err:
+            return err
+        brief = _auto_edit_mod.load_brief(project_root, _brief_id_param())
+        if not brief:
+            return _err(f"brief not found: {_brief_id_param()!r}")
+        if brief.get("state") in ("created", "analyzing"):
+            # Planning needs evidence; move to ready only if the DB has it —
+            # build_cut_list_for_brief fails honestly when analysis is missing.
+            _auto_edit_mod.advance_brief(project_root, brief["plan_id"], "ready")
+            brief = _auto_edit_mod.load_brief(project_root, brief["plan_id"]) or brief
+        music_gain_db = None
+        if brief.get("music") and os.path.isfile(str(brief["music"])):
+            bed = _music_analysis_mod.analyze_music_bed(str(brief["music"]))
+            music_gain_db = bed.get("gain_db")
+        built = _auto_edit_mod.build_cut_list_for_brief(
+            project_root, brief, music_gain_db=music_gain_db)
+        if not built.get("success"):
+            return _err(built.get("error") or "planning failed",
+                        ) | {"problems": built.get("problems") or []}
+        plan = built["plan"]
+        _auto_edit_mod.advance_brief(
+            project_root, brief["plan_id"], "planned", latest_plan_id=plan["plan_id"])
+        return {
+            "success": True,
+            "brief_id": brief["plan_id"],
+            "plan_id": plan["plan_id"],
+            "plan": plan,
+            "summary": _auto_edit_mod.render_cut_summary(plan),
+            "next": "review the summary; approve_cut(plan_id) or revise_cut(brief_id, edits)",
+        }
+
+    if action == "revise_cut":
+        _r, _proj, project_root, err = _auto_edit_project_context(p, need_resolve=False)
+        if err:
+            return err
+        brief = _auto_edit_mod.load_brief(project_root, _brief_id_param())
+        if not brief:
+            return _err(f"brief not found: {_brief_id_param()!r}")
+        plan_id = _plan_id_param() or str(brief.get("latest_plan_id") or "")
+        if not plan_id:
+            return _err("brief has no cut list yet — plan_cut first")
+        revised = _auto_edit_mod.apply_revision(
+            project_root, plan_id,
+            notes=str(p.get("notes") or ""), edits=p.get("edits"))
+        if not revised.get("success"):
+            return _err(revised.get("error") or "revision failed",
+                        ) | {"problems": revised.get("problems") or []}
+        plan = revised["plan"]
+        _auto_edit_mod.advance_brief(
+            project_root, brief["plan_id"], "planned", latest_plan_id=plan["plan_id"])
+        return {
+            "success": True,
+            "brief_id": brief["plan_id"],
+            "plan_id": plan["plan_id"],
+            "revision": plan.get("revision"),
+            "plan": plan,
+            "summary": _auto_edit_mod.render_cut_summary(plan),
+        }
+
+    if action == "get_cut_summary":
+        _r, _proj, project_root, err = _auto_edit_project_context(p, need_resolve=False)
+        if err:
+            return err
+        plan = _edit_engine_mod.load_plan(project_root, _plan_id_param())
+        if not plan or plan.get("_corrupt") or plan.get("kind") != _auto_edit_mod.cut_ir.CUT_LIST_KIND:
+            return _err(f"cut list not found: {_plan_id_param()!r}")
+        if str(p.get("format") or "markdown").lower() == "json":
+            return {"success": True, "plan": plan}
+        return {"success": True, "plan_id": plan["plan_id"],
+                "summary": _auto_edit_mod.render_cut_summary(plan)}
+
+    if action == "approve_cut":
+        _r, _proj, project_root, err = _auto_edit_project_context(p, need_resolve=False)
+        if err:
+            return err
+        plan = _edit_engine_mod.load_plan(project_root, _plan_id_param())
+        if not plan or plan.get("_corrupt") or plan.get("kind") != _auto_edit_mod.cut_ir.CUT_LIST_KIND:
+            return _err(f"cut list not found (or failed its fingerprint check): {_plan_id_param()!r}")
+        music_bed_consent = bool(p.get("music_bed_consent") or p.get("musicBedConsent"))
+        if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+            preview: Dict[str, Any] = {
+                "operation": "auto_edit.approve_cut",
+                "warning": "THE one human checkpoint: approving authorizes the "
+                           "timeline build and downstream finish steps.",
+                "plan_id": plan["plan_id"],
+                "revision": plan.get("revision"),
+                "estimates": plan.get("estimates"),
+                "summary_markdown": _auto_edit_mod.render_cut_summary(plan),
+            }
+            if plan.get("music"):
+                preview["music_bed_consent_requested"] = music_bed_consent
+                preview["music_bed_consent_line"] = _auto_edit_mod.MUSIC_BED_CONSENT_LINE
+            return _issue_confirm_token(
+                action="auto_edit.approve_cut", params=p, preview=preview)
+        blocked = _consume_confirm_token(action="auto_edit.approve_cut", params=p)
+        if blocked:
+            return blocked
+        approved = _auto_edit_mod.mark_approved(
+            project_root, plan["plan_id"], music_bed_consent=music_bed_consent)
+        if not approved.get("success"):
+            return _err(approved.get("error") or "approval failed")
+        if approved["plan"].get("brief_id"):
+            _auto_edit_mod.advance_brief(
+                project_root, approved["plan"]["brief_id"], "approved")
+        return {
+            "success": True,
+            "plan_id": approved["plan_id"],
+            "approved_at": approved["plan"].get("approved_at"),
+            "music_bed_consent": music_bed_consent,
+            "next": "build_timeline(plan_id)",
+        }
+
+    if action == "build_timeline":
+        _r, proj, project_root, err = _auto_edit_project_context(p, need_resolve=True)
+        if err:
+            return err
+        gate = _auto_edit_mod.require_approved_plan(project_root, _plan_id_param())
+        if not gate.get("success"):
+            return _err(gate.get("error") or "plan gate failed")
+        plan = gate["plan"]
+        if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+            ducking = ((plan.get("music") or {}).get("ducking") or {})
+            return _issue_confirm_token(
+                action="auto_edit.build_timeline", params=p,
+                preview={
+                    "operation": "auto_edit.build_timeline",
+                    "warning": "Creates a NEW timeline from the approved CutList; "
+                               "no existing timeline is modified."
+                               + (" A ducked music-bed file will be rendered "
+                                  "(consented at approve_cut)."
+                                  if ducking.get("mode") == "rendered_bed" else ""),
+                    "plan_id": plan["plan_id"],
+                    "segments": len(plan.get("segments") or []),
+                    "overlays": len(plan.get("overlays") or []),
+                    "estimates": plan.get("estimates"),
+                },
+            )
+        blocked = _consume_confirm_token(action="auto_edit.build_timeline", params=p)
+        if blocked:
+            return blocked
+        mp = proj.GetMediaPool()
+        if not mp:
+            return _err("No media pool")
+        root_folder = mp.GetRootFolder()
+        fps = float(plan.get("fps") or 24.0)
+
+        # Tier-1 ducked bed (consent-gated at approve_cut; refusal falls back
+        # to the original music at a static level).
+        music = plan.get("music")
+        bed_note = None
+        if music and (music.get("ducking") or {}).get("mode") == "rendered_bed":
+            from src.utils import analysis_memory as _analysis_memory
+            bed_dir = os.path.join(_analysis_memory.memory_dir(project_root), "auto_edit")
+            bed_path = os.path.join(bed_dir, f"{plan['plan_id']}_bed.wav")
+            duration_s = (int(music.get("record_end_frame", 0))
+                          - int(music.get("record_start_frame", 0))) / fps
+            bed = _music_analysis_mod.render_ducked_bed(
+                str(music.get("path")), bed_path,
+                duration_seconds=duration_s,
+                gain_db=music.get("gain_db"),
+                user_approved_render=bool((music.get("ducking") or {}).get("user_approved_render")),
+            )
+            if bed.get("success"):
+                music["bed_path"] = bed["output_path"]
+                imported_bed = _safe_import_media(
+                    mp, {"paths": [bed["output_path"]], "target_folder": "Music"})
+                if imported_bed.get("error"):
+                    bed_note = f"bed import failed ({imported_bed.get('error')}); using original music"
+                    music.pop("bed_path", None)
+            else:
+                bed_note = bed.get("error")
+
+        name = _unique_timeline_name(proj, str(
+            p.get("timeline_name") or p.get("timelineName")
+            or ((plan.get("titles") or [{}])[0].get("text") if plan.get("titles") else None)
+            or "Auto Edit"))
+        tl = mp.CreateEmptyTimeline(name)
+        if not tl:
+            return _err("Failed to create timeline")
+        try:
+            proj.SetCurrentTimeline(tl)
+        except Exception:
+            pass
+        timeline_start = _timeline_start_frame(tl)
+
+        # 1) Intro title at the head of V1 — the only reliable placement.
+        title_result = None
+        record_offset = 0
+        titles = plan.get("titles") or []
+        if titles:
+            generator = str(p.get("title_generator") or p.get("titleGenerator") or "Text")
+            try:
+                inserted = bool(tl.InsertTitleIntoTimeline(generator))
+            except Exception as exc:
+                inserted = False
+                title_result = {"inserted": False, "error": f"{type(exc).__name__}: {exc}"}
+            if inserted:
+                text_set = False
+                try:
+                    items = tl.GetItemListInTrack("video", 1) or []
+                    if items:
+                        title_item = items[0]
+                        record_offset = max(
+                            0, int(title_item.GetEnd()) - int(timeline_start or 0))
+                        for key in ("Text", "Text1", "StyledText"):
+                            try:
+                                if title_item.SetProperty(key, str(titles[0].get("text") or "")):
+                                    text_set = True
+                                    break
+                            except Exception:
+                                continue
+                except Exception:
+                    pass
+                title_result = {"inserted": True, "text_set": text_set,
+                                "record_offset": record_offset}
+
+        # 2..5) Speech + mirrored audio, b-roll overlays, music — one append pass.
+        rows = _auto_edit_build_rows(plan, record_offset)
+        built = []
+        build_errors = []
+        punch_targets = []
+        for i, row in enumerate(rows):
+            append_ci = dict(row)
+            clip_path = append_ci.pop("clip_path", None)
+            punch = append_ci.pop("punch_in", None)
+            append_ci.pop("role", None)
+            if clip_path and not append_ci.get("clip_id"):
+                clip = _find_clip_by_file_path(root_folder, str(clip_path))
+                if not clip:
+                    build_errors.append({"index": i, "error": f"media pool clip not found for {clip_path!r}"})
+                    continue
+                append_ci["clip_id"] = clip.GetUniqueId()
+            ci_row, row_err = _build_append_clip_info_dict(root_folder, append_ci, i, timeline_start)
+            if row_err:
+                build_errors.append({"index": i, "error": row_err.get("error")})
+                continue
+            built.append(ci_row)
+            if punch and row.get("media_type") == 1:
+                punch_targets.append({
+                    "record_frame": int(append_ci["record_frame"]),
+                    "zoom": float(punch.get("zoom") or _auto_edit_mod.PUNCH_IN_ZOOM),
+                })
+        appended = mp.AppendToTimeline(built) if built else None
+
+        # 4) Punch-in zoom on jump-cut segments (static transform per item).
+        punch_results = []
+        if punch_targets:
+            try:
+                items = tl.GetItemListInTrack("video", 1) or []
+                base = int(timeline_start or 0)
+                for target in punch_targets:
+                    hit = next(
+                        (it for it in items
+                         if int(it.GetStart()) - base == target["record_frame"]),
+                        None)
+                    if hit is None:
+                        punch_results.append({**target, "applied": False, "reason": "item not found"})
+                        continue
+                    ok_x = bool(hit.SetProperty("ZoomX", target["zoom"]))
+                    ok_y = bool(hit.SetProperty("ZoomY", target["zoom"]))
+                    punch_results.append({**target, "applied": ok_x and ok_y})
+            except Exception as exc:
+                punch_results.append({"error": f"{type(exc).__name__}: {exc}"})
+
+        readback = _edit_engine_capture(tl)
+        try:
+            usage = _timeline_versioning.capture_timeline_clip_usage(tl)
+            by_type: Dict[str, int] = {}
+            for usage_row in usage:
+                by_type[usage_row["track_type"]] = by_type.get(usage_row["track_type"], 0) + 1
+            readback["usage_summary"] = {"items": len(usage), "by_track_type": by_type}
+        except Exception:
+            pass
+        _edit_engine_mod.mark_plan_executed(project_root, plan["plan_id"], {
+            "timeline_name": tl.GetName(),
+            "appended": len(built),
+            "build_errors": build_errors,
+            **readback,
+        })
+        if plan.get("brief_id"):
+            _auto_edit_mod.advance_brief(
+                project_root, plan["brief_id"], "built",
+                built_timeline=tl.GetName())
+        out = {
+            "success": bool(appended),
+            "timeline_name": tl.GetName(),
+            "appended": len(built),
+            "build_errors": build_errors,
+            "title": title_result,
+            "punch_ins": punch_results,
+            "readback": readback,
+            "plan_id": plan["plan_id"],
+            "next": "finish(plan_id, render={target_dir}) to grade/subtitle/render",
+        }
+        if bed_note:
+            out["music_bed_note"] = bed_note
+        return out
+
+    if action == "finish":
+        _r, proj, project_root, err = _auto_edit_project_context(p, need_resolve=True)
+        if err:
+            return err
+        gate = _auto_edit_mod.require_approved_plan(project_root, _plan_id_param())
+        if not gate.get("success"):
+            return _err(gate.get("error") or "plan gate failed")
+        plan = gate["plan"]
+        built_name = (plan.get("execution_summary") or {}).get("timeline_name")
+        if not built_name:
+            return _err("plan has no built timeline yet — build_timeline first")
+        tl, _idx = _find_timeline_by_name(proj, built_name)
+        if not tl:
+            return _err(f"built timeline {built_name!r} not found in the project")
+        grade = p.get("grade") if isinstance(p.get("grade"), dict) else None
+        subtitles = p.get("subtitles") if isinstance(p.get("subtitles"), dict) else None
+        render = p.get("render") if isinstance(p.get("render"), dict) else None
+        if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+            return _issue_confirm_token(
+                action="auto_edit.finish", params=p,
+                preview={
+                    "operation": "auto_edit.finish",
+                    "warning": "Applies grade/subtitles to the built timeline and "
+                               "renders an output file.",
+                    "timeline": built_name,
+                    "grade": {k: v for k, v in (grade or {}).items() if k != "cdl"},
+                    "subtitles": bool(subtitles),
+                    "render_target": (render or {}).get("target_dir"),
+                },
+            )
+        blocked = _consume_confirm_token(action="auto_edit.finish", params=p)
+        if blocked:
+            return blocked
+        try:
+            proj.SetCurrentTimeline(tl)
+        except Exception:
+            pass
+        result: Dict[str, Any] = {"success": True, "timeline": built_name}
+
+        if grade:
+            graded: Dict[str, Any] = {}
+            items = tl.GetItemListInTrack("video", 1) or []
+            if grade.get("lut_path"):
+                ok_count = 0
+                for item in items:
+                    try:
+                        g = item.GetNodeGraph()
+                        if g and g.SetLUT(int(grade.get("node_index") or 1), str(grade["lut_path"])):
+                            ok_count += 1
+                    except Exception:
+                        continue
+                graded["lut"] = {"applied": ok_count, "of": len(items)}
+            if grade.get("cdl"):
+                normalized = _normalize_cdl(grade["cdl"])
+                ok_count = 0
+                for item in items:
+                    try:
+                        if item.SetCDL(normalized):
+                            ok_count += 1
+                    except Exception:
+                        continue
+                graded["cdl"] = {"applied": ok_count, "of": len(items)}
+            if grade.get("drx_path"):
+                try:
+                    ok = bool(tl.ApplyGradeFromDRX(
+                        str(grade["drx_path"]), int(grade.get("grade_mode") or 0), items))
+                except Exception as exc:
+                    ok = False
+                    graded["drx_error"] = f"{type(exc).__name__}: {exc}"
+                graded["drx"] = {"applied": ok}
+            result["grade"] = graded
+
+        if subtitles:
+            result["subtitles"] = _safe_create_subtitles(tl, subtitles)
+
+        if render:
+            target_dir = str(render.get("target_dir") or render.get("targetDir") or "")
+            if not target_dir:
+                from src.utils import analysis_memory as _analysis_memory
+                target_dir = os.path.join(
+                    _analysis_memory.memory_dir(project_root), "auto_edit", "renders")
+            os.makedirs(target_dir, exist_ok=True)
+            custom_name = str(render.get("custom_name") or render.get("customName")
+                              or f"auto_edit_{plan['plan_id']}")
+            prepared = _prepare_render_job(proj, {
+                "target_dir": target_dir,
+                "settings": render.get("settings") or {},
+                "format": render.get("format"),
+                "codec": render.get("codec"),
+                "custom_name": custom_name,
+                "require_temp_target": False,
+            })
+            if not prepared.get("success"):
+                result["success"] = False
+                result["render"] = prepared
+                return result
+            job_id = prepared["job_id"]
+
+            def _render_work():
+                started = bool(proj.StartRendering([job_id], False))
+                if not started:
+                    return {"success": False, "error": "StartRendering returned false", "job_id": job_id}
+                while proj.IsRenderingInProgress():
+                    time.sleep(2)
+                status = _ser(proj.GetRenderJobStatus(job_id))
+                outputs = sorted(
+                    (os.path.join(target_dir, f) for f in os.listdir(target_dir)
+                     if f.startswith(custom_name)),
+                    key=lambda path: os.path.getmtime(path), reverse=True)
+                output_path = outputs[0] if outputs else None
+                return {
+                    "success": bool(output_path and os.path.isfile(output_path)),
+                    "job_id": job_id,
+                    "status": status,
+                    "output_path": output_path,
+                    **({} if output_path else {"error": "no output file found after render"}),
+                }
+
+            render_result = _run_maybe_background("auto_edit.finish_render", p, _render_work)
+            result["render"] = render_result
+            if isinstance(render_result, dict) and render_result.get("success") is False:
+                result["success"] = False
+        if result["success"] and plan.get("brief_id"):
+            _auto_edit_mod.advance_brief(project_root, plan["brief_id"], "finished")
+        return result
+
+    if action == "list_briefs":
+        _r, _proj, project_root, err = _auto_edit_project_context(p, need_resolve=False)
+        if err:
+            return err
+        rows = _edit_engine_mod.list_plans(project_root, limit=int(p.get("limit") or 50))
+        briefs = [row for row in rows.get("plans") or []
+                  if row.get("kind") == _auto_edit_mod.BRIEF_KIND]
+        return {"success": True, "briefs": briefs}
+
+    return _unknown(action, [
+        "start_brief",
+        "brief_status",
+        "status",
+        "plan_cut",
+        "revise_cut",
+        "get_cut_summary",
+        "approve_cut",
+        "build_timeline",
+        "finish",
+        "list_briefs",
     ])
 
 

@@ -43,10 +43,19 @@ def get_resolve_paths():
         lib_path = os.path.join(program_files_64, 'Blackmagic Design', 'DaVinci Resolve', 'fusionscript.dll')
         modules_path = os.path.join(api_path, "Modules")
     
-    elif platform_name == 'linux':  # Linux (not fully implemented)
-        # Default locations for Linux - these may need to be adjusted
+    elif platform_name == 'linux':  # Linux
+        # /opt/resolve is the stock install root; some distro packages install to
+        # /opt/resolve/... via a symlink from /home/resolve. The scripting lib
+        # ships under libs/Fusion/ on current builds (21.x) but older layouts put
+        # it directly under libs/ — probe both so a correct env var is exported
+        # regardless (server.py overrides RESOLVE_SCRIPT_LIB from this value).
         api_path = "/opt/resolve/Developer/Scripting"
-        lib_path = "/opt/resolve/libs/fusionscript.so"
+        _lib_candidates = (
+            "/opt/resolve/libs/Fusion/fusionscript.so",
+            "/opt/resolve/libs/fusionscript.so",
+        )
+        lib_path = next((c for c in _lib_candidates if os.path.exists(c)),
+                        _lib_candidates[0])
         modules_path = os.path.join(api_path, "Modules")
     
     else:

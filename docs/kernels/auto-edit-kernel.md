@@ -27,7 +27,8 @@ produced without this consent); declining keeps a static music level.
 | `revise_cut` | plan | Structured overrides — `reorder` / `drop` / `keep` / `title` — producing revision+1 as a new plan; old revisions stay loadable. |
 | `get_cut_summary` | plan | Markdown (default) or JSON view of a saved CutList. |
 | `approve_cut` | checkpoint | Confirm-token gated; records approval + music-bed consent. |
-| `build_timeline` | execute | Append-rebuild: intro title at the head of V1, V1 speech with `mediaType:2` audio mirroring, V2 b-roll positioned appends, punch-in `ZoomX`/`ZoomY`, A2 music trimmed to the cut (ducked bed only when consented). Readback-verified. |
+| `build_timeline` | execute | Append-rebuild: intro title at the head of V1, V1 speech with `mediaType:2` audio mirroring, V2 b-roll positioned appends, punch-in `ZoomX`/`ZoomY`, A2 music trimmed to the cut (ducked bed only when consented). Readback-verified; persists the intro-title `record_offset` for the polish pass. |
+| `polish_timeline` | execute (Phase 2) | Pro polish the scripting API can't do. Exports the built timeline as `.drt`, runs verified `drp-format` vendor ops on it in scratch (`place_transition` cross-dissolves at flagged cuts, `place_fusion_title` lower-thirds on an upper track), and reimports a NEW `(polished)` timeline. Export-then-modify preserves media-link blobs byte-for-byte. Op selection is the pure `auto_edit.plan_polish_ops`; execution is `advanced_bridge.run_drp_op_chain`. `options`: `lower_thirds[]`, `dissolve_at_segments[]`, `dissolve_on_beat_change`, `dissolve_frames`, `lower_third_frames`/`_track`, `no_dissolves`, `no_lower_thirds`. |
 | `finish` | execute | Grade (`lut_path` / `cdl` / `drx_path`), optional subtitles (`CreateSubtitlesFromAudio`), validated render (`prepare_render_job` → `StartRendering`); verifies the output file exists and reports its path. |
 | `list_briefs` | — | Saved briefs, newest first. |
 
@@ -39,9 +40,19 @@ retime, or automate audio levels (`src/utils/api_truth.py`). Hence:
 - **Phase 1 — append-rebuild** (this kernel): per-clip in/out (half-open),
   `recordFrame`, `trackIndex`, `mediaType:2` mirroring — the mechanism proven
   in `edit_engine.execute_selects/tighten/swap`.
-- **Phase 2 — hybrid drt surgery**: export the approved timeline as `.drt`,
-  run verified `resolve-advanced` vendor ops (cross-dissolves, lower thirds),
-  reimport. Tracked in the epic's Phase-2 issues.
+- **Phase 2 — hybrid drt surgery** (`polish_timeline`): export the built
+  timeline as `.drt`, run verified `resolve-advanced` vendor ops
+  (cross-dissolves, lower-thirds), reimport. The offline decision layer
+  (`plan_polish_ops`) + op-chain (`run_drp_op_chain`) are built and unit-tested.
+  **Live-verified on Resolve Studio 21.0.2.4** (epic #12 probes 1–2): the
+  exported `.drt` encodes ABSOLUTE frames (timeline StartFrame baked in, e.g.
+  86400 @ 24fps), `place_transition`→"Cross Dissolve" and `place_fusion_title`→
+  "Text+" land on the container, and reimport keeps both source clips linked
+  (generators/transitions have no MediaPoolItem so they read as "offline" — not a
+  broken link). `polish_timeline` therefore offsets ops by `StartFrame + intro
+  footprint` and renames post-import via `SetName` (the `timelineName` import
+  option is ignored for `.drt`). See `api_truth`. Remaining gate: a clean full
+  tool-path run (Resolve proved crash-prone under sustained scripting churn).
 - **Audio ducking — tiered**: Tier 1 is the consent-gated ffmpeg bed
   (`music_analysis.render_ducked_bed`); Tier 2 (drt volume automation) and the
   xmeml probe are Phase 2.
@@ -58,6 +69,7 @@ retime, or automate audio levels (`src/utils/api_truth.py`). Hence:
 ## Offline tests / live validation
 
 Offline: `tests/test_cut_ir_words.py`, `tests/test_auto_edit.py`,
-`tests/test_auto_edit_tool.py`, `tests/test_music_analysis.py`.
+`tests/test_auto_edit_tool.py`, `tests/test_auto_edit_polish.py`,
+`tests/test_advanced_bridge_ops.py`, `tests/test_music_analysis.py`.
 Live: `tests/live_auto_edit_validation.py` (requires Resolve Studio; see the
 release process).

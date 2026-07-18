@@ -43,6 +43,15 @@ DEFAULT_TITLE_SECONDS = 4.0
 PUNCH_IN_ZOOM = 1.12
 EXCERPT_WORDS = 10
 
+# ── Phase-2 polish (offline drt surgery) defaults ────────────────────────────
+# The polish pass exports the built timeline as .drt, runs verified drp-format
+# vendor ops on it (cross-dissolves + lower-thirds), and reimports. These are the
+# decision-layer defaults; the op execution + Resolve export/import live in
+# server.py behind the confirm-token gate (place_transition / place_fusion_title).
+DEFAULT_DISSOLVE_FRAMES = 12       # cross-dissolve length at a flagged cut
+DEFAULT_LOWER_THIRD_FRAMES = 96    # lower-third on-screen duration (~4s @ 24fps)
+SPEECH_VIDEO_TRACK = 1             # V1 carries speech (build_timeline)
+
 MUSIC_BED_CONSENT_LINE = (
     "Music-bed render consent: approving WITH music-bed consent renders a "
     "derivative ducked audio file (ffmpeg) under the analysis root; without "
@@ -313,6 +322,10 @@ def build_cut_list_for_brief(
                     rationale=rationale,
                     evidence={"basis": detection["basis"], "clip_name": clip.get("clip_name")},
                 )
+                if beat:
+                    # Clean field (not just baked into rationale) so the Phase-2
+                    # polish layer can auto-derive lower-thirds per story beat.
+                    segment["story_beat"] = beat
                 segments.append(segment)
 
     if not segments:
@@ -697,3 +710,170 @@ def require_approved_plan(project_root: str, plan_id: str) -> Dict[str, Any]:
         return {"success": False,
                 "error": "cut list is not approved — approve_cut is the checkpoint"}
     return {"success": True, "plan": plan}
+
+
+# ── Phase-2 polish decision layer (offline; drt-surgery op specs) ─────────────
+
+
+def _lower_third_op(*, text: str, rec: int, track: int, dur: int, reason: str) -> Dict[str, Any]:
+    """One ``place_fusion_title`` op spec for a lower-third on an upper track."""
+    return {
+        "op": "place_fusion_title",
+        "args": {
+            "startFrame": int(rec),
+            "trackIndex": int(track),
+            "durationFrames": int(dur),
+            "text": text,
+        },
+        "kind": "lower_third",
+        "reason": reason,
+    }
+
+
+def _lower_third_record_frame(
+    lt: Dict[str, Any], segments: Sequence[Dict[str, Any]], offset: int
+) -> Optional[int]:
+    """Resolve an explicit lower-third's timeline position (record frame + offset).
+
+    ``record_start_frame`` wins; else ``at_segment`` indexes into segments. The
+    offset is the built timeline's intro-title footprint, so positions line up
+    with the exported .drt exactly. Returns None when neither is resolvable.
+    """
+    if lt.get("record_start_frame") is not None:
+        return int(lt["record_start_frame"]) + offset
+    at = lt.get("at_segment")
+    if isinstance(at, int) and 0 <= at < len(segments):
+        return int(segments[at].get("record_start_frame", 0)) + offset
+    return None
+
+
+def plan_polish_ops(
+    plan: Dict[str, Any],
+    *,
+    record_offset: int = 0,
+    options: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Pure decision layer for ``polish_timeline`` (Phase-2 drt surgery).
+
+    Turns an approved+built CutList into an ordered list of drp-format vendor op
+    specs — cross-dissolves at flagged cuts and lower-third titles on an upper
+    track. No I/O and no Resolve: the server exports the built timeline to .drt,
+    threads these specs through ``advanced_bridge.run_drp_op_chain``, and
+    reimports the result as a ``(polished)`` timeline.
+
+    Flagged cuts (cross-dissolve), in precedence order:
+      * ``options["dissolve_at_segments"]`` — an explicit list of segment indices
+        (the boundary *before* each) overrides all auto-detection when present.
+      * a segment carrying a ``transition_in`` flag (revise_cut can set it).
+      * a SOURCE change: consecutive kept segments whose ``clip_uuid`` differs —
+        a hard cut across a source change reads as an error; a short dissolve
+        reads as deliberate. (Default on.)
+      * a story-beat change, only when ``options["dissolve_on_beat_change"]``.
+    A boundary already covered by a b-roll overlay is skipped (the overlay is the
+    chosen smoothing there) and recorded in ``notes``.
+
+    Lower-thirds: explicit ``options["lower_thirds"]`` (``[{text, at_segment | \
+    record_start_frame, duration_frames?, track_index?}]``) win; otherwise one
+    per distinct ``story_beat``, placed at the segment that opens the beat. Empty
+    (an honest note, no op) when neither source is present — never a fabricated
+    caption. Auto lower-thirds land on V3 when b-roll overlays occupy V2, else V2.
+
+    ``record_offset`` is the intro-title footprint that ``build_timeline``
+    prepended to V1, so op positions match the exported timeline's record frames.
+    Suppress either family with ``options["no_dissolves"]`` / ``no_lower_thirds"]``.
+    """
+    opts = options or {}
+    segments: List[Dict[str, Any]] = plan.get("segments") or []
+    overlays: List[Dict[str, Any]] = plan.get("overlays") or []
+    offset = int(record_offset)
+    dissolve_frames = int(opts.get("dissolve_frames") or DEFAULT_DISSOLVE_FRAMES)
+    lt_frames = int(opts.get("lower_third_frames") or DEFAULT_LOWER_THIRD_FRAMES)
+    # Lower-thirds sit above every used video track: V3 when b-roll overlays
+    # occupy V2, else V2.
+    lt_track = int(opts.get("lower_third_track") or (3 if overlays else 2))
+
+    ops: List[Dict[str, Any]] = []
+    notes: List[str] = []
+
+    # A b-roll overlay over a segment IS the smoothing at that segment's opening
+    # cut — don't stack a dissolve on top of it.
+    covered_segment_idxs = {
+        ov.get("over_segment_index")
+        for ov in overlays
+        if isinstance(ov.get("over_segment_index"), int)
+    }
+
+    if not opts.get("no_dissolves"):
+        dissolve_on_beat = bool(opts.get("dissolve_on_beat_change"))
+        explicit = opts.get("dissolve_at_segments")
+        explicit_set = set(explicit) if isinstance(explicit, (list, tuple)) else None
+        for i in range(1, len(segments)):
+            prev, seg = segments[i - 1], segments[i]
+            reason: Optional[str] = None
+            if explicit_set is not None:
+                if i in explicit_set:
+                    reason = f"explicit dissolve flag at segment {i}"
+            elif seg.get("transition_in"):
+                reason = f"segment {i} carries a transition_in flag"
+            elif prev.get("clip_uuid") != seg.get("clip_uuid"):
+                reason = f"source change {prev.get('clip_uuid')!r}→{seg.get('clip_uuid')!r}"
+            elif dissolve_on_beat and seg.get("story_beat") and \
+                    seg.get("story_beat") != prev.get("story_beat"):
+                reason = f"story-beat change → {seg.get('story_beat')!r}"
+            if not reason:
+                continue
+            if i in covered_segment_idxs:
+                notes.append(
+                    f"segment {i}: dissolve skipped — b-roll overlay already smooths this cut")
+                continue
+            rec = int(seg.get("record_start_frame", 0)) + offset
+            dur = int((seg.get("transition_in") or {}).get("duration_frames") or dissolve_frames)
+            ops.append({
+                "op": "place_transition",
+                "args": {"track": SPEECH_VIDEO_TRACK, "atFrame": rec, "durationFrames": dur},
+                "kind": "cross_dissolve",
+                "segment_index": i,
+                "reason": reason,
+            })
+
+    if not opts.get("no_lower_thirds"):
+        explicit_lts = opts.get("lower_thirds")
+        if isinstance(explicit_lts, list) and explicit_lts:
+            for k, lt in enumerate(explicit_lts):
+                if not isinstance(lt, dict) or not str(lt.get("text") or "").strip():
+                    notes.append(f"lower_thirds[{k}] skipped — missing text")
+                    continue
+                rec = _lower_third_record_frame(lt, segments, offset)
+                if rec is None:
+                    notes.append(
+                        f"lower_thirds[{k}] skipped — no at_segment/record_start_frame")
+                    continue
+                ops.append(_lower_third_op(
+                    text=str(lt["text"]).strip(), rec=rec,
+                    track=int(lt.get("track_index") or lt_track),
+                    dur=int(lt.get("duration_frames") or lt_frames),
+                    reason=f"explicit lower-third {k}"))
+        else:
+            last_beat = None
+            emitted = 0
+            for i, seg in enumerate(segments):
+                beat = seg.get("story_beat")
+                if beat and beat != last_beat:
+                    rec = int(seg.get("record_start_frame", 0)) + offset
+                    ops.append(_lower_third_op(
+                        text=str(beat), rec=rec, track=lt_track, dur=lt_frames,
+                        reason=f"story beat opens at segment {i}"))
+                    emitted += 1
+                last_beat = beat
+            if not emitted:
+                notes.append(
+                    "no lower-thirds: analysis produced no story beats "
+                    "(pass options.lower_thirds to add them explicitly)")
+
+    return {
+        "ops": ops,
+        "transitions": sum(1 for o in ops if o["op"] == "place_transition"),
+        "lower_thirds": sum(1 for o in ops if o["op"] == "place_fusion_title"),
+        "record_offset": offset,
+        "notes": notes,
+    }

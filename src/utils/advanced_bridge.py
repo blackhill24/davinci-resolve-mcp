@@ -182,3 +182,63 @@ def run_drp_op(
             }
         payload["output_path"] = output_path
     return payload
+
+
+def run_drp_op_chain(
+    ops: List[Dict[str, Any]],
+    src_path: str,
+    *,
+    scratch_dir: Optional[str] = None,
+    tool: str = "drp",
+    timeout: float = 60.0,
+) -> Dict[str, Any]:
+    """Apply a sequence of drp-format ops to ONE exported ``.drt``, in order.
+
+    Each op is a spec ``{"op": <action>, "args": {...}}`` (extra keys like
+    ``reason``/``kind`` are ignored) — the shape :func:`auto_edit.plan_polish_ops`
+    emits. Ops are threaded: op 0 reads ``src_path`` and writes a fresh scratch
+    file; op *i* reads op *i-1*'s output. The source is read, never written, so
+    the final ``output_path`` is the fully-mutated timeline while the export stays
+    byte-for-byte intact (source-media safety).
+
+    Returns ``{"success", "output_path", "steps": [...]}``. Stops at the first
+    failing op and reports which step failed (honest partial-failure surface).
+    An empty ``ops`` list is a no-op: success with ``output_path == src_path``.
+    """
+    if not node_available():
+        return _node_unavailable()
+    src = os.path.abspath(os.path.expanduser(src_path))
+    if not os.path.isfile(src):
+        return {"success": False, "error": f"source timeline not found: {src}"}
+    if not ops:
+        return {"success": True, "output_path": src, "steps": [],
+                "note": "no ops — nothing to polish"}
+
+    base = scratch_dir or tempfile.mkdtemp(prefix="drm-advanced-chain-")
+    os.makedirs(base, exist_ok=True)
+    stem, ext = os.path.splitext(os.path.basename(src))
+    ext = ext or ".drt"
+
+    current = src
+    steps: List[Dict[str, Any]] = []
+    for i, spec in enumerate(ops):
+        op = str(spec.get("op") or "")
+        op_args = dict(spec.get("args") or {})
+        if not op:
+            return {"success": False, "error": f"op {i} has no 'op' action",
+                    "steps": steps, "failed_step": i}
+        step_out = os.path.join(base, f"{stem}.{i:02d}.{op}{ext}")
+        payload = run_drp_op(
+            op, current, out_path=step_out, tool=tool, timeout=timeout, **op_args)
+        steps.append({
+            "index": i, "op": op, "success": bool(payload.get("success")),
+            "output_path": payload.get("output_path"),
+            "error": payload.get("error"),
+        })
+        if not payload.get("success"):
+            return {"success": False,
+                    "error": f"op {i} ({op}) failed: {payload.get('error')}",
+                    "steps": steps, "failed_step": i, "last_output": current}
+        current = payload["output_path"]
+
+    return {"success": True, "output_path": current, "steps": steps}

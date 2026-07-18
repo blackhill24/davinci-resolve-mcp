@@ -2,12 +2,12 @@
   "version": 2,
   "layers": 3,
   "root_nav": "CLAUDE.md",
-  "synced": "2026-07-18",
-  "_root_structure": "025acc23b03b9250",
+  "synced": "2026-07-19",
+  "_root_structure": "9464cff69485362e",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "c6d9f37317512f21",
+      "fingerprint": "bfd14834d616589d",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -528,7 +528,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "8bc2172301037935",
+      "fingerprint": "abe92b35ab4594dd",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -598,7 +598,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "4107b4c9a9dca768",
+      "fingerprint": "fb2ae14eff0adb05",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -648,6 +648,7 @@
         "tests/test_append_clip_infos_result_handling.py",
         "tests/test_audio_fairlight_probe.py",
         "tests/test_auto_edit.py",
+        "tests/test_auto_edit_polish.py",
         "tests/test_auto_edit_tool.py",
         "tests/test_auto_run.py",
         "tests/test_auto_sync_audio.py",

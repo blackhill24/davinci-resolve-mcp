@@ -117,6 +117,7 @@ from src.utils import analysis_runs as _analysis_runs
 from src.utils import brain_edits as _brain_edits
 from src.utils import edit_engine as _edit_engine_mod
 from src.utils import auto_edit as _auto_edit_mod
+from src.utils import advanced_bridge as _advanced_bridge
 from src.utils import music_analysis as _music_analysis_mod
 from src.utils import media_pool_changes as _media_pool_changes
 from src.utils import timeline_versioning as _timeline_versioning
@@ -1084,6 +1085,7 @@ _TOKEN_GATED_DESTRUCTIVE_ACTIONS = frozenset({
     # checkpoint; build_timeline/finish execute the approved CutList.
     ("auto_edit", "approve_cut"),
     ("auto_edit", "build_timeline"),
+    ("auto_edit", "polish_timeline"),
     ("auto_edit", "finish"),
     ("graph", "apply_grade_from_drx"),
     ("graph", "reset_all_grades"),
@@ -19117,6 +19119,14 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         readback} — append-rebuild from the approved CutList: intro title, V1
         speech + mirrored audio, V2 b-roll, punch-in zoom, A2 music (ducked bed
         only when consented). Readback-verified.
+      polish_timeline(plan_id, options?, confirm_token?) -> {polished_timeline,
+        transitions, lower_thirds, media_link} — Phase-2 pro polish the scripting
+        API can't do. Exports the built timeline as .drt, runs verified drp-format
+        vendor ops (cross-dissolves at flagged cuts via place_transition,
+        lower-thirds on an upper track via place_fusion_title), and reimports as a
+        NEW "(polished)" timeline; export-then-modify keeps media linked. options:
+        lower_thirds[], dissolve_at_segments[], dissolve_on_beat_change,
+        dissolve_frames, lower_third_frames/track, no_dissolves, no_lower_thirds.
       finish(plan_id, grade?, subtitles?, render?, confirm_token?) -> {output}
         — grade (lut_path | cdl | drx_path), optional subtitles, validated
         render; reports the output path.
@@ -19559,6 +19569,10 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             "timeline_name": tl.GetName(),
             "appended": len(built),
             "build_errors": build_errors,
+            # Persist the intro-title footprint: polish_timeline shifts its op
+            # positions by this record_offset so cross-dissolves/lower-thirds
+            # line up with the built timeline's record frames.
+            "title": title_result,
             **readback,
         })
         if plan.get("brief_id"):
@@ -19720,6 +19734,159 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             _auto_edit_mod.advance_brief(project_root, plan["brief_id"], "finished")
         return result
 
+    if action == "polish_timeline":
+        # Phase-2 pro polish: the append-rebuild scripting API cannot author
+        # transitions or place titles on upper tracks, so export the built
+        # timeline as .drt (the only lossless project-native round-trip), run
+        # verified drp-format vendor ops on it in scratch, and reimport as a
+        # NEW "(polished)" timeline. Export-then-modify preserves the media-link
+        # blobs byte-for-byte, so media stays linked without a relink pass.
+        _r, proj, project_root, err = _auto_edit_project_context(p, need_resolve=True)
+        if err:
+            return err
+        gate = _auto_edit_mod.require_approved_plan(project_root, _plan_id_param())
+        if not gate.get("success"):
+            return _err(gate.get("error") or "plan gate failed")
+        plan = gate["plan"]
+        exec_summary = plan.get("execution_summary") or {}
+        built_name = exec_summary.get("timeline_name")
+        if not built_name:
+            return _err("plan has no built timeline yet — build_timeline first")
+        tl, _idx = _find_timeline_by_name(proj, built_name)
+        if not tl:
+            return _err(f"built timeline {built_name!r} not found in the project")
+
+        # Decide the ops offline (pure). An exported .drt encodes ABSOLUTE frame
+        # positions — the timeline's start frame (01:00:00:00 → 86400 @ 24fps) is
+        # baked into every clip's Start (verified live on Resolve Studio 21). So op
+        # positions = timeline_start + build_timeline's intro-title footprint +
+        # the plan's record frames. Passing only the title offset would place
+        # dissolves near frame 0, outside the clips.
+        timeline_start = int(_timeline_start_frame(tl) or 0)
+        title_offset = int((exec_summary.get("title") or {}).get("record_offset") or 0)
+        polish = _auto_edit_mod.plan_polish_ops(
+            plan, record_offset=timeline_start + title_offset, options=p.get("options"))
+        ops = polish.get("ops") or []
+        if not ops:
+            return _err(
+                "nothing to polish: no flagged cuts or lower-thirds for this cut "
+                "(single-source cuts have no source-change dissolves; pass "
+                "options.lower_thirds or options.dissolve_on_beat_change)",
+            ) | {"polish": polish}
+
+        # Honest refusal before touching Resolve: the surgery needs the Node
+        # advanced-server bridge (drp-format vendor ops).
+        if not _advanced_bridge.node_available():
+            return _err(
+                "polish requires the Node advanced-server bridge (drp-format), "
+                "and Node.js was not found on PATH — install Node 18+ to enable it.",
+            ) | {"polish": polish}
+
+        if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+            return _issue_confirm_token(
+                action="auto_edit.polish_timeline", params=p,
+                preview={
+                    "operation": "auto_edit.polish_timeline",
+                    "warning": "Exports the built timeline as .drt, applies "
+                               f"{polish['transitions']} cross-dissolve(s) and "
+                               f"{polish['lower_thirds']} lower-third(s) via offline "
+                               "drt surgery, and imports a NEW '(polished)' timeline. "
+                               "No existing timeline is modified.",
+                    "built_timeline": built_name,
+                    "transitions": polish["transitions"],
+                    "lower_thirds": polish["lower_thirds"],
+                    "ops": [{"op": o["op"], "reason": o.get("reason")} for o in ops],
+                    "notes": polish.get("notes"),
+                },
+            )
+        blocked = _consume_confirm_token(action="auto_edit.polish_timeline", params=p)
+        if blocked:
+            return blocked
+
+        scratch = tempfile.mkdtemp(prefix="auto_edit_polish_")
+        export_path = os.path.join(scratch, f"{plan['plan_id']}.drt")
+        exported = _export_timeline_checked(tl, {
+            "path": export_path, "format": "drt",
+            "require_temp_path": False, "background": False, "async_job": False,
+        })
+        if not exported.get("success"):
+            return _err("drt export failed — cannot polish") | {"export": exported}
+        drt_src = exported.get("primary_file") or export_path
+
+        chain = _advanced_bridge.run_drp_op_chain(
+            ops, drt_src, scratch_dir=os.path.join(scratch, "ops"))
+        if not chain.get("success"):
+            return _err(chain.get("error") or "polish op chain failed") | {
+                "chain": chain, "polish": polish}
+        polished_drt = chain["output_path"]
+
+        mp = proj.GetMediaPool()
+        if not mp:
+            return _err("No media pool")
+        polished_name = _unique_timeline_name(proj, f"{built_name} (polished)")
+        imported = _import_timeline_checked(proj, mp, {
+            "path": polished_drt, "timeline_name": polished_name,
+            "require_temp_path": False,
+        })
+        if not imported.get("success"):
+            return _err(imported.get("error") or "reimport of polished .drt failed") | {
+                "import": imported, "chain": chain}
+
+        # Resolve names the imported timeline after the .drt container, ignoring the
+        # timelineName import option (verified live on 21) — rename it explicitly so
+        # the polished timeline reads as "<built> (polished)".
+        final_name = imported.get("name") or polished_name
+        imp_tl = None
+        for _i in range(1, int(proj.GetTimelineCount() or 0) + 1):
+            cand = proj.GetTimelineByIndex(_i)
+            if cand and str(cand.GetUniqueId()) == str(imported.get("id")):
+                imp_tl = cand
+                break
+        if imp_tl is not None:
+            try:
+                if imp_tl.SetName(polished_name):
+                    final_name = polished_name
+            except Exception:
+                pass
+
+        # Media-link honesty: cross-dissolves (transitions) and lower-thirds
+        # (Fusion/Text+ generators) have NO backing media file, so they always
+        # count as "offline" in the coverage scan. The real question is whether any
+        # SOURCE CLIP dropped its link — flag only when offline exceeds the ops we
+        # knowingly added (verified live: 2/2 real clips stay linked; export-then-
+        # modify preserves media-link blobs byte-for-byte).
+        media = imported.get("media") or {}
+        expected_non_media = int(polish["transitions"]) + int(polish["lower_thirds"])
+        real_offline = max(0, int(media.get("offline", 0)) - expected_non_media)
+        out = {
+            "success": True,
+            "polished_timeline": final_name,
+            "source_timeline": built_name,
+            "transitions": polish["transitions"],
+            "lower_thirds": polish["lower_thirds"],
+            "ops_applied": len(ops),
+            "media_link": media,  # {total, linked, offline}; offline includes added generators
+            "clips_relinked": real_offline == 0,
+            "notes": polish.get("notes"),
+            "plan_id": plan["plan_id"],
+            "next": "review the (polished) timeline; finish(plan_id) still targets "
+                    "the built timeline for grade/render",
+        }
+        if real_offline:
+            out["warning"] = (
+                f"{real_offline} source clip(s) went offline after the drt round-trip "
+                "(beyond the added dissolves/titles) — check media relinking.")
+        _edit_engine_mod.mark_plan_executed(project_root, plan["plan_id"], {
+            **exec_summary,
+            "polished": {
+                "timeline_name": out["polished_timeline"],
+                "transitions": polish["transitions"],
+                "lower_thirds": polish["lower_thirds"],
+                "media_link": media,
+            },
+        })
+        return out
+
     if action == "list_briefs":
         _r, _proj, project_root, err = _auto_edit_project_context(p, need_resolve=False)
         if err:
@@ -19738,6 +19905,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         "get_cut_summary",
         "approve_cut",
         "build_timeline",
+        "polish_timeline",
         "finish",
         "list_briefs",
     ])

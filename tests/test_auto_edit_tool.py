@@ -297,5 +297,87 @@ class FinishActionTest(unittest.TestCase):
         self.assertIn("no output file", done["render"]["error"])
 
 
+class PolishActionTest(unittest.TestCase):
+    """polish_timeline() dispatch: the offline-reachable gates before the live
+    export→drt-surgery→reimport round-trip (that round-trip is #13's live gate)."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="auto-edit-polish-tool-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def _mock_project(self, timeline_name="TL"):
+        from unittest import mock
+        tl = mock.Mock()
+        tl.GetName.return_value = timeline_name
+        proj = mock.Mock()
+        proj.GetTimelineCount.return_value = 1
+        proj.GetTimelineByIndex.return_value = tl
+        return proj, tl
+
+    def _polish(self, proj, params):
+        from unittest import mock
+        with mock.patch.object(
+            s, "_destructive_versioning_provider",
+            return_value=(None, proj, self.root, "P"),
+        ):
+            return run(s.auto_edit("polish_timeline", params))
+
+    def _two_source_plan(self):
+        # A source change between segment 0 (uuid-a) and 1 (uuid-b) ⇒ a dissolve.
+        segments = [
+            cut_ir.make_cut_list_segment(
+                role="speech", clip_id="clip-a", clip_uuid="uuid-a",
+                source_start_frame=0, source_end_frame=48, audio_track_indices=[1]),
+            cut_ir.make_cut_list_segment(
+                role="speech", clip_id="clip-b", clip_uuid="uuid-b",
+                source_start_frame=0, source_end_frame=48, audio_track_indices=[1]),
+        ]
+        plan = cut_ir.make_cut_list(segments=segments, fps=24.0)
+        auto_edit._assign_record_frames(plan)
+        return edit_engine.save_plan(self.root, plan)
+
+    def test_requires_built_timeline(self):
+        plan = make_plan(self.root)
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        proj, _tl = self._mock_project()
+        out = self._polish(proj, {"plan_id": plan["plan_id"]})
+        self.assertIn("no built timeline",
+                      out.get("error", {}).get("message", str(out)))
+
+    def test_nothing_to_polish_for_single_source_cut(self):
+        plan = make_plan(self.root)  # both segments are uuid-a, no story beats
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl = self._mock_project()
+        out = self._polish(proj, {"plan_id": plan["plan_id"]})
+        self.assertIn("nothing to polish",
+                      out.get("error", {}).get("message", str(out)))
+        self.assertIn("polish", out)  # the decision payload is attached
+
+    @unittest.skipUnless(s._advanced_bridge.node_available(),
+                         "node required: without it polish refuses before the token gate")
+    def test_confirm_token_preview_lists_the_ops(self):
+        plan = self._two_source_plan()
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl = self._mock_project()
+        out = self._polish(proj, {"plan_id": plan["plan_id"]})
+        # Node is available here, so we reach the checkpoint (before any Resolve export).
+        self.assertEqual(out.get("status"), "confirmation_required")
+        preview = out.get("preview") or {}
+        self.assertEqual(preview.get("transitions"), 1)
+        self.assertEqual(preview.get("built_timeline"), "TL")
+
+    def test_honest_refusal_when_node_unavailable(self):
+        from unittest import mock
+        plan = self._two_source_plan()
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl = self._mock_project()
+        with mock.patch.object(s._advanced_bridge, "node_available", return_value=False):
+            out = self._polish(proj, {"plan_id": plan["plan_id"]})
+        self.assertIn("Node", out.get("error", {}).get("message", str(out)))
+
+
 if __name__ == "__main__":
     unittest.main()

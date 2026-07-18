@@ -134,6 +134,72 @@ class DrpOpIntegrationTest(unittest.TestCase):
             seq_xml = z.read("SeqContainer/s1.xml").decode("utf-8")
         self.assertIn("Sm2TiTransition", seq_xml)
 
+    def test_op_chain_threads_multiple_ops_onto_one_timeline(self):
+        # This is the polish_timeline mechanism: several drp-format ops applied
+        # in sequence to ONE exported .drt, each reading the previous output.
+        scratch = os.path.join(self.tmp, "chain")
+        ops = [
+            {"op": "place_transition", "args": {"track": 1, "atFrame": 100, "durationFrames": 24}},
+            {"op": "split_clip", "args": {"track": 1, "at": 50}},
+        ]
+        out = ab.run_drp_op_chain(ops, self.src, scratch_dir=scratch)
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(len(out["steps"]), 2)
+        self.assertTrue(all(s["success"] for s in out["steps"]))
+        # Final output threads through both ops and lands under scratch.
+        self.assertTrue(os.path.isfile(out["output_path"]))
+        self.assertTrue(out["output_path"].startswith(scratch))
+        # Source untouched.
+        self.assertEqual(os.path.getsize(self.src), self.src_bytes)
+        # The transition placed by op 0 survived into the final container.
+        with zipfile.ZipFile(out["output_path"]) as z:
+            seq_xml = z.read("SeqContainer/s1.xml").decode("utf-8")
+        self.assertIn("Sm2TiTransition", seq_xml)
+
+    def test_op_chain_stops_and_reports_the_failing_step(self):
+        ops = [
+            {"op": "place_transition", "args": {"track": 1, "atFrame": 100, "durationFrames": 24}},
+            {"op": "bogus_op", "args": {}},
+        ]
+        out = ab.run_drp_op_chain(ops, self.src, scratch_dir=os.path.join(self.tmp, "fail"))
+        self.assertFalse(out.get("success"))
+        self.assertEqual(out.get("failed_step"), 1)
+        self.assertTrue(out["steps"][0]["success"])
+        self.assertFalse(out["steps"][1]["success"])
+
+
+class OpChainUnitTest(unittest.TestCase):
+    """run_drp_op_chain refusals/no-op — no Node subprocess needed."""
+
+    def test_empty_ops_is_a_noop_returning_the_source(self):
+        with tempfile.NamedTemporaryFile(suffix=".drt", delete=False) as f:
+            src = f.name
+        try:
+            out = ab.run_drp_op_chain([], src)
+            self.assertTrue(out["success"])
+            self.assertEqual(out["output_path"], os.path.abspath(src))
+            self.assertEqual(out["steps"], [])
+        finally:
+            os.unlink(src)
+
+    def test_missing_source_refused(self):
+        if not ab.node_available():
+            self.skipTest("node not on PATH")
+        out = ab.run_drp_op_chain(
+            [{"op": "split_clip", "args": {}}], "/nonexistent/ghost.drt")
+        self.assertFalse(out["success"])
+        self.assertIn("not found", out["error"])
+
+    def test_no_node_refuses_cleanly(self):
+        orig = ab.node_path
+        ab.node_path = lambda: None
+        try:
+            out = ab.run_drp_op_chain([{"op": "split_clip", "args": {}}], "/whatever.drt")
+            self.assertFalse(out["success"])
+            self.assertIn("Node.js not found", out["error"])
+        finally:
+            ab.node_path = orig
+
 
 if __name__ == "__main__":
     unittest.main()

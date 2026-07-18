@@ -564,6 +564,48 @@ API_TRUTH: List[Dict[str, Any]] = [
                        "when mirroring keep-ranges into clipInfos.",
         "tags": ["timeline", "edit", "off-by-one", "readback"],
     },
+    {
+        "symbol": "Timeline.Export(EXPORT_DRT) → offline drp-format surgery → MediaPool.ImportTimelineFromFile round-trip",
+        "object": "Timeline / MediaPool",
+        "signature": "Export(path, EXPORT_DRT, EXPORT_NONE) -> bool; "
+                     "ImportTimelineFromFile(path, options) -> Timeline",
+        "reality": "An exported .drt encodes ABSOLUTE timeline frames: every "
+                   "clip's <Start> includes the timeline's StartFrame (e.g. 86400 "
+                   "for the default 01:00:00:00 @ 24fps), not 0-based record "
+                   "positions. Running drp-format vendor ops on the exported "
+                   "container (place_transition, place_fusion_title) at those "
+                   "absolute frames and reimporting is lossless for source media: "
+                   "verified on Resolve Studio 21.0.2.4 — both source clips came "
+                   "back linked (export-then-modify preserves the media-link blobs "
+                   "byte-for-byte). Note: a placed cross-dissolve ('Cross Dissolve') "
+                   "and a placed Fusion title ('Text+') have no MediaPoolItem, so a "
+                   "GetMediaPoolItem() coverage scan counts them as 'offline' — that "
+                   "is expected for generators/transitions, NOT a broken source link.",
+        "recommended": "Position drt ops for a built timeline at ABSOLUTE frames = "
+                       "timeline StartFrame + intro-title footprint + the plan's "
+                       "record frame (auto_edit.polish_timeline does this). Judge "
+                       "media health by whether SOURCE clips relinked, subtracting "
+                       "the transitions/titles you knowingly added from the offline "
+                       "count.",
+        "tags": ["timeline", "conform", "drt", "interchange", "media-link", "absolute-frames"],
+        "issue": 12,
+    },
+    {
+        "symbol": "MediaPool.ImportTimelineFromFile timelineName option (.drt)",
+        "object": "MediaPool",
+        "signature": "(path, {timelineName, ...}) -> Timeline",
+        "reality": "The timelineName key in the options dict is IGNORED for a .drt "
+                   "import — Resolve names the new timeline after the .drt's "
+                   "container/sequence name (e.g. an op-chain output file "
+                   "'lk.01.place_fusion_title' produced a timeline of that name). "
+                   "Timeline.SetName() AFTER import does work and returns True. "
+                   "Verified on Resolve Studio 21.0.2.4.",
+        "recommended": "Don't rely on the timelineName import option for .drt; rename "
+                       "the imported timeline with Timeline.SetName() afterwards "
+                       "(auto_edit.polish_timeline renames to '<built> (polished)').",
+        "tags": ["timeline", "conform", "drt", "import", "naming", "silent-failure"],
+        "issue": 12,
+    },
 ]
 
 

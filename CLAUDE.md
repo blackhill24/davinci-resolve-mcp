@@ -1,15 +1,63 @@
-# Claude Code Instructions
+# davinci-resolve-mcp — Router (ICM Layer 1)
 
-This file is intentionally short. The canonical AI-agent instructions for this
-repository live in `AGENTS.md`.
+> Map, not manual: read this, open exactly ONE workspace's CONTEXT.md, follow its routing
+> table. Don't pre-read the repo. (Methodology: METHODOLOGY.md.)
+> Docs reflect the repo at last sync; a session-start `[icm]` warning means code moved since
+> then — trust structure, re-verify contents for load-bearing work.
 
-Claude Code users should follow:
+**Rules live in `AGENTS.md`** (source-media safety, media-analysis defaults, frame-referenced
+color work, domain routing, commands) — that stays canonical and is read by every agent.
+This router only answers *where does the task live*. Also: `docs/SKILL.md` (operating guide),
+`docs/process/release-process.md` (releases).
 
-- `AGENTS.md` for repository rules and source media safety
-- `docs/SKILL.md` for DaVinci Resolve MCP operating guidance
-- `docs/process/release-process.md` for version bumps, validation, tags, and
-  GitHub Releases
-- `docs/guides/media-analysis-guide.md` for source-safe media analysis
+## What this project is
 
-Do not maintain a separate release checklist, tool-count summary, or changelog
-here. Those details drift; use the docs above as the source of truth.
+One npm package, two MCP servers giving AI assistants full DaVinci Resolve control:
+- **live** (`src/`, Python) — drives a *running* Resolve via the official Scripting API.
+  Full API coverage + guarded workflow helpers across eight domains: **color/grade, timeline
+  edit, conform/interchange, delivery QC, Fusion, audio/Fairlight, media pool/ingest, media
+  analysis** (visual + transcription + metadata writeback). Ships a local browser control panel.
+- **advanced** (`resolve-advanced/`, Node) — authors `.drp`/`.drt`/`.drx` files + applies
+  DB/XML edits (Fairlight routing, conform, offline-ref, group-grade read) with **no Resolve running**.
+
+Two live surfaces: compound (grouped actions, default) vs full/granular (one tool per API
+method). Per-domain depth: `AGENTS.md` → Domain Routing + `docs/kernels/`. Live tool counts
+& stats live in `README.md` — they drift, so they are not tracked here.
+
+## Workspaces
+
+| Workspace | Path | Purpose | Open when |
+|-----------|------|---------|-----------|
+| live-server | `src/` | Python live MCP (compound + granular) driving Resolve | Editing Resolve-facing tools, utils, servers |
+| advanced-server | `resolve-advanced/` | Node beyond-API file/DB authoring | Editing `.drp/.drt/.drx` codecs or offline tools |
+| docs | `docs/` | Kernels, guides, reference, process | Writing/finding domain depth or process docs |
+| tests | `tests/` | ~170 Python tests (offline + live) | Adding/running validation |
+| tooling | `scripts/` (+ `install.py`) | Installer, audits, doc/rule generators | Running audits or regenerating generated docs |
+
+## Folder map (top level only — each workspace maps its own depth)
+
+```
+src/  resolve-advanced/  docs/  tests/  scripts/  bin/  examples/
+install.py  package.json  requirements.txt  AGENTS.md  README.md  CHANGELOG.md
+.claude/skills/   (Claude Code domain skills; mirrors in .cursor/ .roo/ etc.)
+```
+
+## Naming conventions
+
+<!-- A good name is a doc line that can never go stale. Prefer renaming to describing. -->
+- `src/granular/<domain>.py` — one module per Resolve domain (timeline, media_pool, …)
+- `src/utils/<feature>.py`; `*_live_probe.py` = live-Resolve capability probes
+- `tests/test_*.py` = offline unit; `tests/live_*.py` = require a running Resolve
+- `resolve-advanced/server/*.mjs` + `server/tools/<domain>.mjs` = authoring tools; `vendor/<domain>/` = codecs
+- `docs/kernels/<domain>-kernel.md` = per-domain action depth
+
+## Standing rules (in force until the user says otherwise)
+
+- Load only what a routing table points to; stay inside the chosen workspace.
+- Keep names identical across router, contexts, and folders — routing depends on it.
+- Generated files carry `BEGIN GENERATED` markers (e.g. AGENTS.md domain-routing,
+  `docs/reference/api-limitations.md`) — edit the generator in `scripts/`, not the output.
+- **Upkeep:** if you add, remove, or rename files, update that workspace's CONTEXT.md (and
+  this router if the top-level layout changed) in the same session, then run from the root:
+  `python3 .icm/drift-check.py --update`
+- Keep this file ≲60 lines and each CONTEXT.md ≲40. Overflow → push detail down a layer.

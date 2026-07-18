@@ -14,6 +14,7 @@ Python MCP that drives a **running** DaVinci Resolve via its scripting API.
 | Check what a live probe supports | `utils/*_live_probe.py` for the domain | codecs (advanced-server) | matching `docs/kernels/*-kernel.md` |
 | Document a Resolve API limitation | `utils/api_truth.py` | — | run `scripts/gen_api_limitations.py` |
 | Auto-edit pipeline (brief→render) | `utils/auto_edit.py`, `utils/cut_ir.py`, `utils/music_analysis.py`, `server.py` (auto_edit tool) | `granular/` | `.claude/skills/auto-edit.md` |
+| Invoke resolve-advanced (Node) ops | `utils/advanced_bridge.py` (drt/drp surgery in scratch; honest refuse w/o node) | `granular/` | `resolve-advanced/scripts/drp-bridge.mjs` |
 | Safe temp/export paths | `utils/lut_paths.py`, `utils/safe path helpers` | — | — |
 
 ## Key files (only where the name doesn't say enough)

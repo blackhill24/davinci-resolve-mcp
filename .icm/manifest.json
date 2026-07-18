@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "7934e418e5382d9d",
+      "fingerprint": "84b08d42ded768a9",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -29,6 +29,7 @@
         "src/server.py",
         "src/utils/__init__.py",
         "src/utils/actor_identity.py",
+        "src/utils/advanced_bridge.py",
         "src/utils/analysis_caps.py",
         "src/utils/analysis_memory.py",
         "src/utils/analysis_runs.py",
@@ -104,13 +105,14 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "9de06628825a3290",
+      "fingerprint": "dc31a5beb082e39e",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
         "resolve-advanced/package-lock.json",
         "resolve-advanced/package.json",
         "resolve-advanced/scripts/calib-harness.mjs",
+        "resolve-advanced/scripts/drp-bridge.mjs",
         "resolve-advanced/scripts/panel-bridge.mjs",
         "resolve-advanced/server/aaf.mjs",
         "resolve-advanced/server/aaf_probe.py",
@@ -596,7 +598,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "8d13d1ae8d8ac198",
+      "fingerprint": "fc541af1d7563b16",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -634,6 +636,7 @@
         "tests/test_action_help.py",
         "tests/test_action_list_drift.py",
         "tests/test_advanced_bridge.py",
+        "tests/test_advanced_bridge_ops.py",
         "tests/test_agent_rules_drift.py",
         "tests/test_ai_console_dispatch.py",
         "tests/test_analysis_caps.py",

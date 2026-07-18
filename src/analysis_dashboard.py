@@ -14823,36 +14823,12 @@ def _advanced_root() -> str:
 
 def _run_advanced_bridge(surface: str, op: str, args: Optional[Dict[str, Any]] = None,
                          timeout: float = 30.0) -> Dict[str, Any]:
-    import shutil
-    import subprocess
+    # Read-only inspection path (capabilities|lineage). The reusable subprocess
+    # machinery lives in src/utils/advanced_bridge — this stays a thin wrapper so
+    # the panel and the auto_edit drt surgery share one source of truth.
+    from src.utils.advanced_bridge import run_panel_bridge
 
-    node = shutil.which("node")
-    if not node:
-        return {"success": False, "error": "Node.js not found on PATH",
-                "hint": "Install Node.js 18+ to enable advanced-server features in the panel."}
-    bridge = os.path.join(_advanced_root(), "scripts", "panel-bridge.mjs")
-    if not os.path.isfile(bridge):
-        return {"success": False, "error": f"panel bridge missing: {bridge}"}
-    try:
-        # stdin=DEVNULL: never let a child race-read a protocol/stdin stream (api_truth).
-        proc = subprocess.run(
-            [node, bridge, str(surface), str(op), json.dumps(args or {})],
-            capture_output=True, text=True, timeout=timeout,
-            stdin=subprocess.DEVNULL, cwd=_advanced_root(),
-        )
-    except subprocess.TimeoutExpired:
-        return {"success": False, "error": f"advanced bridge timed out after {timeout:.0f}s"}
-    except OSError as exc:
-        return {"success": False, "error": str(exc)}
-    raw = (proc.stdout or "").strip()
-    try:
-        payload = json.loads(raw) if raw else {}
-    except json.JSONDecodeError:
-        payload = {}
-    if not isinstance(payload, dict) or "success" not in payload:
-        stderr_tail = (proc.stderr or "").strip().splitlines()[-3:]
-        return {"success": False, "error": "advanced bridge returned no JSON", "stderr": stderr_tail}
-    return payload
+    return run_panel_bridge(surface, op, args, timeout=timeout)
 
 
 def _advanced_capabilities_payload() -> Dict[str, Any]:

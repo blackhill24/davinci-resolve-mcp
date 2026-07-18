@@ -14,6 +14,7 @@ DB/XML edits with **no Resolve running**. Also usable as a library (`server/lib.
 | Expose something as library API | `server/lib.mjs`, `package.json` exports/main | `vendor/` | — |
 | Understand tool catalog / capabilities | `server/tool-catalog.mjs`, `server/capabilities.mjs` | `vendor/` | — |
 | Run/execute a contract | `server/runner.mjs`, `server/runner-apply-contract.mjs` | `vendor/` | — |
+| Bridge from the Python live server | `scripts/drp-bridge.mjs` (write ops on scratch .drt/.drp), `scripts/panel-bridge.mjs` (read-only) | `vendor/` | Python side: `src/utils/advanced_bridge.py` |
 
 ## Key files (only where the name doesn't say enough)
 

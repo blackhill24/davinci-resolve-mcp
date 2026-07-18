@@ -5,7 +5,7 @@ Resolve Scripting API. They are tracked separately from API method coverage:
 API coverage answers "can MCP reach every Blackmagic method?", while kernel
 coverage answers "which higher-level, guarded agent workflows are available?".
 
-Current kernel coverage: **136 actions** across **9 compound MCP tools**.
+Current kernel coverage: **155 actions** across **10 compound MCP tools**.
 
 | Kernel | MCP Tool | Actions |
 |--------|----------|---------|
@@ -20,6 +20,7 @@ Current kernel coverage: **136 actions** across **9 compound MCP tools**.
 | Audio / Fairlight | `timeline` | `audio_capabilities`, `probe_audio_item`, `probe_audio_track`, `safe_set_audio_properties`, `audio_mix_capability_report`, `voice_isolation_capabilities`, `audio_mapping_report`, `safe_auto_sync_audio`, `transcription_capabilities`, `subtitle_generation_probe`, `fairlight_boundary_report` |
 | Project lifecycle | `project_manager` | `project_capabilities`, `probe_project_lifecycle`, `probe_project_settings`, `safe_project_create`, `safe_project_export`, `safe_project_import`, `safe_project_archive`, `safe_project_restore`, `safe_project_delete`, `safe_set_project_settings`, `project_settings_snapshot`, `database_capabilities`, `safe_set_current_database`, `preset_lifecycle_probe`, `project_boundary_report` |
 | Extension authoring | `script_plugin` | `extension_capabilities`, `probe_fuse_lifecycle`, `probe_dctl_lifecycle`, `probe_script_lifecycle`, `safe_install_extension`, `safe_remove_extension`, `refresh_or_restart_required`, `extension_boundary_report` |
+| Auto edit (brief → render) | `auto_edit` | `start_brief`, `brief_status`, `status`, `plan_cut`, `revise_cut`, `get_cut_summary`, `approve_cut`, `build_timeline`, `finish`, `list_briefs` |
 
 ## Advanced (offline) server
 
@@ -39,7 +40,7 @@ two:
 
 Per-domain Claude Code skills route craft ↔ live ↔ offline automatically and live
 in `.claude/skills/`: `resolve-color`, `resolve-edit`, `resolve-conform`,
-`resolve-delivery` (plus `resolve-media-analysis`). `docs/SKILL.md` is the
+`resolve-delivery` (plus `resolve-media-analysis` and `resolve-auto-edit`). `docs/SKILL.md` is the
 top-level brief for both servers.
 
 Helper-tool details that need more than an action list live in guides. See

@@ -163,3 +163,47 @@ When reporting analysis back to the user, make it editor-usable:
 
 Avoid overclaiming from sparse evidence. If the tool only sampled a few frames,
 say so and recommend the specific next verification step.
+
+## Auto-Edit Heuristics (talking head, Phase 1)
+
+The `auto_edit` pipeline applies these defaults; override them at the
+`approve_cut` checkpoint or with `revise_cut` rather than hand-editing plans.
+
+### Pacing
+
+- Cut hesitation sounds ("um", "uh") wherever they occur; cut discourse words
+  ("like", "so", "well") only when spoken as isolated interjections — mid-flow
+  they are natural speech, not dead weight.
+- Cut the FIRST occurrence of a restarted phrase (false start) so the confident
+  retake survives.
+- Dead air of 1.5s+ between speech regions separates segments; shorter pauses
+  belong to the rhythm of the sentence and stay.
+- Fit to the target duration by dropping whole trailing segments, never blind
+  mid-sentence trims. Record the drops so the checkpoint can show what went.
+
+### Punch-in vs b-roll
+
+Every removed mid-speech region creates a jump cut that must be disguised:
+
+- Prefer **b-roll** when a similarity match against the brief's non-speech
+  footage clears relevance; the overlay covers the head of the incoming
+  segment (~2s on V2).
+- Otherwise **punch in** (~12% zoom, `ZoomX`/`ZoomY`) on the incoming segment —
+  alternating framings read as intentional coverage.
+- Never smooth two adjacent cuts the same way twice when b-roll is scarce;
+  variety hides the mechanism.
+
+### Title timing
+
+- One intro title at the head of V1 (the only placement the API supports
+  reliably), default ~4s — long enough to read twice, short enough not to
+  delay the first line.
+
+### Music levels
+
+- Bed gain targets ~7 LU under dialogue (dialogue at approximately -23 LUFS →
+  bed near -30 LUFS), measured with ffmpeg ebur128, never guessed.
+- The music trims to the cut length with a ~1s fade in/out.
+- A ducked bed is a DERIVATIVE file: it renders only with explicit checkpoint
+  consent, into the analysis root. Without consent the bed keeps one static
+  level — quieter is safer than pumping.

@@ -120,7 +120,7 @@ for Resolve scripting; 3.13/3.14 are accepted and verified on Resolve Studio
 Per-domain routers pair the live tools with their offline (advanced-server)
 counterparts. Every domain is available on demand in ANY MCP client as a slash
 prompt (`/color_grade_workflow`, `/timeline_edit_workflow`, `/conform_workflow`,
-`/delivery_workflow`, `/analyze_media`) and, in Claude Code, as a `.claude/skills/`
+`/delivery_workflow`, `/auto_edit_workflow`, `/analyze_media`) and, in Claude Code, as a `.claude/skills/`
 skill. Full per-action depth lives in `docs/kernels/`.
 
 - **Color / Grade** (`/color_grade_workflow`, skill `resolve-color`) — grading, correcting, shot matching, developing looks, or applying/modifying LUTs, CDLs, DRX grades, or copied grades. Live: timeline_item_color. Offline: drx. Depth: docs/kernels/color-grade-kernel.md + docs/guides/color-decision-guide.md.
@@ -130,5 +130,6 @@ skill. Full per-action depth lives in `docs/kernels/`.
 - **Fusion Composition** (`/fusion_workflow`, skill `resolve-fusion`) — building or editing Fusion comps — titles, motion graphics, VFX, merges, masks, trackers. Live: fusion_comp. Offline: fusion. Depth: docs/kernels/fusion-composition-kernel.md.
 - **Audio / Fairlight** (`/audio_workflow`, skill `resolve-audio`) — setting audio properties, syncing audio, isolating voice, generating subtitles, planning Fairlight tracks/buses, checking loudness, routing buses, or splitting/trimming/converting audio. Live: timeline. Offline: audio_plan. Depth: docs/kernels/audio-fairlight-kernel.md.
 - **Media Pool / Ingest** (`/media_pool_workflow`, skill `resolve-media-pool`) — importing media, building multicam timelines, organizing/relinking clips, normalizing metadata, or verifying/inventorying a card before ingest. Live: media_pool. Offline: media. Depth: docs/kernels/media-pool-ingest-kernel.md + docs/guides/multicam-setup-guide.md.
+- **Auto Edit (brief → render)** (`/auto_edit_workflow`, skill `resolve-auto-edit`) — the user names source files, optional music, and the kind of video they want and expects a finished cut — autonomous talking-head/interview editing with one approval checkpoint. Live: auto_edit. Offline: cut_ir/auto_edit decision layer. Depth: docs/kernels/auto-edit-kernel.md + docs/guides/editorial-decision-guide.md.
 - **Media Analysis** (`/analyze_media`, skill `resolve-media-analysis`) — reading or analyzing source media (technical, visual, or transcription) to inform Resolve actions. Live: media_analysis. Offline: media. Depth: docs/kernels/README.md + docs/guides/media-analysis-guide.md.
 <!-- END GENERATED: domain-routing -->

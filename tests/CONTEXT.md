@@ -12,6 +12,7 @@
 | Add an offline unit test | `test_<area>.py` near the feature; `_error_envelope_helpers.py` | `live_*` | — |
 | Add a live-Resolve validation | `live_<domain>_validation.py` examples | `test_*` | `docs/process/release-process.md` |
 | Smoke-check imports/wiring | `test_import.py` | `live_*` | — |
+| Auto-edit pipeline tests | `test_auto_edit.py`, `test_auto_edit_tool.py`, `test_cut_ir_words.py`, `test_music_analysis.py` | `live_auto_edit_validation.py` unless live | — |
 | Benchmark the server | `benchmark_server.py` | `live_*` | `scripts/measure_bridge_cost.py` |
 | Set up a test timeline | `create_test_timeline.py` | — | — |
 

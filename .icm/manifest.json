@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "317e439d3c535b49",
+      "fingerprint": "4b93755c2b4cd741",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -36,6 +36,7 @@
         "src/utils/api_truth.py",
         "src/utils/app_control.py",
         "src/utils/audio_fairlight_live_probe.py",
+        "src/utils/auto_edit.py",
         "src/utils/background_jobs.py",
         "src/utils/brain_edits.py",
         "src/utils/bridge_metrics.py",
@@ -65,6 +66,7 @@
         "src/utils/media_pool_changes.py",
         "src/utils/media_pool_ingest_live_probe.py",
         "src/utils/multicam.py",
+        "src/utils/music_analysis.py",
         "src/utils/object_inspection.py",
         "src/utils/page_lock.py",
         "src/utils/platform.py",
@@ -524,7 +526,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "863e6fc0fd332167",
+      "fingerprint": "01d06f7d6c4da105",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -570,6 +572,7 @@
         "docs/integrations/workflow-integrations.md",
         "docs/kernels/README.md",
         "docs/kernels/audio-fairlight-kernel.md",
+        "docs/kernels/auto-edit-kernel.md",
         "docs/kernels/color-grade-kernel.md",
         "docs/kernels/extension-authoring-kernel.md",
         "docs/kernels/fusion-composition-kernel.md",
@@ -593,13 +596,14 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "958360b516066dd1",
+      "fingerprint": "68472a6c1c926ed3",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
         "tests/create_test_timeline.py",
         "tests/live_api_gap_verification.py",
         "tests/live_audio_fairlight_validation.py",
+        "tests/live_auto_edit_validation.py",
         "tests/live_auto_sync_settings_check.py",
         "tests/live_color_grade_validation.py",
         "tests/live_delete_governance_check.py",
@@ -640,6 +644,8 @@
         "tests/test_api_truth_mitigations.py",
         "tests/test_append_clip_infos_result_handling.py",
         "tests/test_audio_fairlight_probe.py",
+        "tests/test_auto_edit.py",
+        "tests/test_auto_edit_tool.py",
         "tests/test_auto_run.py",
         "tests/test_auto_sync_audio.py",
         "tests/test_background_jobs.py",
@@ -661,6 +667,7 @@
         "tests/test_custom_timeline.py",
         "tests/test_cut_executor.py",
         "tests/test_cut_ir.py",
+        "tests/test_cut_ir_words.py",
         "tests/test_dashboard_transport.py",
         "tests/test_deep_vision.py",
         "tests/test_description_xml_shape.py",
@@ -703,6 +710,7 @@
         "tests/test_media_pool_ingest_probe.py",
         "tests/test_media_pool_walk.py",
         "tests/test_multicam_setup.py",
+        "tests/test_music_analysis.py",
         "tests/test_object_inspection.py",
         "tests/test_open_control_panel.py",
         "tests/test_p1_param_validation.py",
@@ -769,7 +777,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "6d998be6013a2600",
+      "fingerprint": "53a9e3b616dab2a1",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

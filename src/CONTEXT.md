@@ -13,6 +13,7 @@ Python MCP that drives a **running** DaVinci Resolve via its scripting API.
 | Media-analysis / vision work | `utils/media_analysis*.py`, `utils/deep_vision.py` | `granular/` | `docs/guides/media-analysis-guide.md` |
 | Check what a live probe supports | `utils/*_live_probe.py` for the domain | codecs (advanced-server) | matching `docs/kernels/*-kernel.md` |
 | Document a Resolve API limitation | `utils/api_truth.py` | — | run `scripts/gen_api_limitations.py` |
+| Auto-edit pipeline (brief→render) | `utils/auto_edit.py`, `utils/cut_ir.py`, `utils/music_analysis.py`, `server.py` (auto_edit tool) | `granular/` | `.claude/skills/auto-edit.md` |
 | Safe temp/export paths | `utils/lut_paths.py`, `utils/safe path helpers` | — | — |
 
 ## Key files (only where the name doesn't say enough)

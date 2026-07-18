@@ -99,6 +99,14 @@ const DOMAINS = [
     rule: 'Verify + inventory the card offline before importing, then import/organize live. media needs ffmpeg+ffprobe. Never rename/derive camera originals (rename_plan refuses them). For footage-content analysis use media-analysis; for deliverable-side media QC use delivery.',
   },
   {
+    id: 'auto-edit', skill: 'resolve-auto-edit', title: 'Auto Edit (brief → render)', prompt: 'auto_edit_workflow',
+    when: 'the user names source files, optional music, and the kind of video they want and expects a finished cut — autonomous talking-head/interview editing with one approval checkpoint',
+    kernel: 'docs/kernels/auto-edit-kernel.md', guide: 'docs/guides/editorial-decision-guide.md',
+    live: 'auto_edit (start_brief, brief_status, plan_cut, revise_cut, get_cut_summary, approve_cut, build_timeline, finish), media_analysis, edit_engine',
+    offline: 'cut_ir/auto_edit decision layer (pure planning against the analysis DB); Phase 2 adds drt surgery via the advanced server',
+    rule: 'ONE human checkpoint: approve_cut (confirm-token gated; its preview carries the cut summary + the music-bed-render consent line). Timelines are stateless artifacts — revisions rebuild via append-rebuild, never hand-patch. The only permitted derivative is the consent-gated ducked music bed, written under the analysis root.',
+  },
+  {
     id: 'media-analysis', skill: 'resolve-media-analysis', title: 'Media Analysis', prompt: 'analyze_media',
     when: 'reading or analyzing source media (technical, visual, or transcription) to inform Resolve actions',
     kernel: 'docs/kernels/README.md', guide: 'docs/guides/media-analysis-guide.md',
@@ -167,7 +175,7 @@ const agentsBlock = [
   `Per-domain routers pair the live tools with their offline (advanced-server)`,
   `counterparts. Every domain is available on demand in ANY MCP client as a slash`,
   `prompt (\`/color_grade_workflow\`, \`/timeline_edit_workflow\`, \`/conform_workflow\`,`,
-  `\`/delivery_workflow\`, \`/analyze_media\`) and, in Claude Code, as a \`.claude/skills/\``,
+  `\`/delivery_workflow\`, \`/auto_edit_workflow\`, \`/analyze_media\`) and, in Claude Code, as a \`.claude/skills/\``,
   `skill. Full per-action depth lives in \`docs/kernels/\`.`,
   ``,
   ...DOMAINS.map((d) => {

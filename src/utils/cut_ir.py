@@ -269,7 +269,12 @@ def detect_cuts_auto(
 # ── CutList schema (kind="auto_edit_cut") ────────────────────────────────────
 
 CUT_LIST_KIND = "auto_edit_cut"
-SEGMENT_ROLES = {"intro", "speech", "broll", "outro"}
+# Talking-head roles. Montage (Phase 3) adds roles, not schema — the CutList is
+# already role-tagged, so a montage plan is the same shape with montage roles:
+#   montage      — a beat-synced shot in a montage sequence (cut on an onset)
+#   montage_hook — the opening attention shot before the beat grid kicks in
+MONTAGE_SEGMENT_ROLES = {"montage", "montage_hook"}
+SEGMENT_ROLES = {"intro", "speech", "broll", "outro"} | MONTAGE_SEGMENT_ROLES
 DUCKING_MODES = {"none", "static", "rendered_bed"}
 
 

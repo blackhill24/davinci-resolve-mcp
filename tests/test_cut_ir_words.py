@@ -160,7 +160,7 @@ class CutListSchemaTest(unittest.TestCase):
     def test_validators_catch_problems(self):
         plan = self._valid_plan()
         plan["segments"][0]["source_end_frame"] = 0  # not half-open
-        plan["segments"][0]["role"] = "montage"      # bad role
+        plan["segments"][0]["role"] = "gremlin"      # bad role
         del plan["segments"][0]["clip_uuid"]         # no identity
         plan["music"]["ducking"]["mode"] = "sidechain"
         errors = cut_ir.validate_cut_list(plan)
@@ -175,6 +175,48 @@ class CutListSchemaTest(unittest.TestCase):
         joined = "\n".join(errors)
         self.assertIn("kind", joined)
         self.assertIn("non-empty", joined)
+
+
+class MontageRolesTest(unittest.TestCase):
+    """Phase-3 montage adds roles, not schema — same CutList shape validates."""
+
+    def test_montage_roles_are_registered_and_additive(self):
+        # Montage roles are a subset of the valid roles, and the talking-head
+        # roles are untouched (no schema break).
+        self.assertTrue(cut_ir.MONTAGE_SEGMENT_ROLES <= cut_ir.SEGMENT_ROLES)
+        for role in ("intro", "speech", "broll", "outro"):
+            self.assertIn(role, cut_ir.SEGMENT_ROLES)
+
+    def test_montage_plan_validates_with_same_schema(self):
+        segs = [
+            cut_ir.make_cut_list_segment(
+                role="montage_hook", clip_uuid="h",
+                source_start_frame=0, source_end_frame=48),
+            cut_ir.make_cut_list_segment(
+                role="montage", clip_uuid="s1",
+                source_start_frame=0, source_end_frame=12),
+            cut_ir.make_cut_list_segment(
+                role="montage", clip_uuid="s2",
+                source_start_frame=0, source_end_frame=12),
+        ]
+        plan = cut_ir.make_cut_list(
+            segments=segs, fps=FPS, brief_id="montage1",
+            music={"path": "/media/track.wav"})
+        self.assertEqual(cut_ir.validate_cut_list(plan), [])
+        self.assertEqual(plan["kind"], cut_ir.CUT_LIST_KIND)
+
+    def test_montage_shots_count_toward_runtime(self):
+        # Unlike broll overlays, montage shots ARE the runtime.
+        segs = [
+            cut_ir.make_cut_list_segment(
+                role="montage", clip_uuid="a",
+                source_start_frame=0, source_end_frame=30),
+            cut_ir.make_cut_list_segment(
+                role="montage", clip_uuid="b",
+                source_start_frame=0, source_end_frame=30),
+        ]
+        plan = cut_ir.make_cut_list(segments=segs, fps=FPS)
+        self.assertEqual(plan["estimates"]["duration_frames"], 60)
 
 
 if __name__ == "__main__":

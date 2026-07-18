@@ -1,4 +1,8 @@
-"""Tests for the ffmpeg-only music_analysis util (bed gain + Phase-3 stub)."""
+"""Tests for the ffmpeg-only music_analysis util (bed gain + beat/onset)."""
+import os
+import shutil
+import subprocess
+import tempfile
 import unittest
 from unittest import mock
 
@@ -74,12 +78,93 @@ class AnalyzeMusicBedTest(unittest.TestCase):
         self.assertIsNone(out["gain_db"])
 
 
-class BeatStubTest(unittest.TestCase):
-    def test_beats_honestly_unavailable(self):
-        out = music_analysis.detect_beats("/media/song.wav")
+class BeatDetectionTest(unittest.TestCase):
+    def test_missing_file_honestly_unavailable(self):
+        out = music_analysis.detect_beats("/media/does-not-exist.wav")
         self.assertFalse(out["success"])
         self.assertFalse(out["available"])
-        self.assertNotIn("beats", out)
+        self.assertNotIn("onsets", out)
+
+    def test_undecodable_track_honestly_unavailable(self):
+        # ffmpeg present but decode fails → honest unavailable, no fabricated grid.
+        with mock.patch.object(music_analysis, "_decode_pcm_mono",
+                               return_value=(None, music_analysis.BEAT_SAMPLE_RATE)):
+            with mock.patch("os.path.isfile", return_value=True):
+                out = music_analysis.detect_beats("/media/song.wav")
+        self.assertFalse(out["success"])
+        self.assertFalse(out["available"])
+        self.assertNotIn("onsets", out)
+
+    def test_onset_novelty_fires_on_energy_rise(self):
+        # Silence → burst → silence: novelty must spike at the burst onset only.
+        import array
+        sr = 22050
+        quiet = [0.0] * sr
+        loud = [0.5 if i % 2 else -0.5 for i in range(sr)]  # full-scale-ish square
+        samples = array.array("f", quiet + loud + quiet)
+        times, novelty = music_analysis.onset_novelty(samples, sr)
+        self.assertTrue(times and novelty)
+        peak_t = times[max(range(len(novelty)), key=lambda k: novelty[k])]
+        self.assertAlmostEqual(peak_t, 1.0, delta=0.1)  # burst starts at ~1.0s
+
+    def test_pick_onsets_spacing_and_threshold(self):
+        # Three clear novelty spikes, well separated → three onsets.
+        times = [i * 0.05 for i in range(60)]
+        novelty = [0.0] * 60
+        for k in (10, 30, 50):
+            novelty[k] = 1.0
+        onsets = music_analysis.pick_onsets(times, novelty, sensitivity=1.5,
+                                            min_gap_seconds=0.12)
+        self.assertEqual(len(onsets), 3)
+        self.assertAlmostEqual(onsets[0], 0.5, delta=1e-6)
+
+    def test_estimate_tempo_from_even_onsets(self):
+        # Onsets every 0.5s → 120 BPM.
+        onsets = [round(0.5 * i, 3) for i in range(9)]
+        self.assertAlmostEqual(music_analysis.estimate_tempo_bpm(onsets), 120.0, delta=0.5)
+
+    def test_estimate_tempo_none_when_too_few(self):
+        self.assertIsNone(music_analysis.estimate_tempo_bpm([1.0]))
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not on PATH")
+    def test_detect_beats_end_to_end_on_click_track(self):
+        # A 120-BPM metronome authored as a real WAV (deterministic), then decoded
+        # through ffmpeg by detect_beats: 20 ms decaying tone bursts every 0.5 s
+        # for 6 s → 12 clicks.
+        import math
+        import struct
+        import wave
+
+        sr = 22050
+        total = sr * 6
+        click_len = int(0.02 * sr)
+        buf = bytearray(total * 2)
+        for beat in range(12):
+            start = int(beat * 0.5 * sr)
+            for i in range(click_len):
+                idx = start + i
+                if idx >= total:
+                    break
+                env = 1.0 - i / click_len
+                val = int(0.7 * env * math.sin(2 * math.pi * 880 * i / sr) * 32767)
+                struct.pack_into("<h", buf, idx * 2, val)
+
+        tmp = tempfile.mkdtemp(prefix="drm-beats-")
+        wav = os.path.join(tmp, "click.wav")
+        with wave.open(wav, "w") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(sr)
+            w.writeframes(bytes(buf))
+
+        out = music_analysis.detect_beats(wav)
+        self.assertTrue(out["success"], out)
+        self.assertTrue(out["available"])
+        # ~12 onsets; allow slack for edge frames and threshold warm-up.
+        self.assertGreaterEqual(out["onset_count"], 8)
+        self.assertLessEqual(out["onset_count"], 16)
+        self.assertIsNotNone(out["tempo_bpm"])
+        self.assertAlmostEqual(out["tempo_bpm"], 120.0, delta=15.0)
 
 
 class RenderDuckedBedTest(unittest.TestCase):

@@ -53,6 +53,7 @@ class DocToolCountsDriftTest(unittest.TestCase):
             ("README.md", f"Advanced%20(offline)-{adv}%20tools"),
             ("resolve-advanced/README.md", f"## Tools ({adv})"),
             ("src/server.py", f"{comp} compound tools"),
+            ("src/resolve_mcp_server.py", f"({gran} granular tools)"),
             ("docs/contributing.md", f"Compound MCP server — {comp} tools"),
             ("docs/SKILL.md", f"`src/server.py` | {comp} tools"),
             ("docs/SKILL.md", f"`src/server.py --full` | {gran} tools"),

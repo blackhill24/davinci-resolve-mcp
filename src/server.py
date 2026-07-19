@@ -19576,6 +19576,15 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                     "record_frame": int(append_ci["record_frame"]),
                     "zoom": float(punch.get("zoom") or _auto_edit_mod.PUNCH_IN_ZOOM),
                 })
+        # A positioned append to A2+ is SILENTLY DROPPED unless the audio track
+        # already exists (verified live — api_truth #12 probe 6), so the music bed
+        # on A2 vanishes without this. Create the audio tracks the rows target
+        # before the append. (CreateEmptyTimeline starts with one audio track.)
+        need_audio = max(
+            [int(r.get("trackIndex", 1)) for r in built
+             if int(r.get("mediaType", 1)) == 2] or [0])
+        while need_audio and int(tl.GetTrackCount("audio") or 1) < need_audio:
+            tl.AddTrack("audio")
         appended = mp.AppendToTimeline(built) if built else None
 
         # 4) Punch-in zoom on jump-cut segments (static transform per item).

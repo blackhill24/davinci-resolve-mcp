@@ -27,6 +27,7 @@ from src.utils.app_control import (
     quit_resolve_app,
     restart_resolve_app,
 )
+from src.utils.proc import sanitized_spawn_env
 from src.utils.cdl import normalize_cdl_payload
 from src.utils.cloud_operations import (
     create_cloud_project,
@@ -340,7 +341,12 @@ def _launch_resolve():
         app_path = "/opt/resolve/bin/resolve"
         if not os.path.exists(app_path):
             return False
-        subprocess.Popen([app_path], stdin=subprocess.DEVNULL)
+        subprocess.Popen(
+            [app_path],
+            stdin=subprocess.DEVNULL,
+            env=sanitized_spawn_env(),
+            start_new_session=True,
+        )
     else:
         return False
     logger.info("Launched DaVinci Resolve, waiting for it to respond...")

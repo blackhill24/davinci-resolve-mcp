@@ -16,6 +16,8 @@ import platform
 import subprocess
 from typing import Dict, Any, Optional, Union, List
 
+from src.utils.proc import sanitized_spawn_env
+
 # Configure logging
 logger = logging.getLogger("davinci-resolve-mcp.app_control")
 APP_CONTROL_TIMEOUT_SECONDS = 10
@@ -248,7 +250,12 @@ def restart_resolve_app(resolve_obj, wait_seconds: int = 5) -> bool:
         elif platform.system().lower() == 'windows':
             subprocess.Popen([resolve_path])
         elif platform.system().lower() == 'linux':
-            subprocess.Popen([resolve_path])
+            subprocess.Popen(
+                [resolve_path],
+                stdin=subprocess.DEVNULL,
+                env=sanitized_spawn_env(),
+                start_new_session=True,
+            )
         
         return True
     except Exception as e:

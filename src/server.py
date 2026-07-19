@@ -47,7 +47,7 @@ from src.utils.api_truth import lookup_api_truth, VERIFIED_ON as _API_TRUTH_VERI
 from src.utils.contracts import validate as _validate_params
 from src.utils.cut_ir import build_cut_list as _build_cut_list
 from src.utils.page_lock import open_page_serialized as _open_page_serialized
-from src.utils.proc import safe_run
+from src.utils.proc import safe_run, sanitized_spawn_env
 from src.utils.readback import verify_by_readback, verification_stats as _verification_stats
 from src.utils.update_check import (
     check_for_updates,
@@ -867,7 +867,12 @@ def _launch_resolve():
         if not os.path.exists(app_path):
             logger.error(f"DaVinci Resolve not found at {app_path}")
             return False
-        subprocess.Popen([app_path], stdin=subprocess.DEVNULL)
+        subprocess.Popen(
+            [app_path],
+            stdin=subprocess.DEVNULL,
+            env=sanitized_spawn_env(),
+            start_new_session=True,
+        )
     else:
         return False
     logger.info("Launched DaVinci Resolve, waiting for it to respond...")
@@ -19198,15 +19203,27 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         brief_id = created["brief_id"]
         analysis_job_id = None
         analysis_warning = None
+        # Transcription is the load-bearing artifact for planning. LLM vision
+        # (host_chat_paths) needs an interactive host to commit frames, which an
+        # autonomous brief cannot satisfy, so it is off by default here (opt in
+        # via options.vision). An explicit sampling_mode stops start_batch_job
+        # from returning its first-run frame-sampling prompt instead of a job.
+        brief_options = p.get("options") or {}
         try:
             kicked = await media_analysis("start_batch_job", {
                 "target": {"type": "bin", "path": "Footage", "recursive": False},
                 "name": f"auto_edit {brief_id}",
                 "analysis_root": project_root,
+                "sampling_mode": brief_options.get("sampling_mode") or "adaptive_capped",
+                "transcription": {"enabled": True, "allow_model_download": True},
+                "vision": {"enabled": bool(brief_options.get("vision"))},
             })
-            analysis_job_id = (kicked or {}).get("job_id")
+            # create_batch_job nests the id under "job"; a first-run sampling
+            # prompt or a capability gap returns no job at all.
+            analysis_job_id = ((kicked or {}).get("job") or {}).get("job_id")
             if not analysis_job_id:
-                analysis_warning = (kicked or {}).get("error") or "analysis kick returned no job_id"
+                analysis_warning = (kicked or {}).get("error") or (
+                    kicked or {}).get("message") or "analysis kick returned no job_id"
         except Exception as exc:
             analysis_warning = f"analysis kick failed: {type(exc).__name__}: {exc}"
         _auto_edit_mod.advance_brief(
@@ -19234,9 +19251,25 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             return _err(f"brief not found: {_brief_id_param()!r}")
         analysis = None
         if brief.get("state") == "analyzing" and brief.get("analysis_job_id"):
+            job_id = brief["analysis_job_id"]
+            # brief_status is the ONLY surface that drives this job's slices —
+            # start_brief just queues it, nothing else pumps it. Run bounded
+            # slices until the job is terminal or this call's time budget is
+            # spent; large briefs finish across successive polls.
+            budget = _time.monotonic() + 300
             try:
-                analysis = await media_analysis(
-                    "batch_job_status", {"job_id": brief["analysis_job_id"]})
+                analysis = await media_analysis("batch_job_status", {"job_id": job_id})
+                _terminal = ("completed", "completed_with_errors", "canceled", "failed")
+                while str((analysis or {}).get("status") or "").lower() not in _terminal:
+                    if _time.monotonic() >= budget:
+                        break
+                    sliced = await media_analysis("run_batch_job_slice", {
+                        "job_id": job_id, "max_clips": 4, "max_seconds": 240})
+                    analysis = (sliced or {}).get("job") or await media_analysis(
+                        "batch_job_status", {"job_id": job_id})
+                    # No progress (nothing pending / slice failed) — stop looping.
+                    if not (sliced or {}).get("success") or not (sliced or {}).get("processed_count"):
+                        break
                 job_state = str((analysis or {}).get("status") or "").lower()
                 # Terminal job statuses are completed | completed_with_errors |
                 # canceled (media_analysis_jobs); a partly-failed batch still

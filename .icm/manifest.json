@@ -3,11 +3,11 @@
   "layers": 3,
   "root_nav": "CLAUDE.md",
   "synced": "2026-07-19",
-  "_root_structure": "9464cff69485362e",
+  "_root_structure": "01f545d69a3b321e",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "bfd14834d616589d",
+      "fingerprint": "52a44f7174dfabd6",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -528,7 +528,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "abe92b35ab4594dd",
+      "fingerprint": "5729199e1050ce05",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -598,7 +598,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "fb2ae14eff0adb05",
+      "fingerprint": "1d0bc89307ed1b77",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -744,6 +744,7 @@
         "tests/test_script_plugin.py",
         "tests/test_set_current_selector.py",
         "tests/test_shot_relationships.py",
+        "tests/test_spawn_env_sanitization.py",
         "tests/test_spec_lint_wiring.py",
         "tests/test_static_undefined_names.py",
         "tests/test_strata.py",

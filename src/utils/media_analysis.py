@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from src.utils import analysis_caps as _analysis_caps
+from src.utils.proc import sanitized_spawn_env
 
 # Caps preference reader — server.py registers a provider that reads the
 # media-analysis prefs file. Until then, the default preset is used.
@@ -2261,6 +2262,7 @@ def _run_command(args: List[str], timeout: int = COMMAND_TIMEOUT_SECONDS) -> Tup
             capture_output=True,
             timeout=timeout,
             check=False,
+            env=sanitized_spawn_env(),
         )
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout.decode("utf-8", errors="replace") if exc.stdout else ""
@@ -3901,6 +3903,11 @@ def _transcribe_with_whisper_cli(path: str, artifacts: Dict[str, Any], transcrip
     ]
     if transcription.get("language"):
         cmd.extend(["--language", str(transcription["language"])])
+    # Escape hatch for hosts where torch sees a GPU but the CUDA/cuDNN stack is
+    # broken: pass device explicitly (option or DRM_WHISPER_DEVICE env).
+    device = transcription.get("device") or os.environ.get("DRM_WHISPER_DEVICE")
+    if device:
+        cmd.extend(["--device", str(device)])
     code, _, stderr = _run_command(cmd, timeout=int(transcription.get("timeout", 1800)))
     if code != 0:
         return {"success": False, "backend": "whisper_cli", "error": stderr.strip() or "whisper CLI failed"}

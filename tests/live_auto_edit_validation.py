@@ -2,8 +2,9 @@
 """Live end-to-end validation for the auto_edit pipeline (Phase 1 closer).
 
 Requires DaVinci Resolve Studio running (Linux is the target platform for the
-epic; macOS works too — speech synthesis falls back from `say` to ffmpeg sine
-beeps when unavailable, which exercises the cue-level fallback path).
+epic; macOS works too — speech synthesis tries `say` (macOS), then piper-tts
+(`pip install piper-tts` + a voice in ~/.cache/piper/ or $PIPER_VOICE), then
+falls back to ffmpeg sine beeps, which exercises the cue-level fallback path).
 
 Creates a DISPOSABLE project with synthetic media (testsrc video + spoken
 lines with deliberate fillers and a false start, plus a sine music track),
@@ -25,6 +26,7 @@ Run: .venv/bin/python tests/live_auto_edit_validation.py
 from __future__ import annotations
 
 import asyncio
+import glob
 import os
 import shutil
 import subprocess
@@ -46,20 +48,37 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     print(f"  [{'PASS' if ok else 'FAIL'}] {name}" + (f" — {detail}" if detail else ""))
 
 
-def _speech_audio(path: str, text: str) -> bool:
-    """Spoken audio via `say` when present; caller falls back to beeps."""
+def _piper_voice() -> str | None:
+    env = os.environ.get("PIPER_VOICE")
+    if env and os.path.isfile(env):
+        return env
+    candidates = sorted(glob.glob(os.path.expanduser("~/.cache/piper/*.onnx")))
+    return candidates[0] if candidates else None
+
+
+def _speech_audio(base: str, text: str) -> str | None:
+    """Spoken audio via `say`, then piper-tts; returns the written path."""
     if shutil.which("say"):
-        subprocess.run(["say", "-o", path, text], check=True)
-        return True
-    return False
+        out = base + ".aiff"
+        subprocess.run(["say", "-o", out, text], check=True)
+        return out
+    voice = _piper_voice()
+    if voice:
+        out = base + ".wav"
+        proc = subprocess.run(
+            [sys.executable, "-m", "piper", "-m", voice, "-f", out],
+            input=text, text=True, capture_output=True)
+        if proc.returncode == 0 and os.path.isfile(out):
+            return out
+    return None
 
 
 def synth_talk_clip(name: str, *, text: str, duration: float) -> str:
     """testsrc video with speech (or beeps) — deliberate filler content."""
     out = os.path.join(MEDIA_DIR, f"{name}.mp4")
-    aiff = os.path.join(MEDIA_DIR, f"{name}.aiff")
-    if _speech_audio(aiff, text):
-        audio_in = ["-i", aiff]
+    speech = _speech_audio(os.path.join(MEDIA_DIR, name), text)
+    if speech:
+        audio_in = ["-i", speech]
         afilter = "[1:a]apad[a]"
     else:
         audio_in = ["-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}"]
@@ -185,6 +204,29 @@ async def run_pipeline(s) -> int:
         print(f"  [note] punch-ins: {built.get('punch_ins')}")
         print(f"  [note] usage: {(built.get('readback') or {}).get('usage_summary')}")
 
+        # 5b) polish_timeline — issue #13 full-tool live run (opt-in via
+        # DRM_LIVE_POLISH=1; lower_thirds guarantees at least one op even when
+        # the cut has no source-change dissolves).
+        if os.environ.get("DRM_LIVE_POLISH"):
+            popts = {"lower_thirds": [{"text": "Pilot Speaker", "at_segment": 0}]}
+            gate = await s.auto_edit("polish_timeline", {
+                "plan_id": plan_id, "options": popts})
+            check("polish_timeline issues token",
+                  gate.get("status") == "confirmation_required",
+                  str(gate.get("error") or ""))
+            polished = await s.auto_edit("polish_timeline", {
+                "plan_id": plan_id, "options": popts,
+                "confirm_token": gate.get("confirm_token")})
+            check("polish_timeline", bool(polished.get("success")),
+                  str(polished.get("error") or polished.get("polished_timeline")))
+            if polished.get("success"):
+                check("polished source clips stayed linked",
+                      bool(polished.get("clips_relinked")),
+                      str(polished.get("media_link")))
+                print(f"  [note] polished timeline: {polished.get('polished_timeline')}"
+                      f" ops={polished.get('ops_applied')}"
+                      f" warning={polished.get('warning')}")
+
         # 6) finish — render
         params = {"plan_id": plan_id,
                   "render": {"target_dir": RENDER_DIR, "custom_name": "pilot_cut"}}
@@ -193,6 +235,9 @@ async def run_pipeline(s) -> int:
             **params, "confirm_token": gate.get("confirm_token")})
         render = finished.get("render") or {}
         output = render.get("output_path")
+        if not finished.get("success"):
+            import json as _json
+            print("  [debug] finish returned:\n" + _json.dumps(finished, indent=2, default=str)[:2000])
         check("finish render", bool(finished.get("success")), str(render.get("error") or output))
         exists = bool(output and os.path.isfile(output))
         check("output exists", exists, str(output))

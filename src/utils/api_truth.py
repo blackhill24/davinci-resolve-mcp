@@ -606,6 +606,50 @@ API_TRUTH: List[Dict[str, Any]] = [
         "tags": ["timeline", "conform", "drt", "import", "naming", "silent-failure"],
         "issue": 12,
     },
+    {
+        "symbol": "Timeline.InsertTitleIntoTimeline on an EMPTY timeline",
+        "object": "Timeline",
+        "signature": "InsertTitleIntoTimeline(titleName) -> bool",
+        "reality": "Works on a completely empty timeline (no prior clips): returns "
+                   "True and places the title at the head of V1. The duration is a "
+                   "fixed default of 120 frames (5s @ 24fps) and is deterministic "
+                   "across inserts. It is NOT adjustable via the API afterwards: "
+                   "TimelineItem.SetProperty('Duration'|'End', ...) returns False and "
+                   "leaves geometry unchanged (SetProperty only reaches Fusion text "
+                   "params like 'Text'). A subsequent MediaPool.AppendToTimeline "
+                   "lands exactly at the title's GetEnd() — no gap, no overlap — so "
+                   "record_offset = title.GetEnd() - timeline_start is sound. "
+                   "Verified live on Resolve Studio 21.0.2.4 (probe 4, issue #12).",
+        "recommended": "Insert the intro title first, then read GetEnd() off the "
+                       "title item and use it as the append offset (what "
+                       "auto_edit.build_timeline does). Don't try to resize the "
+                       "title via the API; plan around the 120-frame default.",
+        "tags": ["timeline", "edit", "title", "generator", "empty-timeline",
+                 "duration", "append"],
+        "issue": 12,
+    },
+    {
+        "symbol": "MediaPool.AppendToTimeline audio-only positioned append to A2",
+        "object": "MediaPool / Timeline",
+        "signature": "AppendToTimeline([{mediaPoolItem, mediaType: 2, trackIndex: 2, "
+                     "recordFrame}]) -> [TimelineItem]",
+        "reality": "A positioned audio-only append to A2 lands at exactly the "
+                   "requested absolute recordFrame — but ONLY if the track already "
+                   "exists. A new empty timeline has 1 audio track; appending to "
+                   "trackIndex 2 without it neither errors nor creates the track: "
+                   "Resolve returns a list containing None (not an empty list), the "
+                   "track count stays 1, and nothing is placed. After "
+                   "Timeline.AddTrack('audio') the same call succeeds and readback "
+                   "shows the clip at the requested frame. Verified live on Resolve "
+                   "Studio 21.0.2.4 (probe 6, issue #12).",
+        "recommended": "Ensure the target audio track exists (GetTrackCount + "
+                       "AddTrack) before a positioned append, and treat a None "
+                       "element in AppendToTimeline's result as a per-clip failure "
+                       "— check items, not just list truthiness.",
+        "tags": ["media-pool", "timeline", "audio", "append", "track",
+                 "silent-failure", "positioned-append"],
+        "issue": 12,
+    },
 ]
 
 

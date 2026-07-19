@@ -189,7 +189,7 @@ class InstallConfigTests(unittest.TestCase):
         self.assertEqual(run_mock.call_args.kwargs["env"]["PYTHONPATH"], "modules")
 
     def test_windows_stdio_helper_disables_newline_translation(self):
-        source = (PROJECT_ROOT / "src" / "utils" / "mcp_stdio.py").read_text()
+        source = (PROJECT_ROOT / "src" / "utils" / "mcp_stdio.py").read_text(encoding="utf-8")
         self.assertIn('newline=""', source)
 
 
@@ -229,7 +229,7 @@ class ConfigMergeTests(unittest.TestCase):
             success, _ = self._write_config(config_path)
             self.assertTrue(success)
 
-            result = json.loads(config_path.read_text())
+            result = json.loads(config_path.read_text(encoding="utf-8"))
             # Existing keys survive the merge.
             self.assertEqual(result["theme"], "One Dark")
             self.assertEqual(result["terminal"]["env"]["PATH"], "/custom/bin:$PATH")
@@ -246,7 +246,7 @@ class ConfigMergeTests(unittest.TestCase):
             success, _ = self._write_config(config_path)
             self.assertTrue(success)
 
-            result = json.loads(config_path.read_text())
+            result = json.loads(config_path.read_text(encoding="utf-8"))
             self.assertEqual(result["theme"], "Ayu")
             self.assertEqual(result["lsp"], {"x": 1})
             self.assertIn("davinci-resolve", result["context_servers"])
@@ -264,7 +264,7 @@ class ConfigMergeTests(unittest.TestCase):
             self.assertFalse(success)
             self.assertIn("could not be parsed", message)
             # The original file must be left untouched.
-            self.assertEqual(config_path.read_text(), garbage)
+            self.assertEqual(config_path.read_text(encoding="utf-8"), garbage)
 
     def test_missing_file_is_created(self):
         import tempfile
@@ -275,7 +275,7 @@ class ConfigMergeTests(unittest.TestCase):
             success, _ = self._write_config(config_path)
             self.assertTrue(success)
 
-            result = json.loads(config_path.read_text())
+            result = json.loads(config_path.read_text(encoding="utf-8"))
             self.assertIn("davinci-resolve", result["context_servers"])
 
     def test_opencode_config_merges_with_opencode_schema(self):
@@ -310,7 +310,7 @@ class ConfigMergeTests(unittest.TestCase):
             )
             self.assertTrue(success)
 
-            result = json.loads(config_path.read_text())
+            result = json.loads(config_path.read_text(encoding="utf-8"))
             # Existing keys and sibling servers survive the merge.
             self.assertEqual(result["theme"], "tokyonight")
             self.assertIn("other-server", result["mcp"])

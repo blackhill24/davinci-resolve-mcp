@@ -31,6 +31,7 @@ class AgentRulesDriftTest(unittest.TestCase):
             cwd=str(REPO),
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
         self.assertEqual(
             proc.returncode,

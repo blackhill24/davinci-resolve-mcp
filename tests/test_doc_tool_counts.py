@@ -27,12 +27,12 @@ def _count_decorators(*rel_globs: str) -> int:
     for rel in rel_globs:
         base = ROOT
         for path in sorted(base.glob(rel)):
-            total += len(re.findall(r"@mcp\.tool\(", path.read_text()))
+            total += len(re.findall(r"@mcp\.tool\(", path.read_text(encoding="utf-8")))
     return total
 
 
 def _advanced_count() -> int:
-    idx = (ROOT / "resolve-advanced" / "server" / "index.mjs").read_text()
+    idx = (ROOT / "resolve-advanced" / "server" / "index.mjs").read_text(encoding="utf-8")
     m = re.search(r"const TOOLS\s*=\s*\[([^\]]+)\]", idx)
     if not m:
         raise AssertionError("could not find the TOOLS array in resolve-advanced/server/index.mjs")
@@ -65,7 +65,7 @@ class DocToolCountsDriftTest(unittest.TestCase):
 
         stale = []
         for rel, needle in checks:
-            text = (ROOT / rel).read_text()
+            text = (ROOT / rel).read_text(encoding="utf-8")
             if needle not in text:
                 stale.append(f"{rel}: expected to contain {needle!r}")
 

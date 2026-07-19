@@ -29,6 +29,36 @@ DEFAULT_BED_OFFSET_LU = -7.0
 MAX_BED_GAIN_DB = 12.0  # never boost a quiet track past this
 MIN_BED_GAIN_DB = -40.0
 
+# ── Ducking mode ladder ──────────────────────────────────────────────────────
+#
+# The value a plan's ``music.ducking.mode`` may hold, weakest→strongest. The mode
+# is the single source of truth for HOW the bed sits under dialogue; the executor
+# and reporting read it, so the strings live here, not scattered as literals.
+#
+#   static        — no consent given: one flat bed level, no ducking. (Phase 1)
+#   rendered_bed   — Tier 1, consent-gated: an ffmpeg-rendered DERIVATIVE bed,
+#                    gain-staged + faded + trimmed. The supported ducking path
+#                    today (issue #7). (Phase 1)
+#   drt_automation — Tier 2, RESERVED: real volume automation written into the
+#                    exported .drt, no derivative media. Blocked on learning the
+#                    encoding via the live export-diff ground-truth method
+#                    (issue #14) — not yet emitted by any code path.
+#   xmeml_keyframes — Tier 3 fallback, RESERVED: xmeml "Audio Levels" keyframes,
+#                    used only if the drt route proves infeasible (issue #14).
+DUCKING_STATIC = "static"
+DUCKING_RENDERED_BED = "rendered_bed"
+DUCKING_DRT_AUTOMATION = "drt_automation"
+DUCKING_XMEML_KEYFRAMES = "xmeml_keyframes"
+
+# Modes a code path can actually PRODUCE today. drt_automation / xmeml_keyframes
+# are named above but stay out of this set until their live encoding is proven —
+# so a stray assignment can't silently claim an unimplemented tier.
+DUCKING_MODES_IMPLEMENTED = frozenset({DUCKING_STATIC, DUCKING_RENDERED_BED})
+DUCKING_MODES_ALL = frozenset({
+    DUCKING_STATIC, DUCKING_RENDERED_BED, DUCKING_DRT_AUTOMATION,
+    DUCKING_XMEML_KEYFRAMES,
+})
+
 
 def measure_loudness(path: str) -> Dict[str, Any]:
     """EBU R128 loudness of an audio (or A/V) file via ffmpeg ebur128.
@@ -142,7 +172,7 @@ def render_ducked_bed(
         "duration_seconds": duration,
         "gain_db": gain_db,
         "fade_seconds": fade,
-        "mode": "rendered_bed",
+        "mode": DUCKING_RENDERED_BED,
     }
 
 

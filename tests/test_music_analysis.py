@@ -220,5 +220,30 @@ class RenderDuckedBedTest(unittest.TestCase):
         self.assertIn("boom", out["error"])
 
 
+class DuckingModeLadderTest(unittest.TestCase):
+    """The ducking-mode vocabulary (issue #14 groundwork)."""
+
+    def test_rendered_bed_reports_its_mode_constant(self):
+        with mock.patch.object(music_analysis, "_run_command", return_value=(0, "", "")), \
+             mock.patch("os.path.isfile", return_value=True):
+            out = music_analysis.render_ducked_bed(
+                "/media/song.wav", "/tmp/bed.wav",
+                duration_seconds=5.0, user_approved_render=True)
+        self.assertEqual(out["mode"], music_analysis.DUCKING_RENDERED_BED)
+
+    def test_reserved_tiers_are_named_but_not_implemented(self):
+        # drt_automation / xmeml_keyframes are known modes, but no code path may
+        # claim them until their live encoding is proven — guard that invariant.
+        self.assertIn(music_analysis.DUCKING_DRT_AUTOMATION, music_analysis.DUCKING_MODES_ALL)
+        self.assertIn(music_analysis.DUCKING_XMEML_KEYFRAMES, music_analysis.DUCKING_MODES_ALL)
+        self.assertNotIn(
+            music_analysis.DUCKING_DRT_AUTOMATION, music_analysis.DUCKING_MODES_IMPLEMENTED)
+        self.assertNotIn(
+            music_analysis.DUCKING_XMEML_KEYFRAMES, music_analysis.DUCKING_MODES_IMPLEMENTED)
+        self.assertEqual(
+            music_analysis.DUCKING_MODES_IMPLEMENTED,
+            {music_analysis.DUCKING_STATIC, music_analysis.DUCKING_RENDERED_BED})
+
+
 if __name__ == "__main__":
     unittest.main()

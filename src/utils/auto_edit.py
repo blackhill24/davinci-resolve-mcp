@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from src.utils import cut_ir, edit_engine, strata, timeline_brain_db
+from src.utils import cut_ir, edit_engine, music_analysis, strata, timeline_brain_db
 
 BRIEF_KIND = "auto_edit_brief"
 GENRES = {"talking_head"}
@@ -359,7 +359,8 @@ def build_cut_list_for_brief(
             "path": brief["music"],
             "track_index": 2,
             "gain_db": music_gain_db,
-            "ducking": {"mode": "static", "user_approved_render": False},
+            "ducking": {"mode": music_analysis.DUCKING_STATIC,
+                        "user_approved_render": False},
         }
 
     plan = cut_ir.make_cut_list(
@@ -690,7 +691,11 @@ def mark_approved(
     if music:
         ducking = dict(music.get("ducking") or {})
         ducking["user_approved_render"] = bool(music_bed_consent)
-        ducking["mode"] = "rendered_bed" if music_bed_consent else "static"
+        # Tier-2 drt_automation is reserved (issue #14, live-gated); consent today
+        # promotes to the Tier-1 rendered bed, otherwise a flat static level.
+        ducking["mode"] = (
+            music_analysis.DUCKING_RENDERED_BED if music_bed_consent
+            else music_analysis.DUCKING_STATIC)
         music["ducking"] = ducking
     plan = edit_engine.save_plan(project_root, plan)
     return {"success": True, "plan": plan, "plan_id": plan["plan_id"]}

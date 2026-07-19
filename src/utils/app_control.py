@@ -16,7 +16,7 @@ import platform
 import subprocess
 from typing import Dict, Any, Optional, Union, List
 
-from src.utils.proc import sanitized_spawn_env
+from src.utils.proc import resolve_spawn_env
 
 # Configure logging
 logger = logging.getLogger("davinci-resolve-mcp.app_control")
@@ -253,7 +253,7 @@ def restart_resolve_app(resolve_obj, wait_seconds: int = 5) -> bool:
             subprocess.Popen(
                 [resolve_path],
                 stdin=subprocess.DEVNULL,
-                env=sanitized_spawn_env(),
+                env=resolve_spawn_env(),
                 start_new_session=True,
             )
         

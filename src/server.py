@@ -47,7 +47,7 @@ from src.utils.api_truth import lookup_api_truth, VERIFIED_ON as _API_TRUTH_VERI
 from src.utils.contracts import validate as _validate_params
 from src.utils.cut_ir import build_cut_list as _build_cut_list
 from src.utils.page_lock import open_page_serialized as _open_page_serialized
-from src.utils.proc import safe_run, sanitized_spawn_env
+from src.utils.proc import resolve_spawn_env, safe_run, sanitized_spawn_env
 from src.utils.readback import verify_by_readback, verification_stats as _verification_stats
 from src.utils.update_check import (
     check_for_updates,
@@ -870,7 +870,7 @@ def _launch_resolve():
         subprocess.Popen(
             [app_path],
             stdin=subprocess.DEVNULL,
-            env=sanitized_spawn_env(),
+            env=resolve_spawn_env(),
             start_new_session=True,
         )
     else:

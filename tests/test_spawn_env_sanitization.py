@@ -7,6 +7,8 @@ Resolve crashed within seconds of page switches), and CUDA/cuDNN users
 (whisper, GPU ffmpeg) abort with "Cannot load symbol cudnnGetVersion".
 Every launch site must go through proc.sanitized_spawn_env().
 """
+import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -14,7 +16,7 @@ import src.granular.common as granular_common
 import src.server as server
 import src.utils.app_control as app_control
 import src.utils.media_analysis as media_analysis
-from src.utils.proc import sanitized_spawn_env
+from src.utils.proc import resolve_spawn_env, sanitized_spawn_env
 
 NXEGL = "/usr/NX/lib/libnxegl.so"
 
@@ -42,6 +44,72 @@ class SanitizedSpawnEnvTest(unittest.TestCase):
             self.assertNotIn(
                 "libnxegl", sanitized_spawn_env().get("LD_PRELOAD", "")
             )
+
+
+class ResolveSpawnEnvTest(unittest.TestCase):
+    """Resolve launches get an ALSA raw-hw override so Fairlight's duplex audio
+    engine initializes; against the PipeWire/Pulse ALSA plugins it retry-loops
+    forever and every render stalls at 0% (LoadFairlightAudioSamples never
+    returns). See memory/resolve-headless-render-hang for the live diagnosis."""
+
+    def _fake_asound(self, root, devices):
+        """devices: list of (card, dev, direction, status_text)."""
+        lines = []
+        for card, dev, direction, status in devices:
+            lines.append(f"{card:02d}-{dev:02d}: Dev {card}.{dev} : Dev : {direction} 1\n")
+            sub = os.path.join(root, f"card{card}", f"pcm{dev}{direction[0]}", "sub0")
+            os.makedirs(sub, exist_ok=True)
+            with open(os.path.join(sub, "status"), "w", encoding="utf-8") as fh:
+                fh.write(status)
+        with open(os.path.join(root, "pcm"), "w", encoding="utf-8") as fh:
+            fh.writelines(lines)
+
+    def test_picks_first_free_playback_and_capture(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._fake_asound(root, [
+                (1, 0, "playback", "state: RUNNING"),   # held (e.g. PipeWire mmap)
+                (0, 3, "playback", "closed"),
+                (1, 2, "capture", "closed"),
+            ])
+            env = resolve_spawn_env({}, proc_asound=root, conf_dir=root)
+            conf_path = env.get("ALSA_CONFIG_PATH")
+            self.assertTrue(conf_path and os.path.exists(conf_path))
+            with open(conf_path, encoding="utf-8") as fh:
+                conf = fh.read()
+            self.assertIn("type hw; card 0; device 3", conf)
+            self.assertIn("type hw; card 1; device 2", conf)
+            # must not include the system alsa.conf: its conf.d hooks re-apply
+            # the pipewire default after any override in this file
+            self.assertNotIn("alsa.conf", conf)
+
+    def test_no_free_duplex_pair_leaves_env_unchanged(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._fake_asound(root, [
+                (0, 0, "playback", "state: RUNNING"),
+                (0, 0, "capture", "closed"),
+            ])
+            env = resolve_spawn_env({"PATH": "/usr/bin"}, proc_asound=root, conf_dir=root)
+            self.assertNotIn("ALSA_CONFIG_PATH", env)
+
+    def test_missing_proc_asound_is_harmless(self):
+        env = resolve_spawn_env({"PATH": "/usr/bin"}, proc_asound="/nonexistent-asound")
+        self.assertEqual(env["PATH"], "/usr/bin")
+        self.assertNotIn("ALSA_CONFIG_PATH", env)
+
+    def test_existing_alsa_config_path_is_respected(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._fake_asound(root, [
+                (0, 3, "playback", "closed"),
+                (1, 2, "capture", "closed"),
+            ])
+            env = resolve_spawn_env(
+                {"ALSA_CONFIG_PATH": "/etc/mine.conf"}, proc_asound=root, conf_dir=root
+            )
+            self.assertEqual(env["ALSA_CONFIG_PATH"], "/etc/mine.conf")
+
+    def test_still_sanitizes_preload(self):
+        env = resolve_spawn_env({"LD_PRELOAD": NXEGL}, proc_asound="/nonexistent-asound")
+        self.assertNotIn("LD_PRELOAD", env)
 
 
 class LaunchSitesUseSanitizedEnvTest(unittest.TestCase):

@@ -27,7 +27,7 @@ from src.utils.app_control import (
     quit_resolve_app,
     restart_resolve_app,
 )
-from src.utils.proc import sanitized_spawn_env
+from src.utils.proc import resolve_spawn_env
 from src.utils.cdl import normalize_cdl_payload
 from src.utils.cloud_operations import (
     create_cloud_project,
@@ -344,7 +344,7 @@ def _launch_resolve():
         subprocess.Popen(
             [app_path],
             stdin=subprocess.DEVNULL,
-            env=sanitized_spawn_env(),
+            env=resolve_spawn_env(),
             start_new_session=True,
         )
     else:

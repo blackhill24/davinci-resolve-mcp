@@ -38,7 +38,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 PILOT = f"auto_edit_pilot_{time.strftime('%H%M%S')}"
 MEDIA_DIR = tempfile.mkdtemp(prefix="drm-auto-edit-media-")
-RENDER_DIR = tempfile.mkdtemp(prefix="drm-auto-edit-render-")
+# The render target must live inside a Resolve Media Storage volume: with a
+# /tmp target Resolve pops a "render path inaccessible" dialog and AddRenderJob
+# blocks forever headless (see memory/resolve-headless-render-hang).
+_videos = os.path.expanduser("~/Videos")
+RENDER_DIR = tempfile.mkdtemp(
+    prefix="drm-auto-edit-render-", dir=_videos if os.path.isdir(_videos) else None
+)
 
 CHECKS: list[tuple[str, bool, str]] = []
 
@@ -73,9 +79,15 @@ def _speech_audio(base: str, text: str) -> str | None:
     return None
 
 
+# Linux Resolve cannot DECODE libx264/AAC: clips import and place on a
+# timeline (metadata only) but every render fails ("Codec is not opened yet").
+# Synth media must be pro intermediates — DNxHR video + PCM audio in .mov.
+_DNXHR = ["-c:v", "dnxhd", "-profile:v", "dnxhr_lb", "-pix_fmt", "yuv422p"]
+
+
 def synth_talk_clip(name: str, *, text: str, duration: float) -> str:
     """testsrc video with speech (or beeps) — deliberate filler content."""
-    out = os.path.join(MEDIA_DIR, f"{name}.mp4")
+    out = os.path.join(MEDIA_DIR, f"{name}.mov")
     speech = _speech_audio(os.path.join(MEDIA_DIR, name), text)
     if speech:
         audio_in = ["-i", speech]
@@ -89,18 +101,18 @@ def synth_talk_clip(name: str, *, text: str, duration: float) -> str:
         *audio_in,
         "-filter_complex", afilter,
         "-map", "0:v", "-map", "[a]",
-        "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-t", str(duration),
+        *_DNXHR, "-c:a", "pcm_s16le", "-t", str(duration),
         out,
     ], check=True, capture_output=True)
     return out
 
 
 def synth_broll_clip(name: str, *, duration: float) -> str:
-    out = os.path.join(MEDIA_DIR, f"{name}.mp4")
+    out = os.path.join(MEDIA_DIR, f"{name}.mov")
     subprocess.run([
         "ffmpeg", "-y",
         "-f", "lavfi", "-i", f"smptebars=duration={duration}:size=1280x720:rate=24",
-        "-c:v", "libx264", "-preset", "ultrafast", "-an", out,
+        *_DNXHR, "-an", out,
     ], check=True, capture_output=True)
     return out
 
@@ -162,14 +174,16 @@ async def run_pipeline(s) -> int:
         brief_id = started["brief_id"]
 
         # 2) wait for analysis (transcription is the load-bearing artifact)
+        # brief_status itself pumps the analysis job (bounded per call), so keep
+        # polling until it reports ready; "created"/"analyzing" mean not done.
         deadline = time.time() + 600
         while time.time() < deadline:
             status = await s.auto_edit("brief_status", {"brief_id": brief_id})
             state = (status.get("brief") or {}).get("state")
-            if state in ("ready", "created"):
+            if state == "ready":
                 break
             await asyncio.sleep(5)
-        check("analysis reached ready", state in ("ready", "created"), f"state={state}")
+        check("analysis reached ready", state == "ready", f"state={state}")
 
         # 3) plan_cut
         planned = await s.auto_edit("plan_cut", {"brief_id": brief_id})

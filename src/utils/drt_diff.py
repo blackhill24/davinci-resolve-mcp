@@ -34,8 +34,12 @@ _UUIDISH = re.compile(r"^[0-9a-fA-F]{8,}(-[0-9a-fA-F]{4,})+$")
 # DbId / <Sequence> uuids / thumbnail ids — not a content edit. Verified live on
 # Resolve 21: a no-op re-export still churns these, so hunting for a specific value
 # edit (issue #14 clip-volume ground truth) means filtering them out first.
+# <SubType> carries a garbage int that flips between exports of the SAME timeline
+# (verified: 1694526720 -> 3342389 with no edit) — its value is uninitialized, not
+# a uuid, so the pattern below must name it explicitly or it reads as a false edit.
 RESOLVE_ID_CHURN = re.compile(
-    r"(DbId=|<Sequence>|<BtThumnail\b|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-)")
+    r"(DbId=|<Sequence>|<SubType>|<BtThumnail\b|"
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-)")
 
 
 def significant_lines(change: Dict[str, Any]) -> Dict[str, List[str]]:

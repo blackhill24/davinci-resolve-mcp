@@ -13,6 +13,15 @@ aborts cleanly (exit 2) when Resolve isn't up.
 It does NOT invent api_truth entries — it PRINTS the diff for a human to inspect
 and record, because a verified-on-Resolve claim must come from a real run.
 
+RESOLVED (Resolve 21.0.2.4): the ground truth was captured via this method with
+the level edit made by hand in the Inspector (SetProperty('Volume') is a no-op, so
+this script's own auto-edit can't move it — it will correctly report "no delta").
+The encoding is recorded in ``api_truth`` (issue #14): a non-unity clip level
+writes an ``<EffectFiltersBA>`` audio-volume filter blob whose payload carries the
+dB value as a little-endian float64, plus a ``2001`` flag in the clip ``<FieldsBlob>``.
+Note the export also churns ``<SubType>`` (garbage int) — now stripped by
+``drt_diff.significant_lines`` so it no longer reads as a false edit.
+
 What it does when Resolve IS up:
   1. disposable project + synthetic DNxHR/PCM media (never touches sources)
   2. timeline with the music clip positioned on A2 (AddTrack first — issue #12

@@ -155,6 +155,20 @@ class DiffContainersTest(unittest.TestCase):
         self.assertEqual(sig["added"], [])
         self.assertEqual(sig["removed"], [])
 
+    def test_significant_lines_drops_subtype_churn(self):
+        # Verified live on Resolve 21.0.2: exporting the SAME timeline twice with
+        # NO edit still flips <SubType> (garbage uninitialized int), which slipped
+        # past the id-churn filter and made the ducking probe cry a false "SIGNAL
+        # FOUND" on a no-op. It must be treated as churn, not a real edit.
+        change = {
+            "kind": "text",
+            "added_lines": ["    <SubType>3342389</SubType>"],
+            "removed_lines": ["    <SubType>1694526720</SubType>"],
+        }
+        sig = drt_diff.significant_lines(change)
+        self.assertEqual(sig["added"], [])
+        self.assertEqual(sig["removed"], [])
+
     def test_non_zip_input_returns_error(self):
         junk = os.path.join(self.dir, "not.drt")
         with open(junk, "w") as fh:

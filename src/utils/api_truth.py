@@ -332,6 +332,33 @@ API_TRUTH: List[Dict[str, Any]] = [
         "submit": "missing",
     },
     {
+        "symbol": "Clip audio volume — .drt (offline) encoding, EffectFiltersBA",
+        "object": "drt SeqContainer / Sm2TiAudioClip",
+        "reality": "The API can't set clip volume (see the Fairlight entry above), "
+                   "but a clip audio-level edit DOES round-trip through an exported "
+                   ".drt, so the offline drp-format codec can author it (issue #14 "
+                   "Tier-2). Reverse-engineered by export-diff on Resolve Studio "
+                   "21.0.2.4: at unity (0 dB) the audio clip's <EffectFiltersBA> "
+                   "element is empty (<EffectFiltersBA/>). A non-unity level "
+                   "populates it with a fixed 38-byte audio-volume filter blob: "
+                   "prefix 000000020000001e800a1b087c4a0f085f1a0b0a0911, then the "
+                   "level in dB as a little-endian IEEE-754 float64, then suffix "
+                   "4a004a004a004a00 — and inserts a 2001 flag into the clip's "
+                   "<FieldsBlob> (length bytes bump 0c->0e). Two verified samples: "
+                   "+12.0 dB -> 0000000000002840, +3.7 dB -> a099999999990d40 "
+                   "(both LE float64 of the dB value). GetProperty('Volume') still "
+                   "returns None, so the level is invisible to scripting even after "
+                   "it is set in the UI — the .drt blob is the only readable/"
+                   "writable carrier.",
+        "recommended": "For Tier-2 ducking, author the <EffectFiltersBA> blob + "
+                       "<FieldsBlob> flag on the target audio clip in the exported "
+                       ".drt via resolve-advanced/vendor/drp-format, then reimport; "
+                       "verify the level shows in the Fairlight/Inspector on a live "
+                       "round-trip before trusting the writer.",
+        "tags": ["audio", "fairlight", "drt", "offline", "encoding", "ducking"],
+        "issue": 14,
+    },
+    {
         "symbol": "Proxy / optimized-media generation",
         "object": "MediaPoolItem",
         "reality": "Only LinkProxyMedia, UnlinkProxyMedia and "

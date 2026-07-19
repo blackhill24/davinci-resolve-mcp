@@ -19379,6 +19379,9 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         if not plan or plan.get("_corrupt") or plan.get("kind") != _auto_edit_mod.cut_ir.CUT_LIST_KIND:
             return _err(f"cut list not found (or failed its fingerprint check): {_plan_id_param()!r}")
         music_bed_consent = bool(p.get("music_bed_consent") or p.get("musicBedConsent"))
+        # Tier-2 ducking (issue #14): write the bed gain into the .drt volume during
+        # polish_timeline — no rendered derivative, so no consent needed.
+        prefer_drt_ducking = bool(p.get("prefer_drt_ducking") or p.get("preferDrtDucking"))
         if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
             preview: Dict[str, Any] = {
                 "operation": "auto_edit.approve_cut",
@@ -19391,14 +19394,19 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             }
             if plan.get("music"):
                 preview["music_bed_consent_requested"] = music_bed_consent
-                preview["music_bed_consent_line"] = _auto_edit_mod.MUSIC_BED_CONSENT_LINE
+                preview["prefer_drt_ducking"] = prefer_drt_ducking
+                # drt_automation writes no derivative media, so the consent line is
+                # moot when it's chosen.
+                if not prefer_drt_ducking:
+                    preview["music_bed_consent_line"] = _auto_edit_mod.MUSIC_BED_CONSENT_LINE
             return _issue_confirm_token(
                 action="auto_edit.approve_cut", params=p, preview=preview)
         blocked = _consume_confirm_token(action="auto_edit.approve_cut", params=p)
         if blocked:
             return blocked
         approved = _auto_edit_mod.mark_approved(
-            project_root, plan["plan_id"], music_bed_consent=music_bed_consent)
+            project_root, plan["plan_id"], music_bed_consent=music_bed_consent,
+            prefer_drt_ducking=prefer_drt_ducking)
         if not approved.get("success"):
             return _err(approved.get("error") or "approval failed")
         if approved["plan"].get("brief_id"):
@@ -19409,6 +19417,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             "plan_id": approved["plan_id"],
             "approved_at": approved["plan"].get("approved_at"),
             "music_bed_consent": music_bed_consent,
+            "ducking_mode": (approved["plan"].get("music") or {}).get("ducking", {}).get("mode"),
             "next": "build_timeline(plan_id)",
         }
 

@@ -54,8 +54,13 @@ retime, or automate audio levels (`src/utils/api_truth.py`). Hence:
   option is ignored for `.drt`). See `api_truth`. Remaining gate: a clean full
   tool-path run (Resolve proved crash-prone under sustained scripting churn).
 - **Audio ducking — tiered**: Tier 1 is the consent-gated ffmpeg bed
-  (`music_analysis.render_ducked_bed`); Tier 2 (drt volume automation) and the
-  xmeml probe are Phase 2.
+  (`music_analysis.render_ducked_bed`, mode `rendered_bed`). Tier 2 (mode
+  `drt_automation`, issue #14) writes the bed gain straight into the music clip's
+  `.drt` volume — no derivative media, no consent needed — via drp-format
+  `set_audio_level` (`audio-effect-encoder.js`; encoding verified live on Resolve
+  21.0.2.4, see `api_truth`). Opt in with `approve_cut(prefer_drt_ducking=True)`;
+  `plan_polish_ops` then emits a `set_audio_level` op applied in the
+  polish_timeline drt round-trip. The Tier-3 xmeml probe is no longer needed.
 
 ## Evidence & persistence
 

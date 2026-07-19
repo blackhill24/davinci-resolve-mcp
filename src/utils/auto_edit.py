@@ -51,6 +51,7 @@ EXCERPT_WORDS = 10
 DEFAULT_DISSOLVE_FRAMES = 12       # cross-dissolve length at a flagged cut
 DEFAULT_LOWER_THIRD_FRAMES = 96    # lower-third on-screen duration (~4s @ 24fps)
 SPEECH_VIDEO_TRACK = 1             # V1 carries speech (build_timeline)
+DEFAULT_MUSIC_AUDIO_TRACK = 2      # A2 carries the music bed (build_timeline)
 
 MUSIC_BED_CONSENT_LINE = (
     "Music-bed render consent: approving WITH music-bed consent renders a "
@@ -677,11 +678,19 @@ def mark_approved(
     plan_id: str,
     *,
     music_bed_consent: bool = False,
+    prefer_drt_ducking: bool = False,
 ) -> Dict[str, Any]:
-    """Record checkpoint approval (and the music-bed consent decision).
+    """Record checkpoint approval (and the music-bed ducking decision).
 
     The confirm-token ceremony itself lives in server.py; this persists the
     outcome so the executor can trust ``approved_at`` + the ducking mode.
+
+    Ducking mode is chosen here:
+      * ``prefer_drt_ducking`` → Tier-2 ``drt_automation``: the bed gain is written
+        into the music clip's .drt volume during polish_timeline. No derivative
+        media is created, so this needs NO consent (issue #14). Preferred.
+      * else ``music_bed_consent`` → Tier-1 ``rendered_bed`` (an ffmpeg derivative).
+      * else ``static`` (a flat level, no ducking).
     """
     plan = edit_engine.load_plan(project_root, plan_id)
     if not plan or plan.get("_corrupt") or plan.get("kind") != cut_ir.CUT_LIST_KIND:
@@ -691,11 +700,12 @@ def mark_approved(
     if music:
         ducking = dict(music.get("ducking") or {})
         ducking["user_approved_render"] = bool(music_bed_consent)
-        # Tier-2 drt_automation is reserved (issue #14, live-gated); consent today
-        # promotes to the Tier-1 rendered bed, otherwise a flat static level.
-        ducking["mode"] = (
-            music_analysis.DUCKING_RENDERED_BED if music_bed_consent
-            else music_analysis.DUCKING_STATIC)
+        if prefer_drt_ducking:
+            ducking["mode"] = music_analysis.DUCKING_DRT_AUTOMATION
+        elif music_bed_consent:
+            ducking["mode"] = music_analysis.DUCKING_RENDERED_BED
+        else:
+            ducking["mode"] = music_analysis.DUCKING_STATIC
         music["ducking"] = ducking
     plan = edit_engine.save_plan(project_root, plan)
     return {"success": True, "plan": plan, "plan_id": plan["plan_id"]}
@@ -875,10 +885,33 @@ def plan_polish_ops(
                     "no lower-thirds: analysis produced no story beats "
                     "(pass options.lower_thirds to add them explicitly)")
 
+    # Tier-2 ducking (issue #14): when the approved plan chose drt_automation, write
+    # the computed bed gain straight into the music clip's .drt volume — no rendered
+    # derivative. Same dB the rendered bed would have used; applied in this same
+    # round-trip. Suppress with options.no_music_duck.
+    music = plan.get("music") or {}
+    ducking = music.get("ducking") or {}
+    if (not opts.get("no_music_duck")
+            and ducking.get("mode") == music_analysis.DUCKING_DRT_AUTOMATION):
+        gain = music.get("gain_db")
+        track = int(music.get("track_index") or DEFAULT_MUSIC_AUDIO_TRACK)
+        if isinstance(gain, (int, float)):
+            ops.append({
+                "op": "set_audio_level",
+                "args": {"track": track, "volumeDb": float(gain), "clipIndex": 0},
+                "kind": "music_duck",
+                "reason": f"drt_automation bed gain {gain} dB on A{track} (no derivative)",
+            })
+        else:
+            notes.append(
+                "music_duck skipped — drt_automation requested but bed gain_db is "
+                "unavailable (loudness could not be measured)")
+
     return {
         "ops": ops,
         "transitions": sum(1 for o in ops if o["op"] == "place_transition"),
         "lower_thirds": sum(1 for o in ops if o["op"] == "place_fusion_title"),
+        "music_ducks": sum(1 for o in ops if o["op"] == "set_audio_level"),
         "record_offset": offset,
         "notes": notes,
     }

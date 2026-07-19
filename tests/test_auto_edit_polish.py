@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import unittest
 
-from src.utils import auto_edit
+from src.utils import auto_edit, music_analysis
 
 
 def _seg(clip_uuid, record_start, length=48, **extra):
@@ -196,6 +196,49 @@ class OpOrderTest(unittest.TestCase):
         # every cross_dissolve appears before the first lower_third
         first_lt = kinds.index("lower_third")
         self.assertTrue(all(k == "cross_dissolve" for k in kinds[:first_lt]))
+
+
+def _plan_with_music(mode, *, gain_db=-14.0, track_index=2):
+    plan = _plan([_seg("A", 0), _seg("A", 48)])  # single source: no auto-dissolves
+    plan["music"] = {
+        "path": "/x/bed.mov", "track_index": track_index, "gain_db": gain_db,
+        "ducking": {"mode": mode},
+    }
+    return plan
+
+
+class MusicDuckTest(unittest.TestCase):
+    """Tier-2 ducking (issue #14): drt_automation emits a set_audio_level op."""
+
+    def test_drt_automation_emits_a_music_duck_op(self):
+        plan = _plan_with_music(music_analysis.DUCKING_DRT_AUTOMATION, gain_db=-14.0)
+        out = auto_edit.plan_polish_ops(plan)
+        self.assertEqual(out["music_ducks"], 1)
+        duck = next(o for o in out["ops"] if o["op"] == "set_audio_level")
+        self.assertEqual(duck["args"], {"track": 2, "volumeDb": -14.0, "clipIndex": 0})
+        self.assertEqual(duck["kind"], "music_duck")
+
+    def test_rendered_bed_and_static_emit_no_duck_op(self):
+        for mode in (music_analysis.DUCKING_RENDERED_BED, music_analysis.DUCKING_STATIC):
+            out = auto_edit.plan_polish_ops(_plan_with_music(mode))
+            self.assertEqual(out["music_ducks"], 0, mode)
+
+    def test_duck_targets_the_music_track_index(self):
+        plan = _plan_with_music(music_analysis.DUCKING_DRT_AUTOMATION, track_index=3)
+        duck = next(o for o in auto_edit.plan_polish_ops(plan)["ops"]
+                    if o["op"] == "set_audio_level")
+        self.assertEqual(duck["args"]["track"], 3)
+
+    def test_no_music_duck_option_suppresses_it(self):
+        plan = _plan_with_music(music_analysis.DUCKING_DRT_AUTOMATION)
+        out = auto_edit.plan_polish_ops(plan, options={"no_music_duck": True})
+        self.assertEqual(out["music_ducks"], 0)
+
+    def test_missing_gain_is_an_honest_note_not_a_fabricated_op(self):
+        plan = _plan_with_music(music_analysis.DUCKING_DRT_AUTOMATION, gain_db=None)
+        out = auto_edit.plan_polish_ops(plan)
+        self.assertEqual(out["music_ducks"], 0)
+        self.assertTrue(any("music_duck skipped" in n for n in out["notes"]))
 
 
 class DroppedSourceClipsTest(unittest.TestCase):

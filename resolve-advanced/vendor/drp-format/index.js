@@ -121,6 +121,10 @@ module.exports = {
   // Insert a cross-dissolve between two abutting clips (the one op the Resolve API can't do).
   placeTransition: require('./place-transition').placeTransition,
 
+  // Author a clip audio VOLUME level into a .drt (Tier-2 ducking, #14 — API can't set volume).
+  setAudioLevel: require('./set-audio-level').setAudioLevel,
+  audioEffectEncoder: require('./audio-effect-encoder'),
+
   // Read/replace a Fusion Title's text + style (font/size/justify) inside a CompositionBA blob.
   decodeTitleText: require('./composition-text').decodeTitleText,
 

@@ -231,18 +231,20 @@ class DuckingModeLadderTest(unittest.TestCase):
                 duration_seconds=5.0, user_approved_render=True)
         self.assertEqual(out["mode"], music_analysis.DUCKING_RENDERED_BED)
 
-    def test_reserved_tiers_are_named_but_not_implemented(self):
-        # drt_automation / xmeml_keyframes are known modes, but no code path may
-        # claim them until their live encoding is proven — guard that invariant.
+    def test_drt_automation_implemented_xmeml_still_reserved(self):
+        # drt_automation is now a real path (encoding verified live, issue #14).
+        # xmeml_keyframes stays reserved — the drt route made it unnecessary, and
+        # no code path may claim an unproven tier.
         self.assertIn(music_analysis.DUCKING_DRT_AUTOMATION, music_analysis.DUCKING_MODES_ALL)
         self.assertIn(music_analysis.DUCKING_XMEML_KEYFRAMES, music_analysis.DUCKING_MODES_ALL)
-        self.assertNotIn(
+        self.assertIn(
             music_analysis.DUCKING_DRT_AUTOMATION, music_analysis.DUCKING_MODES_IMPLEMENTED)
         self.assertNotIn(
             music_analysis.DUCKING_XMEML_KEYFRAMES, music_analysis.DUCKING_MODES_IMPLEMENTED)
         self.assertEqual(
             music_analysis.DUCKING_MODES_IMPLEMENTED,
-            {music_analysis.DUCKING_STATIC, music_analysis.DUCKING_RENDERED_BED})
+            {music_analysis.DUCKING_STATIC, music_analysis.DUCKING_RENDERED_BED,
+             music_analysis.DUCKING_DRT_AUTOMATION})
 
 
 if __name__ == "__main__":

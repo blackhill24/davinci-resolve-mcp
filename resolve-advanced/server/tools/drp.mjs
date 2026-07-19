@@ -76,6 +76,13 @@ const S = {
     durationFrames: z.number().int().positive().optional(),
     timelineUuid: sel.timelineUuid,
   }),
+  set_audio_level: z.object({
+    ...io,
+    track: z.number().int().positive().describe('1-based audio track (A2 = 2)'),
+    volumeDb: z.number().describe('clip level in dB; negative ducks (e.g. -12)'),
+    clipIndex: z.number().int().nonnegative().optional().describe('which clip on the track (0-based, default 0)'),
+    timelineUuid: sel.timelineUuid,
+  }),
   move_clip: z.object({ ...io, fromTrack: z.number().int().positive(), toTrack: z.number().int().positive(), toStart: z.number().int().optional(), ...sel }),
   delete_clip: z.object({ ...io, fromTrack: z.number().int().positive(), ripple: z.boolean().optional(), ...sel }),
   trim_clip: z.object({ ...io, track: z.number().int().positive(), newDuration: z.number().int().positive(), ripple: z.boolean().optional(), ...sel }),
@@ -108,7 +115,7 @@ async function writeOp(fnName, drpPath, opts, outputPath) {
 export const drpTool = {
   name: 'drp',
   description:
-    'DaVinci Resolve project (.drp) authoring + editing — offline, no Resolve required. Actions: create_empty_project, assemble_timeline, add_media_clip, place_fusion_title, place_generator, place_transition, move_clip, delete_clip, trim_clip, trim_clip_head, split_clip, ripple_timeline, relink_media, repoint_media, inject_grades, extract_node_graphs, extract_group_grades, diff, extract_lut_refs.',
+    'DaVinci Resolve project (.drp) authoring + editing — offline, no Resolve required. Actions: create_empty_project, assemble_timeline, add_media_clip, place_fusion_title, place_generator, place_transition, set_audio_level, move_clip, delete_clip, trim_clip, trim_clip_head, split_clip, ripple_timeline, relink_media, repoint_media, inject_grades, extract_node_graphs, extract_group_grades, diff, extract_lut_refs.',
   async handler({ action, args }) {
     const gen = drp();
 
@@ -145,6 +152,11 @@ export const drpTool = {
       const p = S.place_transition.parse(args);
       const { drpPath, outputPath, ...opts } = p;
       return writeOp('placeTransition', drpPath, opts, outputPath);
+    }
+    if (action === 'set_audio_level') {
+      const p = S.set_audio_level.parse(args);
+      const { drpPath, outputPath, ...opts } = p;
+      return writeOp('setAudioLevel', drpPath, opts, outputPath);
     }
     if (action === 'move_clip') {
       const p = S.move_clip.parse(args);

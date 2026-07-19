@@ -150,6 +150,21 @@ class ApproveCutActionTest(unittest.TestCase):
         self.assertEqual(stored["music"]["ducking"]["mode"], "static")
         self.assertFalse(stored["music"]["ducking"]["user_approved_render"])
 
+    def test_prefer_drt_ducking_selects_drt_automation_without_consent(self):
+        # Tier-2 (issue #14): derivative-free, so no consent line and no rendered bed.
+        plan = make_plan(self.root, music=True)
+        first = self._approve(plan["plan_id"], {"prefer_drt_ducking": True})
+        self.assertEqual(first.get("status"), "confirmation_required")
+        self.assertTrue(first["preview"]["prefer_drt_ducking"])
+        self.assertNotIn("music_bed_consent_line", first["preview"])
+        second = self._approve(plan["plan_id"], {
+            "prefer_drt_ducking": True, "confirm_token": first["confirm_token"]})
+        self.assertTrue(second.get("success"), second)
+        self.assertEqual(second["ducking_mode"], "drt_automation")
+        stored = edit_engine.load_plan(self.root, plan["plan_id"])
+        self.assertEqual(stored["music"]["ducking"]["mode"], "drt_automation")
+        self.assertFalse(stored["music"]["ducking"]["user_approved_render"])
+
     def test_unknown_plan_errors(self):
         out = self._approve("nope")
         self.assertIn("error", out)

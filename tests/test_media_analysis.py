@@ -726,6 +726,22 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
         self.assertEqual(caps["vision"]["default_provider"], HOST_CHAT_PATHS_PROVIDER)
         self.assertTrue(caps["vision"]["available"])
 
+    def test_which_tool_falls_back_to_interpreter_bin_dir(self):
+        # pip console scripts land next to the interpreter; a venv-installed
+        # whisper must be found even when the venv bin dir is not on PATH
+        # (server started as `.venv/bin/python …` without activation).
+        from src.utils.media_analysis import _which_tool
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tool = os.path.join(tmp, "faketool-which-test")
+            with open(tool, "w", encoding="utf-8") as fh:
+                fh.write("#!/bin/sh\n")
+            os.chmod(tool, 0o755)
+            with unittest.mock.patch("shutil.which", return_value=None), \
+                 unittest.mock.patch("sys.executable", os.path.join(tmp, "python")):
+                self.assertEqual(_which_tool("faketool-which-test"), tool)
+                self.assertIsNone(_which_tool("faketool-missing"))
+
     def test_request_capabilities_report_host_chat_paths_vision(self):
         with tempfile.TemporaryDirectory() as tmp:
             previous = os.environ.get("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS")

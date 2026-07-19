@@ -1607,15 +1607,31 @@ def install_plan_for(tool_name: str, platform_id: Optional[str] = None) -> Dict[
     }
 
 
+def _which_tool(name: str) -> Optional[str]:
+    """shutil.which, then the running interpreter's own bin dir.
+
+    pip console scripts land next to the interpreter, so a venv-installed
+    whisper is invisible to PATH-based lookup whenever the server was started
+    as `.venv/bin/python …` without activating the venv.
+    """
+    found = shutil.which(name)
+    if found:
+        return found
+    candidate = os.path.join(os.path.dirname(sys.executable), name)
+    if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        return candidate
+    return None
+
+
 def detect_capabilities(env: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """Detect available analysis helpers without installing or downloading."""
     env = env if env is not None else os.environ
-    whisper_cli = shutil.which("whisper")
+    whisper_cli = _which_tool("whisper")
     # Modern brew whisper-cpp ships the binary as `whisper-cli`; older builds
     # used `whisper-cpp`. Accept either so a fresh `brew install whisper-cpp`
     # is detected. (Distinct from the `whisper_cli` slot above, which is the
     # openai-whisper Python CLI invoked as `whisper`.)
-    whisper_cpp = shutil.which("whisper-cli") or shutil.which("whisper-cpp")
+    whisper_cpp = _which_tool("whisper-cli") or _which_tool("whisper-cpp")
     mlx_whisper = importlib.util.find_spec("mlx_whisper") is not None
     cv2 = importlib.util.find_spec("cv2") is not None
     provider = env.get("DAVINCI_RESOLVE_MCP_VISION_PROVIDER")
@@ -3881,7 +3897,7 @@ def _write_transcript_artifacts(payload: Dict[str, Any], artifacts: Dict[str, An
 
 
 def _transcribe_with_whisper_cli(path: str, artifacts: Dict[str, Any], transcription: Dict[str, Any]) -> Dict[str, Any]:
-    whisper = shutil.which("whisper")
+    whisper = _which_tool("whisper")
     if not whisper:
         return {"success": False, "status": "skipped", "backend": "whisper_cli", "reason": "whisper CLI not found"}
     work_dir = os.path.join(os.path.dirname(artifacts.get("transcript_json") or artifacts["analysis_json"]), "transcript-work")

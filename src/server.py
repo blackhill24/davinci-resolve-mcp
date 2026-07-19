@@ -19888,18 +19888,17 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             except Exception:
                 pass
 
-        # Media-link honesty: media-less items (the intro title from build_timeline,
-        # the lower-third Text+ this polish adds) always read as "offline" in the
-        # coverage scan. The real question is whether any SOURCE CLIP dropped its
-        # link — measured as a diff against the built timeline's pre-round-trip
-        # coverage, NOT a raw count. Cross-dissolves are transitions, not items, so
-        # they never appear in the count (verified live on Resolve 21: export-then-
-        # modify preserves media-link blobs byte-for-byte).
+        # Media-link honesty: the polish adds media-less items (a lower-third Text+
+        # and, in the reimported timeline, a cross-dissolve transition item) that
+        # all read as "offline", so an offline-count diff false-positives. The
+        # robust signal is the LINKED count — a dropped source clip is the only
+        # thing that reduces it (verified live on a two-source cut: built 9/8 linked
+        # → polished 11/8 linked, offline +2, zero clips dropped). Diff linked
+        # against the built timeline's pre-round-trip coverage.
         media = imported.get("media") or {}
-        real_offline = _auto_edit_mod.polished_real_offline(
-            polished_offline=int(media.get("offline", 0)),
-            baseline_offline=int(baseline_media.get("offline", 0)),
-            lower_thirds=int(polish["lower_thirds"]))
+        real_offline = _auto_edit_mod.dropped_source_clips(
+            baseline_linked=int(baseline_media.get("linked", 0)),
+            polished_linked=int(media.get("linked", 0)))
         out = {
             "success": True,
             "polished_timeline": final_name,

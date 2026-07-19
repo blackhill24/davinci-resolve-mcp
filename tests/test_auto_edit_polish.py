@@ -198,47 +198,45 @@ class OpOrderTest(unittest.TestCase):
         self.assertTrue(all(k == "cross_dissolve" for k in kinds[:first_lt]))
 
 
-class PolishedRealOfflineTest(unittest.TestCase):
-    """The media-link honesty diff (issue #13 relink wrinkle).
+class DroppedSourceClipsTest(unittest.TestCase):
+    """The media-link honesty check (issue #13 relink wrinkle).
 
-    The coverage scan counts media-less generators as "offline": the intro title
-    build_timeline placed, plus each Text+ lower-third the polish adds. Judging the
-    round-trip against a raw count false-alarms on those; the honest measure is a
-    diff against the built timeline's pre-round-trip coverage.
+    The coverage scan counts media-less items as "offline": the intro title, each
+    Text+ lower-third, and (in the reimported timeline) a cross-dissolve transition
+    item. Diffing the offline count false-positives on those additions, so the
+    check diffs the LINKED count instead — only a dropped source clip reduces it.
     """
 
-    def test_intro_title_alone_is_not_a_dropped_clip(self):
-        # Built timeline carries an intro title (offline=1). Polish adds one
-        # lower-third → polished offline=2. No SOURCE clip dropped.
+    def test_added_generators_do_not_count_as_dropped(self):
+        # The live two-source case: built 9 items / 8 linked → polished 11 / 8
+        # (offline rose by two: a lower-third + a transition item). linked held at
+        # 8, so ZERO source clips dropped.
         self.assertEqual(
-            auto_edit.polished_real_offline(
-                polished_offline=2, baseline_offline=1, lower_thirds=1),
+            auto_edit.dropped_source_clips(baseline_linked=8, polished_linked=8),
             0,
         )
 
-    def test_transitions_are_not_subtracted(self):
-        # Two cross-dissolves + zero lower-thirds: transitions are not timeline
-        # items, so they never enter the offline count and must not be subtracted.
-        # Baseline intro title (1) still cancels; nothing real dropped.
+    def test_single_source_lower_third_only(self):
+        # Built 3 / 2 linked (intro title offline) → polished 4 / 2 (added
+        # lower-third). Still 2 linked → nothing dropped.
         self.assertEqual(
-            auto_edit.polished_real_offline(
-                polished_offline=1, baseline_offline=1, lower_thirds=0),
+            auto_edit.dropped_source_clips(baseline_linked=2, polished_linked=2),
             0,
         )
 
     def test_genuinely_dropped_source_clip_is_flagged(self):
-        # Baseline offline=1 (intro title); polished offline=3 = intro title + one
-        # added lower-third + one SOURCE clip that lost its link → real_offline=1.
+        # A real drop is the only thing that reduces linked: 8 → 7 = one clip lost
+        # its link, regardless of how many generators were added alongside.
         self.assertEqual(
-            auto_edit.polished_real_offline(
-                polished_offline=3, baseline_offline=1, lower_thirds=1),
+            auto_edit.dropped_source_clips(baseline_linked=8, polished_linked=7),
             1,
         )
 
-    def test_never_negative(self):
+    def test_reimport_relinking_never_goes_negative(self):
+        # If the reimport re-links a previously-offline item (linked rises), that's
+        # only an improvement — never a negative "drop".
         self.assertEqual(
-            auto_edit.polished_real_offline(
-                polished_offline=0, baseline_offline=1, lower_thirds=2),
+            auto_edit.dropped_source_clips(baseline_linked=7, polished_linked=8),
             0,
         )
 

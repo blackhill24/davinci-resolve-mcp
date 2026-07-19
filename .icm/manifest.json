@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "e2306c390668b48d",
+      "fingerprint": "df7877f1967675c1",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -599,7 +599,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "058f7ba763451eaf",
+      "fingerprint": "64f0e31bbe53d13f",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -607,6 +607,7 @@
         "tests/live_api_gap_verification.py",
         "tests/live_audio_fairlight_validation.py",
         "tests/live_auto_edit_ducking_probe.py",
+        "tests/live_auto_edit_twosource_polish.py",
         "tests/live_auto_edit_validation.py",
         "tests/live_auto_sync_settings_check.py",
         "tests/live_color_grade_validation.py",

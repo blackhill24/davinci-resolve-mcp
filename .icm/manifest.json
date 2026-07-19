@@ -3,11 +3,11 @@
   "layers": 3,
   "root_nav": "CLAUDE.md",
   "synced": "2026-07-19",
-  "_root_structure": "01f545d69a3b321e",
+  "_root_structure": "75479c43f99da814",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "3d904769aff8079f",
+      "fingerprint": "e2306c390668b48d",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -599,7 +599,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "8cdb811fafd72dbe",
+      "fingerprint": "058f7ba763451eaf",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",

@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "f875054fe2432d41",
+      "fingerprint": "214a317014569bef",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -106,7 +106,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "084f8a3881091ae5",
+      "fingerprint": "aa9cb5460223f12e",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -534,7 +534,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "24841837cf96aefa",
+      "fingerprint": "9c764459fa1d5e36",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -604,13 +604,14 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "7b966408f95c4c4f",
+      "fingerprint": "0834733758fe0b2d",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
         "tests/create_test_timeline.py",
         "tests/live_api_gap_verification.py",
         "tests/live_audio_fairlight_validation.py",
+        "tests/live_auto_edit_drt_ducking.py",
         "tests/live_auto_edit_ducking_probe.py",
         "tests/live_auto_edit_twosource_polish.py",
         "tests/live_auto_edit_validation.py",

@@ -198,5 +198,50 @@ class OpOrderTest(unittest.TestCase):
         self.assertTrue(all(k == "cross_dissolve" for k in kinds[:first_lt]))
 
 
+class PolishedRealOfflineTest(unittest.TestCase):
+    """The media-link honesty diff (issue #13 relink wrinkle).
+
+    The coverage scan counts media-less generators as "offline": the intro title
+    build_timeline placed, plus each Text+ lower-third the polish adds. Judging the
+    round-trip against a raw count false-alarms on those; the honest measure is a
+    diff against the built timeline's pre-round-trip coverage.
+    """
+
+    def test_intro_title_alone_is_not_a_dropped_clip(self):
+        # Built timeline carries an intro title (offline=1). Polish adds one
+        # lower-third → polished offline=2. No SOURCE clip dropped.
+        self.assertEqual(
+            auto_edit.polished_real_offline(
+                polished_offline=2, baseline_offline=1, lower_thirds=1),
+            0,
+        )
+
+    def test_transitions_are_not_subtracted(self):
+        # Two cross-dissolves + zero lower-thirds: transitions are not timeline
+        # items, so they never enter the offline count and must not be subtracted.
+        # Baseline intro title (1) still cancels; nothing real dropped.
+        self.assertEqual(
+            auto_edit.polished_real_offline(
+                polished_offline=1, baseline_offline=1, lower_thirds=0),
+            0,
+        )
+
+    def test_genuinely_dropped_source_clip_is_flagged(self):
+        # Baseline offline=1 (intro title); polished offline=3 = intro title + one
+        # added lower-third + one SOURCE clip that lost its link → real_offline=1.
+        self.assertEqual(
+            auto_edit.polished_real_offline(
+                polished_offline=3, baseline_offline=1, lower_thirds=1),
+            1,
+        )
+
+    def test_never_negative(self):
+        self.assertEqual(
+            auto_edit.polished_real_offline(
+                polished_offline=0, baseline_offline=1, lower_thirds=2),
+            0,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

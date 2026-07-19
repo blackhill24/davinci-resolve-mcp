@@ -877,3 +877,27 @@ def plan_polish_ops(
         "record_offset": offset,
         "notes": notes,
     }
+
+
+def polished_real_offline(
+    polished_offline: int, baseline_offline: int, lower_thirds: int) -> int:
+    """How many SOURCE clips genuinely dropped their media link after a polish.
+
+    ``polish_timeline`` exports the built timeline to ``.drt``, adds ops, and
+    reimports. The media-coverage scan counts any timeline *item* with no backing
+    Media Pool Item as "offline" — which legitimately includes media-less
+    generators: the intro title ``build_timeline`` placed and the lower-third
+    ``Text+`` this polish adds. Judging the round-trip against a raw offline count
+    therefore false-alarms on those generators.
+
+    The honest measure is a diff against the built timeline's own coverage taken
+    *before* the round-trip:
+      * ``baseline_offline`` already contains every media-less item the built
+        timeline had (the intro title, any prior generator) — so it cancels out.
+      * ``lower_thirds`` are the only media-less items the polish newly adds.
+        Cross-dissolves are *transitions*, not timeline items, so they never
+        appear in the offline count and must NOT be subtracted.
+
+    Anything left over is a real source clip that lost its link. Clamped at 0.
+    """
+    return max(0, int(polished_offline) - int(baseline_offline) - int(lower_thirds))

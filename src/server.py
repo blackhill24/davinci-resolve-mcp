@@ -19836,6 +19836,12 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         if blocked:
             return blocked
 
+        # Baseline the built timeline's media coverage BEFORE the round-trip: it
+        # already carries media-less generators (the intro title) that read as
+        # "offline". The polished timeline is judged against this, not a raw count,
+        # so those known generators don't false-alarm as dropped source clips.
+        baseline_media = _timeline_media_coverage(tl)
+
         scratch = tempfile.mkdtemp(prefix="auto_edit_polish_")
         export_path = os.path.join(scratch, f"{plan['plan_id']}.drt")
         exported = _export_timeline_checked(tl, {
@@ -19882,15 +19888,18 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             except Exception:
                 pass
 
-        # Media-link honesty: cross-dissolves (transitions) and lower-thirds
-        # (Fusion/Text+ generators) have NO backing media file, so they always
-        # count as "offline" in the coverage scan. The real question is whether any
-        # SOURCE CLIP dropped its link — flag only when offline exceeds the ops we
-        # knowingly added (verified live: 2/2 real clips stay linked; export-then-
+        # Media-link honesty: media-less items (the intro title from build_timeline,
+        # the lower-third Text+ this polish adds) always read as "offline" in the
+        # coverage scan. The real question is whether any SOURCE CLIP dropped its
+        # link — measured as a diff against the built timeline's pre-round-trip
+        # coverage, NOT a raw count. Cross-dissolves are transitions, not items, so
+        # they never appear in the count (verified live on Resolve 21: export-then-
         # modify preserves media-link blobs byte-for-byte).
         media = imported.get("media") or {}
-        expected_non_media = int(polish["transitions"]) + int(polish["lower_thirds"])
-        real_offline = max(0, int(media.get("offline", 0)) - expected_non_media)
+        real_offline = _auto_edit_mod.polished_real_offline(
+            polished_offline=int(media.get("offline", 0)),
+            baseline_offline=int(baseline_media.get("offline", 0)),
+            lower_thirds=int(polish["lower_thirds"]))
         out = {
             "success": True,
             "polished_timeline": final_name,
@@ -19899,6 +19908,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             "lower_thirds": polish["lower_thirds"],
             "ops_applied": len(ops),
             "media_link": media,  # {total, linked, offline}; offline includes added generators
+            "baseline_media_link": baseline_media,  # built timeline before the round-trip
             "clips_relinked": real_offline == 0,
             "notes": polish.get("notes"),
             "plan_id": plan["plan_id"],
@@ -19908,7 +19918,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         if real_offline:
             out["warning"] = (
                 f"{real_offline} source clip(s) went offline after the drt round-trip "
-                "(beyond the added dissolves/titles) — check media relinking.")
+                "(beyond the intro title and added lower-thirds) — check media relinking.")
         _edit_engine_mod.mark_plan_executed(project_root, plan["plan_id"], {
             **exec_summary,
             "polished": {

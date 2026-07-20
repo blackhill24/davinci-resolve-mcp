@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "daf29c3751971e9f",
+      "fingerprint": "da30b038620e9135",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -106,7 +106,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "53c3e4e9300ef705",
+      "fingerprint": "58df1792aa5cda49",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -537,7 +537,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "19c078e7e70866eb",
+      "fingerprint": "f1f12706ea8a6fb6",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -607,7 +607,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "e52bb5f32068dcae",
+      "fingerprint": "b058073524398506",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",

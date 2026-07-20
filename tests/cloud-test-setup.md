@@ -29,7 +29,7 @@ contributors without cloud access.
 
 ```
 RESOLVE_CLOUD_PROJECT_MEDIA_PATH=/path/to/disposable/library \
-  python3.11 tests/live_cloud_project_validation.py --output-dir /tmp/cloud-project-probe
+  .venv/bin/python tests/live_cloud_project_validation.py --output-dir /tmp/cloud-project-probe
 ```
 
 Writes `cloud-project-probe.json` / `.md` to the output dir, same shape as

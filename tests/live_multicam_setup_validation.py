@@ -5,7 +5,7 @@ and validates that media_pool.setup_multicam_timeline creates a stacked prep
 timeline with one angle per video track and optional matching audio tracks.
 
 Run with:
-  python3.11 tests/live_multicam_setup_validation.py
+  .venv/bin/python tests/live_multicam_setup_validation.py
 """
 
 from __future__ import annotations

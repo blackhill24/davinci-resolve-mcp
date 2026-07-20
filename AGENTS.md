@@ -91,10 +91,10 @@ semantics.
 ```bash
 python src/server.py
 python src/server.py --full
-venv/bin/python -m src.control_panel
+.venv/bin/python -m src.control_panel
 python install.py
-venv/bin/python tests/test_import.py
-venv/bin/python scripts/audit_api_parity.py
+.venv/bin/python tests/test_import.py
+.venv/bin/python scripts/audit_api_parity.py
 ```
 
 Python 3.10+ is required (the MCP SDK floor). 3.10-3.12 is the lowest-risk range

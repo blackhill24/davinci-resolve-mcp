@@ -7,8 +7,8 @@ reports, and deletes the project unless --keep-open is provided.
 
 Run with Python 3.10-3.12 against a running Resolve Studio instance:
 
-  python3.11 tests/live_media_pool_ingest_validation.py
-  python3.11 tests/live_media_pool_ingest_validation.py --output-dir /tmp/media-pool-ingest-probe
+  .venv/bin/python tests/live_media_pool_ingest_validation.py
+  .venv/bin/python tests/live_media_pool_ingest_validation.py --output-dir /tmp/media-pool-ingest-probe
 """
 
 from __future__ import annotations
@@ -21,7 +21,14 @@ from pathlib import Path
 
 
 def _install_mcp_stubs() -> None:
-    """Allow importing src.server when MCP deps are absent from Python 3.11."""
+    """Allow importing src.server when the real MCP SDK is absent."""
+
+    try:
+        import mcp.server.fastmcp  # noqa: F401
+
+        return  # real SDK available — stubs would shadow it
+    except ImportError:
+        pass
 
     class FastMCP:
         def __init__(self, *args, **kwargs):
@@ -39,6 +46,14 @@ def _install_mcp_stubs() -> None:
 
             return decorate
 
+    class Context:
+        pass
+
+    class Image:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
     def stdio_server(*args, **kwargs):
         raise RuntimeError("stdio_server is not used by the live Media Pool ingest harness")
 
@@ -51,6 +66,8 @@ def _install_mcp_stubs() -> None:
     stdio = types.ModuleType("mcp.server.stdio")
 
     fastmcp.FastMCP = FastMCP
+    fastmcp.Context = Context
+    fastmcp.Image = Image
     stdio.stdio_server = stdio_server
 
     sys.modules.setdefault("anyio", anyio)

@@ -8,7 +8,7 @@ writes JSON/Markdown evidence reports, and deletes the project unless
 
 Run with Python 3.10-3.12 against a running Resolve Studio instance:
 
-  python3.11 tests/live_media_pool_ingest_validation.py --output-dir /tmp/media-pool-ingest-probe
+  .venv/bin/python tests/live_media_pool_ingest_validation.py --output-dir /tmp/media-pool-ingest-probe
 """
 
 from __future__ import annotations

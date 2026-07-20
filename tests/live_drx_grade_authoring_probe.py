@@ -23,7 +23,7 @@ from pathlib import Path
 
 
 def _install_mcp_stubs() -> None:
-    """Allow importing src.server when MCP deps are absent from Python 3.11."""
+    """Allow importing src.server when the real MCP SDK is absent."""
     try:
         import mcp.server.fastmcp  # noqa: F401
 

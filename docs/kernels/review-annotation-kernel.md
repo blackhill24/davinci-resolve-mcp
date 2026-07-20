@@ -99,7 +99,7 @@ Validated marker colors:
 Run the live boundary probe with:
 
 ```bash
-python3.11 tests/live_review_annotation_validation.py --output-dir /tmp/review-annotation-probe
+.venv/bin/python tests/live_review_annotation_validation.py --output-dir /tmp/review-annotation-probe
 ```
 
 The harness creates a disposable project, generates a short synthetic video

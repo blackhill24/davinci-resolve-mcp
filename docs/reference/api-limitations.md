@@ -12,7 +12,7 @@ that none exists).
 
 **Verified on:** DaVinci Resolve Studio 21.0.0
 
-**Totals:** 17 missing capabilities, 13 bugs / unreliable behaviors.
+**Totals:** 18 missing capabilities, 13 bugs / unreliable behaviors.
 
 The authoritative source is the runtime-queryable `api_truth` ledger
 (`resolve_control api_truth "<query>"`); this document is generated from
@@ -47,6 +47,13 @@ equivalent, blocking full automation.
 - **Behavior:** Does not exist. Timelines are looked up by index.
 - **Workaround / current handling:** Iterate GetTimelineByIndex(1..GetTimelineCount()).
 - **Tags:** missing-method, timeline
+
+### Resolve.GetUIManager
+
+- **Object:** `Resolve`
+- **Behavior:** Does not exist. There is no scripting API to open the Project Settings or Preferences dialogs, save/load UI layouts via a UIManager object, or enumerate layout presets from disk (layout presets are not stored under Presets/UILayouts). Tools built on this fabricated surface could never succeed and were removed (2026-07-20 audit).
+- **Workaround / current handling:** Use the real layout-preset API instead: Resolve.SaveLayoutPreset / LoadLayoutPreset / ExportLayoutPreset / ImportLayoutPreset / DeleteLayoutPreset / UpdateLayoutPreset. Dialogs cannot be opened programmatically at all.
+- **Tags:** missing-method, ui, layout-presets
 
 ### Source Track Selector / destination track for Insert*IntoTimeline
 

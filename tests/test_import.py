@@ -97,15 +97,16 @@ def test_utils_syntax():
 
 
 def test_compound_tool_count():
-    # 34 = 33 baseline + edit_engine (Phase E).
-    assert _count_mcp_tools(PROJECT_ROOT / "src" / "server.py") == 34
+    # 35 = 33 baseline + edit_engine (Phase E) + auto_edit (auto-edit Phase 2).
+    assert _count_mcp_tools(PROJECT_ROOT / "src" / "server.py") == 35
 
 
 def test_prompt_registrations():
     source = (PROJECT_ROOT / "src" / "server.py").read_text(encoding="utf-8")
     # 2 baseline (davinci_resolve_workflow + analyze_media) + 5 F2 workflow prompts
-    # + 7 per-domain workflow routers.
-    assert source.count("@mcp.prompt") == 14
+    # + 7 per-domain workflow routers + auto_edit_workflow (auto-edit Phase 2).
+    assert source.count("@mcp.prompt") == 15
+    assert 'name="auto_edit_workflow"' in source
     # Per-domain routers (cross-platform depth via MCP prompts).
     for _name in (
         "color_grade_workflow",

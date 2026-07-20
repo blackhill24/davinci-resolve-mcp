@@ -316,7 +316,7 @@ def kernel(name: str, options: Optional[Dict[str, Any]] = None) -> str:
     boilerplate (header, signature, alpha note) generated for them.
     """
     options = options or {}
-    return header(name, "kernel") + f'''// TODO: Replace with your transform implementation.
+    return header(name, "kernel") + '''// TODO: Replace with your transform implementation.
 // Reference: docs/notes/dctl-notes.md
 //
 // Useful globals:
@@ -328,10 +328,10 @@ def kernel(name: str, options: Optional[Dict[str, Any]] = None) -> str:
 
 __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y,
                               float p_R, float p_G, float p_B)
-{{
+{
     // TODO
     return make_float3(p_R, p_G, p_B);
-}}
+}
 '''
 
 

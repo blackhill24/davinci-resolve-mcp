@@ -22,8 +22,6 @@ from mcp.types import ToolAnnotations
 
 from src.utils.app_control import (
     get_app_state,
-    open_preferences,
-    open_project_settings,
     quit_resolve_app,
     restart_resolve_app,
 )
@@ -34,14 +32,6 @@ from src.utils.cloud_operations import (
     import_cloud_project,
     load_cloud_project,
     restore_cloud_project,
-)
-from src.utils.layout_presets import (
-    delete_layout_preset,
-    export_layout_preset,
-    import_layout_preset,
-    list_layout_presets,
-    load_layout_preset,
-    save_layout_preset,
 )
 from src.utils.object_inspection import inspect_object, print_object_help
 from src.utils.platform import get_platform, get_resolve_paths

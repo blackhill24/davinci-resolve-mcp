@@ -197,16 +197,6 @@ def inspect_custom_object(object_path: str) -> Dict[str, Any]:
         return {"error": f"Error inspecting object: {str(e)}"}
 
 
-@mcp.resource("resolve://layout-presets")
-def get_layout_presets() -> List[Dict[str, Any]]:
-    """Get all available layout presets for DaVinci Resolve."""
-    resolve = get_resolve()
-    if resolve is None:
-        return {"error": "Not connected to DaVinci Resolve"}
-    
-    return list_layout_presets(layout_type="ui")
-
-
 @mcp.tool()
 def save_layout_preset_tool(preset_name: str) -> Dict[str, Any]:
     """Save the current UI layout as a preset.
@@ -359,36 +349,6 @@ def restart_app(wait_seconds: int = 5) -> str:
         return "DaVinci Resolve restart initiated successfully"
     else:
         return "Failed to restart DaVinci Resolve"
-
-
-@mcp.tool()
-def open_settings() -> str:
-    """Open the Project Settings dialog in DaVinci Resolve."""
-    resolve = get_resolve()
-    if resolve is None:
-        return "Error: Not connected to DaVinci Resolve"
-    
-    result = open_project_settings(resolve)
-    
-    if result:
-        return "Project Settings dialog opened successfully"
-    else:
-        return "Failed to open Project Settings dialog"
-
-
-@mcp.tool()
-def open_app_preferences() -> str:
-    """Open the Preferences dialog in DaVinci Resolve."""
-    resolve = get_resolve()
-    if resolve is None:
-        return "Error: Not connected to DaVinci Resolve"
-    
-    result = open_preferences(resolve)
-    
-    if result:
-        return "Preferences dialog opened successfully"
-    else:
-        return "Failed to open Preferences dialog"
 
 
 @mcp.tool()

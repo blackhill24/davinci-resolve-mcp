@@ -114,7 +114,7 @@ before mutating Resolve state.
 | Mode | Entry point | Tool count | Use when |
 |---|---|---|---|
 | Compound (default) | `src/server.py` | 35 tools | Most workflows — keeps context lean |
-| Granular (full) | `src/server.py --full` | 343 tools | Power users needing one tool per API method |
+| Granular (full) | `src/server.py --full` | 341 tools | Power users needing one tool per API method |
 
 This skill document covers the **compound server** (the default). Each compound
 tool accepts an `action` string and an optional `params` object.
@@ -1432,7 +1432,7 @@ timeline_item_markers(action="add", params={"frame": 100, "color": "Blue", "name
 For an exhaustive live boundary map of the timeline edit kernel, run:
 
 ```
-python3.11 tests/live_duplicate_clips_validation.py --output-dir /tmp/timeline-kernel-probe
+.venv/bin/python tests/live_duplicate_clips_validation.py --output-dir /tmp/timeline-kernel-probe
 ```
 
 The live harness first validates duplicate/range edit behavior, then runs the
@@ -1446,7 +1446,7 @@ Resolve API limitations.
 For the Media Pool / Ingest boundary map, run:
 
 ```
-python3.11 tests/live_media_pool_ingest_validation.py --output-dir /tmp/media-pool-ingest-probe
+.venv/bin/python tests/live_media_pool_ingest_validation.py --output-dir /tmp/media-pool-ingest-probe
 ```
 
 The harness creates a disposable project, generates synthetic video/audio/still
@@ -1457,7 +1457,7 @@ generated media directory. See `docs/kernels/media-pool-ingest-kernel.md`.
 For the Review Annotation boundary map, run:
 
 ```
-python3.11 tests/live_review_annotation_validation.py --output-dir /tmp/review-annotation-probe
+.venv/bin/python tests/live_review_annotation_validation.py --output-dir /tmp/review-annotation-probe
 ```
 
 The harness creates a disposable project, generates synthetic video/audio media,
@@ -1478,7 +1478,7 @@ timeline_item_color(action="safe_export_lut", params={"type": "33ptcube", "path"
 For the Color / Grade boundary map, run:
 
 ```
-python3.11 tests/live_color_grade_validation.py --output-dir /tmp/color-grade-probe
+.venv/bin/python tests/live_color_grade_validation.py --output-dir /tmp/color-grade-probe
 ```
 
 The harness creates a disposable project, generates synthetic color-bar media,
@@ -1510,7 +1510,7 @@ timeline(action="conform_boundary_report", params={"handles": 8})
 For the Timeline Conform / Interchange boundary map, run:
 
 ```
-python3.11 tests/live_timeline_conform_validation.py --output-dir /tmp/timeline-conform-probe
+.venv/bin/python tests/live_timeline_conform_validation.py --output-dir /tmp/timeline-conform-probe
 ```
 
 The harness creates a disposable project, generates synthetic media, builds a
@@ -1522,7 +1522,7 @@ See `docs/kernels/timeline-conform-interchange-kernel.md`.
 For the Audio / Fairlight boundary map, run:
 
 ```
-python3.11 tests/live_audio_fairlight_validation.py --output-dir /tmp/audio-fairlight-probe
+.venv/bin/python tests/live_audio_fairlight_validation.py --output-dir /tmp/audio-fairlight-probe
 ```
 
 The harness creates a disposable project, generates synthetic video and audio
@@ -1548,7 +1548,7 @@ render(action="is_rendering")
 For the Render / Deliver boundary map, run:
 
 ```
-python3.11 tests/live_render_deliver_validation.py --output-dir /tmp/render-deliver-probe
+.venv/bin/python tests/live_render_deliver_validation.py --output-dir /tmp/render-deliver-probe
 ```
 
 The harness creates a disposable project, generates a synthetic timeline, probes
@@ -1568,7 +1568,7 @@ fusion_comp(action="fusion_boundary_report", params={"timeline_item": {"track_ty
 For the Fusion Composition boundary map, run:
 
 ```
-python3.11 tests/live_fusion_composition_validation.py --output-dir /tmp/fusion-composition-probe
+.venv/bin/python tests/live_fusion_composition_validation.py --output-dir /tmp/fusion-composition-probe
 ```
 
 The harness creates a disposable project, generates synthetic video media,

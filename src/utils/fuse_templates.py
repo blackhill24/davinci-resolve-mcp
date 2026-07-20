@@ -298,7 +298,6 @@ def view_lut(name: str, options: Optional[Dict[str, Any]] = None) -> str:
 
     inputs_block = "\n".join(inputs)
     setparams_block = "\n".join(setparams)
-    params_string = "\\n".join(shader_params)
 
     return header(name, "view_lut", "viewlut") + f'''FuRegisterClass("{name}", CT_ViewLUTPlugin, {{
     REGS_Name = "{name}",
@@ -823,11 +822,10 @@ def source_generator(name: str, options: Optional[Dict[str, Any]] = None) -> str
 
     options:
         kind: 'noise' | 'gradient' | 'checkerboard' | 'solid' (default 'noise')
-        width:  int (default 1920)
-        height: int (default 1080)
 
     Uses CT_Tool with REG_Source_*Ctrls registration so Fusion treats this as
-    a source generator (no image input slot, sized by the project). See the
+    a source generator (no image input slot, sized by the project — width/height
+    come from the comp's format controls, not from options). See the
     SDK's GPUSampleFuse example (p. 140).
     """
     options = options or {}
@@ -835,9 +833,6 @@ def source_generator(name: str, options: Optional[Dict[str, Any]] = None) -> str
     if kind not in ("noise", "gradient", "checkerboard", "solid"):
         raise ValueError(f"Invalid source_generator kind '{kind}'. "
                          "Valid: noise, gradient, checkerboard, solid")
-    width = int(options.get("width", 1920))
-    height = int(options.get("height", 1080))
-
     if kind == "noise":
         body = '''    local p = Pixel({A = 1})
     for y = 0, out.Height - 1 do
@@ -1023,7 +1018,6 @@ def channel_op(name: str, options: Optional[Dict[str, Any]] = None) -> str:
                          f"Valid: {list(valid_ops)}")
     rgba_only = bool(options.get("rgba_only", True))
 
-    aux_channels = ""
     aux_doc = ""
     if not rgba_only:
         aux_doc = (

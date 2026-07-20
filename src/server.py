@@ -6478,124 +6478,127 @@ def _timeline_import_srt_impl(proj, tl, p: Dict[str, Any]):
     start_frame = int(tl.GetStartFrame() or 0)
 
     scratch = tempfile.mkdtemp(prefix="timeline_import_srt_")
-    export_path = os.path.join(
-        scratch,
-        f"{re.sub(r'[^A-Za-z0-9._-]+', '_', source_name).strip('_') or 'timeline'}.drt")
-    exported = _export_timeline_checked(tl, {
-        "path": export_path, "format": "drt",
-        "require_temp_path": False, "background": False, "async_job": False,
-    })
-    if not exported.get("success"):
-        return _err("drt export failed — cannot import_srt") | {"export": exported}
-    drt_src = exported.get("primary_file") or export_path
-
-    def _read_seq(drt_file):
-        with zipfile.ZipFile(drt_file) as z:
-            names = z.namelist()
-            seq_names = [n for n in names if re.search(r"(^|/)SeqContainer(/|\d*\.xml)", n)
-                         and n.endswith(".xml")]
-            if not seq_names:
-                return None, None, None
-            return names, seq_names[0], z.read(seq_names[0]).decode("utf-8")
-
     try:
-        names, seq_name, seq_xml = _read_seq(drt_src)
-        if seq_xml is None:
-            return _err("exported .drt has no SeqContainer — unexpected container layout")
+        export_path = os.path.join(
+            scratch,
+            f"{re.sub(r'[^A-Za-z0-9._-]+', '_', source_name).strip('_') or 'timeline'}.drt")
+        exported = _export_timeline_checked(tl, {
+            "path": export_path, "format": "drt",
+            "require_temp_path": False, "background": False, "async_job": False,
+        })
+        if not exported.get("success"):
+            return _err("drt export failed — cannot import_srt") | {"export": exported}
+        drt_src = exported.get("primary_file") or export_path
 
-        template = _subtitle_codec.find_template_cue(seq_xml)
-        template_from = "current_timeline" if template is not None else None
-        if template is None and template_drt:
-            template_drt = os.path.abspath(os.path.expanduser(str(template_drt)))
-            if not os.path.isfile(template_drt):
-                return _err(f"template_drt not found: {template_drt}")
-            _tn, _tsn, t_xml = _read_seq(template_drt)
-            if t_xml is None:
-                return _err("template_drt has no SeqContainer")
-            template = _subtitle_codec.find_template_cue(t_xml)
-            if template is not None:
-                template_from = "template_drt"
-                try:
-                    seq_xml = _subtitle_codec.transplant_subtitle_track(seq_xml, t_xml)
-                except ValueError as exc:
-                    return _err(f"could not transplant the template subtitle track: {exc}")
-        if template is None:
-            # Fall back to the EMBEDDED synthetic template — proven live to
-            # survive reimport (live_import_srt_tool_probe.py Q1, 21.0.2.4).
-            template = _subtitle_codec.builtin_template()
-            template_from = "embedded"
-            seq_xml = _subtitle_codec.ensure_subtitle_track(seq_xml)
-            if "<SubtitleTrackVec>" not in seq_xml:
-                return _err("exported .drt has no <SubtitleTrackVec/> slot to seed — "
-                            "unexpected container layout")
+        def _read_seq(drt_file):
+            with zipfile.ZipFile(drt_file) as z:
+                names = z.namelist()
+                seq_names = [n for n in names if re.search(r"(^|/)SeqContainer(/|\d*\.xml)", n)
+                             and n.endswith(".xml")]
+                if not seq_names:
+                    return None, None, None
+                return names, seq_names[0], z.read(seq_names[0]).decode("utf-8")
 
         try:
-            new_xml, cue_count = _subtitle_codec.author_subtitle_track(
-                seq_xml, cues, fps=fps, start_frame=start_frame,
-                template=template, style=style, mode=mode)
-        except ValueError as exc:
-            return _err(f"subtitle authoring failed: {exc}")
+            names, seq_name, seq_xml = _read_seq(drt_src)
+            if seq_xml is None:
+                return _err("exported .drt has no SeqContainer — unexpected container layout")
 
-        authored = os.path.join(scratch, "from_srt.drt")
-        with zipfile.ZipFile(drt_src) as zin, \
-                zipfile.ZipFile(authored, "w", zipfile.ZIP_DEFLATED) as zout:
-            for n in names:
-                if n == seq_name:
-                    zout.writestr(n, new_xml)
-                else:
-                    zout.writestr(n, zin.read(n))
-    except zipfile.BadZipFile:
-        return _err("exported .drt is not a readable zip container")
+            template = _subtitle_codec.find_template_cue(seq_xml)
+            template_from = "current_timeline" if template is not None else None
+            if template is None and template_drt:
+                template_drt = os.path.abspath(os.path.expanduser(str(template_drt)))
+                if not os.path.isfile(template_drt):
+                    return _err(f"template_drt not found: {template_drt}")
+                _tn, _tsn, t_xml = _read_seq(template_drt)
+                if t_xml is None:
+                    return _err("template_drt has no SeqContainer")
+                template = _subtitle_codec.find_template_cue(t_xml)
+                if template is not None:
+                    template_from = "template_drt"
+                    try:
+                        seq_xml = _subtitle_codec.transplant_subtitle_track(seq_xml, t_xml)
+                    except ValueError as exc:
+                        return _err(f"could not transplant the template subtitle track: {exc}")
+            if template is None:
+                # Fall back to the EMBEDDED synthetic template — proven live to
+                # survive reimport (live_import_srt_tool_probe.py Q1, 21.0.2.4).
+                template = _subtitle_codec.builtin_template()
+                template_from = "embedded"
+                seq_xml = _subtitle_codec.ensure_subtitle_track(seq_xml)
+                if "<SubtitleTrackVec>" not in seq_xml:
+                    return _err("exported .drt has no <SubtitleTrackVec/> slot to seed — "
+                                "unexpected container layout")
 
-    mp = proj.GetMediaPool()
-    if not mp:
-        return _err("No media pool")
-    new_name = _unique_timeline_name(proj, f"{source_name} (subtitled)")
-    imported = _import_timeline_checked(proj, mp, {
-        "path": authored, "timeline_name": new_name,
-        "require_temp_path": False,
-    })
-    if not imported.get("success"):
-        return _err(imported.get("error") or "reimport of the subtitled .drt failed") | {
-            "import": imported}
+            try:
+                new_xml, cue_count = _subtitle_codec.author_subtitle_track(
+                    seq_xml, cues, fps=fps, start_frame=start_frame,
+                    template=template, style=style, mode=mode)
+            except ValueError as exc:
+                return _err(f"subtitle authoring failed: {exc}")
 
-    final_name = imported.get("name") or new_name
-    imp_tl = None
-    for i in range(1, int(proj.GetTimelineCount() or 0) + 1):
-        cand = proj.GetTimelineByIndex(i)
-        if cand and str(cand.GetUniqueId()) == str(imported.get("id")):
-            imp_tl = cand
-            break
-    subtitle_tracks = None
-    if imp_tl is not None:
+            authored = os.path.join(scratch, "from_srt.drt")
+            with zipfile.ZipFile(drt_src) as zin, \
+                    zipfile.ZipFile(authored, "w", zipfile.ZIP_DEFLATED) as zout:
+                for n in names:
+                    if n == seq_name:
+                        zout.writestr(n, new_xml)
+                    else:
+                        zout.writestr(n, zin.read(n))
+        except zipfile.BadZipFile:
+            return _err("exported .drt is not a readable zip container")
+
+        mp = proj.GetMediaPool()
+        if not mp:
+            return _err("No media pool")
+        new_name = _unique_timeline_name(proj, f"{source_name} (subtitled)")
+        imported = _import_timeline_checked(proj, mp, {
+            "path": authored, "timeline_name": new_name,
+            "require_temp_path": False,
+        })
+        if not imported.get("success"):
+            return _err(imported.get("error") or "reimport of the subtitled .drt failed") | {
+                "import": imported}
+
+        final_name = imported.get("name") or new_name
+        imp_tl = None
+        for i in range(1, int(proj.GetTimelineCount() or 0) + 1):
+            cand = proj.GetTimelineByIndex(i)
+            if cand and str(cand.GetUniqueId()) == str(imported.get("id")):
+                imp_tl = cand
+                break
+        subtitle_tracks = None
+        if imp_tl is not None:
+            try:
+                if imp_tl.SetName(new_name):
+                    final_name = new_name
+            except Exception:
+                pass
+            try:
+                subtitle_tracks = int(imp_tl.GetTrackCount("subtitle") or 0)
+            except Exception:
+                pass
         try:
-            if imp_tl.SetName(new_name):
-                final_name = new_name
+            proj.SetCurrentTimeline(tl)
         except Exception:
             pass
-        try:
-            subtitle_tracks = int(imp_tl.GetTrackCount("subtitle") or 0)
-        except Exception:
-            pass
-    try:
-        proj.SetCurrentTimeline(tl)
-    except Exception:
-        pass
 
-    out = _ok(
-        new_timeline=final_name,
-        new_timeline_id=imported.get("id"),
-        original_timeline=source_name,
-        cues_imported=cue_count,
-        subtitle_tracks=subtitle_tracks,
-        fps=fps,
-        style_applied=style or None,
-        template_source=template_from,
-    )
-    if subtitle_tracks == 0:
-        out["warning"] = ("reimported timeline reports 0 subtitle tracks — the authored "
-                          "cues did not survive; check the blob template")
-    return out
+        out = _ok(
+            new_timeline=final_name,
+            new_timeline_id=imported.get("id"),
+            original_timeline=source_name,
+            cues_imported=cue_count,
+            subtitle_tracks=subtitle_tracks,
+            fps=fps,
+            style_applied=style or None,
+            template_source=template_from,
+        )
+        if subtitle_tracks == 0:
+            out["warning"] = ("reimported timeline reports 0 subtitle tracks — the authored "
+                              "cues did not survive; check the blob template")
+        return out
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 def _timeline_set_clip_volume_impl(proj, tl, p: Dict[str, Any]):
@@ -6962,6 +6965,16 @@ def _timeline_render_in_place_impl(proj, tl, p: Dict[str, Any]):
             "MarkIn": int(start), "MarkOut": int(end) - 1,
         }
         settings_ok = bool(proj.SetRenderSettings(settings))
+        if not settings_ok or (format_ok is not None and not format_ok):
+            # Resolve refused the settings/format. AddRenderJob would still
+            # enqueue against whatever preset the project last used (commonly a
+            # whole-timeline render to the user's last location) — which then
+            # feeds the destructive delete+replace below. Refuse instead of
+            # rendering against stale settings. (Mirror of _prepare_render_job.)
+            return _err(
+                "SetRenderSettings/SetCurrentRenderFormatAndCodec refused — refusing to "
+                "render against stale project settings",
+                state={"format_ok": format_ok, "settings_ok": settings_ok, "settings": settings})
 
         existing_before = set(os.listdir(target_dir))
         job_id = proj.AddRenderJob()
@@ -6984,10 +6997,15 @@ def _timeline_render_in_place_impl(proj, tl, p: Dict[str, Any]):
                         state={"job_status": job_status, "detail": status})
 
         new_files = [f for f in os.listdir(target_dir) if f not in existing_before]
-        match = next((f for f in new_files if custom_name in f), new_files[0] if new_files else None)
+        # Require our unique CustomName (clip + _RIP_ + timestamp) in the name.
+        # No new_files[0] fallback: a concurrent writer dropping a stray file in
+        # target_dir must not be picked up and swapped onto the timeline.
+        match = next((f for f in new_files if custom_name in f), None)
         if not match:
-            return _err("render completed but no new file appeared in target_dir",
-                        state={"job_status": job_status})
+            return _err("render completed but no file matching the render's CustomName "
+                        "appeared in target_dir",
+                        state={"job_status": job_status, "custom_name": custom_name,
+                               "new_files": sorted(new_files)})
         rendered_path = os.path.join(target_dir, match)
 
         mp = proj.GetMediaPool()
@@ -7006,7 +7024,9 @@ def _timeline_render_in_place_impl(proj, tl, p: Dict[str, Any]):
             "startFrame": 0, "endFrame": int(duration),
             "trackIndex": track_index, "recordFrame": int(start),
         }])
-        if not appended or len(appended) < 1:
+        if not appended or len(appended) < 1 or appended[0] is None:
+            # AppendToTimeline can return [None] as a per-clip failure (api_truth)
+            # — a truthy one-element list that the length check alone misses.
             return _err(
                 "delete succeeded but AppendToTimeline of the rendered clip failed — the "
                 "timeline now has a gap; append the rendered file manually.",

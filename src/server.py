@@ -21117,13 +21117,86 @@ _TIMELINE_ACTIONS = [
     "title_property_scan", "set_title_text", "bulk_set_title_text", "create_compound_clip",
     "create_fusion_clip", "import_into_timeline", "export", "get_setting", "set_setting",
     "insert_generator", "insert_fusion_generator", "insert_fusion_composition",
-    "insert_ofx_generator", "insert_title", "insert_fusion_title", "get_unique_id",
+    "insert_ofx_generator", "insert_title", "insert_fusion_title", "safe_place_overlay", "get_unique_id",
     "get_node_graph", "get_media_pool_item", "get_transcript", "propose_cuts", "apply_cuts",
     "get_mark_in_out", "set_mark_in_out", "clear_mark_in_out", "convert_to_stereo",
     "get_items_in_track", "get_voice_isolation_state", "set_voice_isolation_state",
     "extract_source_frame_ranges", "audio_mix_capability_report", "clip_where", "action_help",
     *_TIMELINE_CONFORM_KERNEL_ACTIONS, *_TIMELINE_AUDIO_KERNEL_ACTIONS,
 ]
+
+
+_OVERLAY_INSERTERS = {
+    # kind -> (method name, needs a `name` arg)
+    "title": ("InsertTitleIntoTimeline", True),
+    "fusion_title": ("InsertFusionTitleIntoTimeline", True),
+    "generator": ("InsertGeneratorIntoTimeline", True),
+    "fusion_generator": ("InsertFusionGeneratorIntoTimeline", True),
+    "ofx_generator": ("InsertOFXGeneratorIntoTimeline", True),
+    "fusion_composition": ("InsertFusionCompositionIntoTimeline", False),
+}
+
+
+def _safe_place_overlay(tl, p):
+    """Best-effort placement layer for titles/generators/Fusion comps (issue #23, 3.3.5).
+
+    The Insert*IntoTimeline calls take no track index and always drop onto the Source
+    Track Selector's current target (V1 in practice); there is NO API to read/set that
+    selector, and locking V1 makes the insert FAIL rather than redirect to V2 (verified
+    21.0.0). This wrapper makes those facts explicit: it pre-checks the V1 lock (so a
+    locked target fails loudly instead of silently), warns when a non-V1 target is
+    requested (unreachable), and confirms the insert actually landed by counting V1
+    items before/after. Titles/generators expose no MediaPoolItem, so they can't be
+    moved to another track via the API afterward — documented, not worked around.
+
+    Params: kind (title|fusion_title|generator|fusion_generator|ofx_generator|
+    fusion_composition), name (for every kind except fusion_composition),
+    target_track? (only 1 is honored), dry_run?.
+    """
+    kind = p.get("kind")
+    if kind not in _OVERLAY_INSERTERS:
+        return _err(f"kind must be one of {sorted(_OVERLAY_INSERTERS)}")
+    method_name, needs_name = _OVERLAY_INSERTERS[kind]
+    if needs_name and not p.get("name"):
+        return _err(f"'{kind}' requires a name")
+
+    requested = int(p.get("target_track", 1))
+    warnings = []
+    if requested != 1:
+        warnings.append(
+            f"target_track={requested} requested, but there is no Source Track Selector "
+            "API: inserts always land on V1 and cannot be redirected. Would place on V1.")
+
+    try:
+        v1_locked = bool(tl.GetIsTrackLocked("video", 1))
+    except Exception:
+        v1_locked = None
+    if v1_locked:
+        return _err(
+            "Insert would FAIL: video track V1 is locked. The API cannot redirect the "
+            "Source Track Selector, and locking V1 makes the insert fail rather than land "
+            "on V2 (verified 21.0.0). Unlock V1, or insert then move the clip in the UI.",
+            code="V1_LOCKED", category="precondition_failed", retryable=False)
+
+    before = len(tl.GetItemListInTrack("video", 1) or [])
+    if p.get("dry_run"):
+        return _ok(would_place=kind, on_track=1, requested_track=requested,
+                   v1_locked=v1_locked, items_before=before, warnings=warnings)
+
+    method = getattr(tl, method_name)
+    api_ok = bool(method(p["name"]) if needs_name else method())
+    after = len(tl.GetItemListInTrack("video", 1) or [])
+    if not (api_ok and after > before):
+        return _err("Insert reported failure or produced no new V1 item",
+                    code="INSERT_NO_LAND", category="resolve_api_failed",
+                    state={"api_returned": api_ok, "items_before": before, "items_after": after})
+    result = _ok(placed=True, kind=kind, on_track=1, requested_track=requested,
+                 items_before=before, items_after=after,
+                 caveats=["always lands on V1 (no track-selector API)",
+                          "no MediaPoolItem — cannot be moved to another track via the API"])
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 @mcp.tool()
@@ -21652,6 +21725,11 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
     elif action == "insert_fusion_title":
         r = tl.InsertFusionTitleIntoTimeline(p["name"])
         return _ok() if r else _err("Failed to insert Fusion title")
+    elif action == "safe_place_overlay":
+        # Lock-aware placement for titles/generators: inserts always land on V1 (no
+        # track-selector API); this checks the V1 lock, warns on non-V1 targets, and
+        # confirms the insert landed. See _safe_place_overlay.
+        return _safe_place_overlay(tl, p)
     elif action == "get_unique_id":
         return {"id": tl.GetUniqueId()}
     elif action == "get_node_graph":

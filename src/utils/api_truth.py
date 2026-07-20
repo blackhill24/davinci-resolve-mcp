@@ -199,12 +199,20 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "insert — verified live on 21.0.0: locking V1 makes the insert "
                    "FAIL rather than land on V2. Titles/generators also can't be "
                    "moved afterward (no MediaPoolItem, so AppendToTimeline clipInfo "
-                   "and MoveClips don't apply).",
-        "recommended": "Accept the limitation for titles/generators (insert lands "
-                       "on V1). For clips that DO have a MediaPoolItem, target a "
-                       "track with MediaPool.AppendToTimeline's clipInfo 'trackIndex' "
-                       "instead (exposed as media_pool append_to_timeline clip_infos). "
-                       "See issue #74.",
+                   "and MoveClips don't apply). Re-probed on 21.0.2.4 (issue #23, "
+                   "3.3.5): dir(Timeline) still exposes NO selector/target-track/"
+                   "patch method — the gap is unchanged in 21.0.",
+        "recommended": "Placement layer shipped (issue #23, 3.3.5): timeline "
+                       "safe_place_overlay wraps the Insert*IntoTimeline calls — it "
+                       "pre-checks the V1 lock (so a locked target fails loudly with "
+                       "V1_LOCKED instead of silently misfiring), warns when a non-V1 "
+                       "target is requested (unreachable), and confirms the insert "
+                       "landed by counting V1 items. Live-verified on 21.0.2.4 "
+                       "(tests/live_track_selector_probe.py). Still V1-only and still "
+                       "unmovable afterward. For clips that DO have a MediaPoolItem, "
+                       "target a track with MediaPool.AppendToTimeline's clipInfo "
+                       "'trackIndex' (media_pool append_to_timeline clip_infos). See "
+                       "issue #74.",
         "tags": ["missing-method", "timeline", "title", "generator", "track"],
         "submit": "missing",
         "issue": 74,

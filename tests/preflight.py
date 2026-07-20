@@ -131,6 +131,11 @@ def gate(require: str = "open") -> dict:
     if state == "scripting_unavailable":
         print("[preflight] NOT READY — fix scripting env (see scripts/doctor.py); aborting live run.")
         sys.exit(EXIT_NO_SCRIPTING)
+    if require == "closed":
+        if state != "closed":
+            print("[preflight] NOT READY — this cold-launch harness needs Resolve QUIT first; aborting.")
+            sys.exit(EXIT_NOT_READY)
+        return status
     if state == "closed":
         print("[preflight] NOT READY — start DaVinci Resolve (Studio) first; aborting live run.")
         sys.exit(EXIT_NOT_READY)
@@ -148,10 +153,11 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     parser.add_argument(
         "--require",
-        choices=["open", "project", "timeline"],
+        choices=["open", "project", "timeline", "closed"],
         default="open",
         help="Readiness bar: open = Resolve responding (default); project = a project "
-        "must be loaded; timeline = a timeline must also be current.",
+        "must be loaded; timeline = a timeline must also be current; closed = Resolve "
+        "must NOT be running (cold-launch harnesses).",
     )
     args = parser.parse_args()
 
@@ -160,6 +166,8 @@ def main() -> int:
 
     if state == "scripting_unavailable":
         code = EXIT_NO_SCRIPTING
+    elif args.require == "closed":
+        code = EXIT_READY if state == "closed" else EXIT_NOT_READY
     elif state == "closed":
         code = EXIT_NOT_READY
     elif state == "open_no_project":

@@ -366,8 +366,8 @@ API_TRUTH: List[Dict[str, Any]] = [
                        "— offline drt surgery via resolve-advanced (drp-format), landing "
                        "on a NEW timeline (Stage 3.1, issue #21). slip_clip supports both "
                        "directions since issue #30 (3.1.5): a single vendor slip primitive "
-                       "shifts the source in-point by +/- frames, bounds-checked at the "
-                       "source head.",
+                       "shifts the source in-point by +/- frames, live-bounds-checked at "
+                       "BOTH ends (GetLeftOffset/GetRightOffset headroom) before export.",
         "tags": ["missing-method", "timeline", "edit", "trim"],
         "submit": "missing",
     },
@@ -400,10 +400,12 @@ API_TRUTH: List[Dict[str, Any]] = [
                        "swaps the clip's MediaTimemapBA blob (constant speed, reset to "
                        "1x, or a variable-speed ramp via record/source keyframes) and "
                        "rescales the record Duration, landing on a NEW timeline. "
-                       "fit_to_fill_edit derives the speed from a target duration. The "
-                       "codec (vendor retime-clip.js) round-trips live-captured 50% and "
-                       "dynamic-ramp blobs byte-for-byte. Linked audio is not retimed "
-                       "automatically.",
+                       "fit_to_fill_edit derives the speed from a target duration; ramp "
+                       "new_duration auto-derives from the last keyframe's record_sec x "
+                       "fps. The codec (vendor retime-clip.js) round-trips live-captured "
+                       "50% and dynamic-ramp blobs byte-for-byte. "
+                       "retime_linked_audio=True retimes the linked audio in the same "
+                       "pass (pitch changes); default leaves audio untouched.",
         "tags": ["missing-method", "timeline", "retime", "speed", "workaround"],
         "submit": "missing",
     },
@@ -658,10 +660,11 @@ API_TRUTH: List[Dict[str, Any]] = [
                        "the composed workaround shipped in issue #30 (3.1.6): "
                        "timeline(action='render_in_place') — single-clip render of "
                        "the clip's record range (MarkIn/MarkOut) into a real media "
-                       "dir, import, and same-position replace. Caveat vs the UI "
-                       "action: the queue bakes the COMPOSITE of visible video "
-                       "tracks over the range, not the isolated clip (the result "
-                       "warns when other tracks overlap). See issue #86.",
+                       "dir, import, and same-position replace. isolate=True "
+                       "(default) disables the other video tracks during the render "
+                       "(restored after) so the bake matches the UI's isolated-clip "
+                       "semantics; isolate=False bakes the track composite and warns "
+                       "when other tracks overlap. See issue #86.",
         "tags": ["missing-method", "timeline", "render", "cache", "render-in-place", "bake"],
         "submit": "missing",
         "issue": 86,
@@ -805,14 +808,15 @@ API_TRUTH: List[Dict[str, Any]] = [
                        "timeline(action='import_srt') parses the SRT, authors the "
                        "exported .drt's SubtitleTrackVec (one Sm2TiGenerator per "
                        "cue; frames from timeline fps + start frame; optional "
-                       "per-cue style {font,size,color}) via "
+                       "per-cue style {font,size,color}; mode replace|append) via "
                        "src/utils/subtitle_codec.py and reimports a NEW "
                        "'(subtitled)' timeline. Cue template: the timeline's own "
                        "subtitle track if present, else template_drt, else the "
                        "EMBEDDED synthetic template (proven live on 21.0.2.4 to "
-                       "survive reimport — no seeding needed). Requires the "
-                       "`zstandard` package. This unlocks external ASR engines "
-                       "(whisper-cli etc.) feeding proper subtitle tracks.",
+                       "survive reimport — no seeding needed). `zstandard` is a "
+                       "repo dependency (requirements.txt). This unlocks external "
+                       "ASR engines (whisper-cli etc.) feeding proper subtitle "
+                       "tracks.",
         "tags": ["missing-method", "subtitle", "srt", "import", "drt",
                  "offline", "asr", "workaround"],
     },

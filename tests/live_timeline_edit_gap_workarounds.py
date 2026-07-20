@@ -197,6 +197,15 @@ def main() -> int:
               str(retreat.get("error") or ""))
         refused = s.timeline("slip_clip", {"clip_id": id_b, "frames": 0})
         check("slip_clip: frames=0 honestly refused", "error" in refused, str(refused))
+        # Live source-bound checks (#30 gotcha fix): the 144-frame source leaves
+        # only 12-frame handles, so ±100 overruns tail/head and must refuse
+        # BEFORE any export happens.
+        refused = s.timeline("slip_clip", {"clip_id": id_b, "frames": 100})
+        check("slip_clip: tail overrun refused live",
+              "overruns the source tail" in str(refused.get("error", "")), str(refused.get("error")))
+        refused = s.timeline("slip_clip", {"clip_id": id_b, "frames": -100})
+        check("slip_clip: head overrun refused live",
+              "overruns the source head" in str(refused.get("error", "")), str(refused.get("error")))
 
         # ---- split_clip (razor) ----
         at = int(item_c.GetStart()) + int(item_c.GetDuration()) // 2

@@ -357,9 +357,12 @@ def author_subtitle_track(
     start_frame: int,
     template: Optional[Dict[str, str]] = None,
     style: Optional[Dict[str, Any]] = None,
+    mode: str = "replace",
 ) -> Tuple[str, int]:
-    """Replace the SubtitleTrackVec's cue Items in `seq_xml` with cues authored
-    from `cues`, cloned off `template` (default: harvested via find_template_cue).
+    """Author `cues` into the SubtitleTrackVec's first track in `seq_xml`,
+    cloned off `template` (default: harvested via find_template_cue).
+    mode='replace' (default) swaps the track's Items for the new cues;
+    mode='append' keeps the existing cues and adds the new ones after them.
     Returns (new_xml, cue_count)."""
     import uuid as _uuid
 
@@ -388,12 +391,23 @@ def author_subtitle_track(
         df = max(1, round((en - st) * fps))
         elems.append(f"<Element>{make_gen(sf, df, text)}</Element>")
 
+    if mode not in ("replace", "append"):
+        raise ValueError("mode must be 'replace' or 'append'")
     si = seq_xml.find("<SubtitleTrackVec>")
     sj = seq_xml.find("</SubtitleTrackVec>")
     if si < 0 or sj < 0:
         raise ValueError("SeqContainer has no <SubtitleTrackVec>")
-    block = re.sub(r"<Items>.*?</Items>", "<Items>" + "".join(elems) + "</Items>",
-                   seq_xml[si:sj], count=1, flags=re.S)
+    authored = "".join(elems)
+
+    def _items_repl(m: "re.Match[str]") -> str:
+        existing = m.group(1) if mode == "append" else ""
+        return f"<Items>{existing}{authored}</Items>"
+
+    block, n_subs = re.subn(r"<Items>(.*?)</Items>", _items_repl,
+                            seq_xml[si:sj], count=1, flags=re.S)
+    if not n_subs:  # first track's Items may be self-closing (<Items/>)
+        block = re.sub(r"<Items\s*/>", f"<Items>{authored}</Items>",
+                       seq_xml[si:sj], count=1)
     return seq_xml[:si] + block + seq_xml[sj:], len(elems)
 
 

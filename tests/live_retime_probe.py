@@ -37,12 +37,15 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 
 def synth_clip(name: str, color: str) -> str:
-    out = os.path.join(MEDIA_DIR, f"{name}.mp4")
+    # A/V clip so AppendToTimeline creates a LINKED audio item (needed by the
+    # retime_linked_audio check).
+    out = os.path.join(MEDIA_DIR, f"{name}.mov")
     subprocess.run([
         "ffmpeg", "-y", "-f", "lavfi",
         "-i", f"color=c={color}:s=640x360:r=24:d={CLIP_FRAMES / 24.0}",
+        "-f", "lavfi", "-i", f"sine=frequency=440:duration={CLIP_FRAMES / 24.0}",
         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-        out,
+        "-c:a", "pcm_s16le", out,
     ], check=True, capture_output=True)
     return out
 
@@ -115,20 +118,38 @@ def main() -> int:
             check("set_clip_speed: original untouched",
                   len(after) == 2 and int(after[0].GetDuration()) == dur_a)
 
-        # ---- set_clip_speed variable ramp ----
-        # 2s of record at 0.5x (1s source), then the rest at 2x — explicit frames.
+        # ---- set_clip_speed variable ramp (new_duration AUTO-DERIVED from
+        # last keyframe record_sec x fps: 4.5s @ 24fps = 108) ----
         kfs = [{"record_sec": 2.0, "source_sec": 1.0},
                {"record_sec": 4.5, "source_sec": 6.0}]
-        ramp = _run_gated(s, "set_clip_speed", {
-            "clip_id": id_b, "keyframes": kfs, "new_duration": 108})  # 4.5s @ 24fps
-        check("set_clip_speed ramp", bool(ramp.get("success")), str(ramp.get("error") or ""))
+        ramp = _run_gated(s, "set_clip_speed", {"clip_id": id_b, "keyframes": kfs})
+        check("set_clip_speed ramp (auto duration)", bool(ramp.get("success")),
+              str(ramp.get("error") or ""))
         if ramp.get("success"):
             new_tl, _ = s._find_timeline_by_name(proj, ramp["new_timeline"])
             if new_tl is not None:
                 items = new_tl.GetItemListInTrack("video", 1) or []
                 target = next((it for it in items if int(it.GetStart()) == start_b), None)
                 d = int(target.GetDuration()) if target is not None else None
-                check("set_clip_speed ramp: explicit duration landed", d == 108, f"duration={d}")
+                check("set_clip_speed ramp: auto-derived duration = 108", d == 108,
+                      f"duration={d}")
+
+        # ---- retime_linked_audio: video + linked audio shrink together ----
+        linked = _run_gated(s, "set_clip_speed", {
+            "clip_id": id_a, "speed": 2, "retime_linked_audio": True})
+        check("set_clip_speed retime_linked_audio", bool(linked.get("success")),
+              str(linked.get("error") or ""))
+        if linked.get("success"):
+            check("linked audio op count = 1", linked.get("linked_audio_retimed") == 1,
+                  str(linked.get("linked_audio_retimed")))
+            new_tl, _ = s._find_timeline_by_name(proj, linked["new_timeline"])
+            if new_tl is not None:
+                v = new_tl.GetItemListInTrack("video", 1) or []
+                a = new_tl.GetItemListInTrack("audio", 1) or []
+                dv = int(v[0].GetDuration()) if v else None
+                da = int(a[0].GetDuration()) if a else None
+                check("linked: video halved", dv == dur_a // 2, f"video={dv}")
+                check("linked: audio matches video", da == dv, f"audio={da} video={dv}")
 
         # ---- fit_to_fill_edit ----
         fit = _run_gated(s, "fit_to_fill_edit", {"clip_id": id_a, "target_duration": 100})

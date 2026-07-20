@@ -6212,6 +6212,24 @@ def _timeline_slip_clip_impl(proj, tl, p: Dict[str, Any]):
     duration = _frame_int(item.GetDuration())
     if duration is not None and frames >= duration:
         return _err(f"frames ({frames}) must be less than the clip's duration ({duration})")
+    # Live source-bound checks (the offline drt layer can only check the head):
+    # GetRightOffset = material available past the out-point (advance headroom),
+    # GetLeftOffset = material before the in-point (retreat headroom).
+    try:
+        if frames > 0:
+            headroom = _frame_int(item.GetRightOffset(False))
+            if headroom is not None and frames > headroom:
+                return _err(
+                    f"slip_clip: advancing by {frames} overruns the source tail — only "
+                    f"{headroom} frame(s) available past the out-point")
+        else:
+            headroom = _frame_int(item.GetLeftOffset(False))
+            if headroom is not None and -frames > headroom:
+                return _err(
+                    f"slip_clip: retreating by {-frames} overruns the source head — only "
+                    f"{headroom} frame(s) available before the in-point")
+    except Exception:
+        pass  # offsets unavailable on some item types; the drt layer still bounds the head
 
     def _build_ops(drt_src):
         clip_db_id, lookup_err = _advanced_edit_lookup_clip_db_id(
@@ -6244,7 +6262,7 @@ def _timeline_set_clip_speed_impl(proj, tl, p: Dict[str, Any]):
     write path (SetClipProperty('Speed') is the MediaPool source property, not
     the timeline retime), so this swaps the clip's MediaTimemapBA blob via drt
     surgery — constant speed or an explicit variable-speed ramp (keyframes)."""
-    track_type, track_index, clip_index, _item, err = _advanced_edit_resolve_clip(tl, p)
+    track_type, track_index, clip_index, item, err = _advanced_edit_resolve_clip(tl, p)
     if err:
         return err
     speed = p.get("speed")
@@ -6272,7 +6290,18 @@ def _timeline_set_clip_speed_impl(proj, tl, p: Dict[str, Any]):
                 return _err("each keyframe needs record_sec and source_sec")
             kf_args.append({"recordSec": float(rec), "sourceSec": float(src)})
         if new_duration is None:
-            return _err("keyframes (variable ramp) requires new_duration (record frames)")
+            # The vendor layer can't derive record frames (it doesn't know the
+            # fps) — but this layer does: the ramp's record extent is its last
+            # keyframe's recordSec.
+            try:
+                fps = float(tl.GetSetting("timelineFrameRate") or 0) or float(
+                    proj.GetSetting("timelineFrameRate") or 0)
+            except Exception:
+                fps = 0.0
+            if not fps:
+                return _err("could not read the timeline frame rate to derive new_duration "
+                            "— pass new_duration (record frames) explicitly")
+            new_duration = max(1, round(kf_args[-1]["recordSec"] * fps))
     if new_duration is not None:
         try:
             new_duration = int(new_duration)
@@ -6281,20 +6310,48 @@ def _timeline_set_clip_speed_impl(proj, tl, p: Dict[str, Any]):
         if new_duration < 1:
             return _err("new_duration must be a positive integer")
 
+    # Optionally retime the LINKED AUDIO in the same op chain, so A/V stay in
+    # sync (video-only retime leaves the audio at its original length).
+    linked_audio = bool(p.get("retime_linked_audio", p.get("retimeLinkedAudio", False)))
+    linked_specs = []
+    if linked_audio:
+        try:
+            for li in item.GetLinkedItems() or []:
+                l_type, l_track, l_index, _li, l_err = _advanced_edit_resolve_clip(
+                    tl, {"clip_id": li.GetUniqueId()})
+                if l_err or l_type != "audio":
+                    continue
+                linked_specs.append((l_track, l_index))
+        except Exception:
+            pass
+        if not linked_specs:
+            return _err("retime_linked_audio=True but the clip has no linked audio item")
+
     def _build_ops(drt_src):
         clip_db_id, lookup_err = _advanced_edit_lookup_clip_db_id(
             drt_src, track_type, track_index, clip_index)
         if lookup_err:
             return None, lookup_err
-        args: Dict[str, Any] = {"track": track_index, "clipDbId": clip_db_id,
-                                "trackType": track_type, "ripple": ripple}
-        if kf_args:
-            args["keyframes"] = kf_args
-        else:
-            args["speed"] = speed
-        if new_duration is not None:
-            args["newDuration"] = new_duration
-        return [{"op": "retime_clip", "args": args}], None
+
+        def _args(track, db_id, ttype):
+            a: Dict[str, Any] = {"track": track, "clipDbId": db_id,
+                                 "trackType": ttype, "ripple": ripple}
+            if kf_args:
+                a["keyframes"] = kf_args
+            else:
+                a["speed"] = speed
+            if new_duration is not None:
+                a["newDuration"] = new_duration
+            return a
+
+        ops = [{"op": "retime_clip", "args": _args(track_index, clip_db_id, track_type)}]
+        for l_track, l_index in linked_specs:
+            l_db_id, l_lookup_err = _advanced_edit_lookup_clip_db_id(
+                drt_src, "audio", l_track, l_index)
+            if l_lookup_err:
+                return None, l_lookup_err
+            ops.append({"op": "retime_clip", "args": _args(l_track, l_db_id, "audio")})
+        return ops, None
 
     return _advanced_timeline_edit(
         proj, tl, p,
@@ -6303,9 +6360,10 @@ def _timeline_set_clip_speed_impl(proj, tl, p: Dict[str, Any]):
         warning=(
             "Exports the current timeline as .drt, retimes the target clip (MediaTimemapBA "
             "swap + Duration rescale) via offline drt surgery, and imports a NEW '(edited)' "
-            "timeline. No existing timeline is modified. Audio stays unretimed unless the "
-            "linked audio clip is retimed too."
+            "timeline. No existing timeline is modified. Linked audio is retimed only with "
+            "retime_linked_audio=True (audio retime changes pitch)."
         ),
+        extra_result={"linked_audio_retimed": len(linked_specs)} if linked_specs else None,
     )
 
 
@@ -6386,6 +6444,9 @@ def _timeline_import_srt_impl(proj, tl, p: Dict[str, Any]):
     unknown = set(style) - {"font", "size", "color"}
     if unknown:
         return _err(f"unknown style key(s): {sorted(unknown)} (supported: font, size, color)")
+    mode = str(p.get("mode", "replace")).lower()
+    if mode not in ("replace", "append"):
+        return _err("mode must be 'replace' (default) or 'append'")
     template_drt = p.get("template_drt", p.get("templateDrt"))
 
     if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
@@ -6395,11 +6456,11 @@ def _timeline_import_srt_impl(proj, tl, p: Dict[str, Any]):
                 "operation": "timeline.import_srt",
                 "warning": (
                     "Exports the current timeline as .drt, authors the SRT's cues into its "
-                    "SubtitleTrackVec (existing subtitle cues on that track are REPLACED in "
-                    "the authored copy), and imports a NEW '(subtitled)' timeline. No "
-                    "existing timeline is modified."),
+                    "SubtitleTrackVec (mode='replace' swaps that track's existing cues in "
+                    "the authored copy; mode='append' keeps them), and imports a NEW "
+                    "'(subtitled)' timeline. No existing timeline is modified."),
                 "source_timeline": tl.GetName(),
-                "srt": srt_path, "cues": len(cues), "style": style or None,
+                "srt": srt_path, "cues": len(cues), "style": style or None, "mode": mode,
             },
         )
     blocked = _consume_confirm_token(action="timeline.import_srt", params=p)
@@ -6471,7 +6532,7 @@ def _timeline_import_srt_impl(proj, tl, p: Dict[str, Any]):
         try:
             new_xml, cue_count = _subtitle_codec.author_subtitle_track(
                 seq_xml, cues, fps=fps, start_frame=start_frame,
-                template=template, style=style)
+                template=template, style=style, mode=mode)
         except ValueError as exc:
             return _err(f"subtitle authoring failed: {exc}")
 
@@ -6802,9 +6863,10 @@ def _timeline_render_in_place_impl(proj, tl, p: Dict[str, Any]):
     same position/duration (delete + append, like replace_edit). Mutates the
     CURRENT timeline in place.
 
-    Caveat vs the UI feature: the render queue bakes the COMPOSITE of all visible
-    video tracks over the range, not the isolated clip — for a clip with others
-    above/below it, disable those tracks first (the result carries a warning)."""
+    The render queue bakes the COMPOSITE of visible video tracks over the range,
+    so isolate=True (default) disables every other video track for the render
+    (restored afterwards) — matching the UI's isolated-clip semantics. With
+    isolate=False and overlapping tracks, the result carries a composite warning."""
     track_type, track_index, _clip_index, item, err = _advanced_edit_resolve_clip(tl, p)
     if err:
         return err
@@ -6828,6 +6890,7 @@ def _timeline_render_in_place_impl(proj, tl, p: Dict[str, Any]):
     if bool(fmt) != bool(codec):
         return _err("pass BOTH format and codec, or neither")
     export_audio = bool(p.get("export_audio", False))
+    isolate = bool(p.get("isolate", True))
     timeout_s = float(p.get("timeout_s", 300))
 
     start = _frame_int(item.GetStart())
@@ -6859,10 +6922,12 @@ def _timeline_render_in_place_impl(proj, tl, p: Dict[str, Any]):
                 "warning": "Renders the clip's record range to target_dir, imports the result, "
                            "and REPLACES the clip on the CURRENT timeline (delete + append). "
                            "Cannot be selectively undone (roll back via timeline_versioning). "
-                           "The render is the composite of all visible video tracks over the range.",
+                           "isolate=True (default) disables the other video tracks during the "
+                           "render so the bake is the clip's own track, not the composite.",
                 "clip": clip_name, "track_index": track_index,
                 "record_range": [start, end], "target_dir": target_dir,
                 "overlapping_video_tracks": overlapping_others,
+                "isolate": isolate,
             },
         )
     blocked = _consume_confirm_token(action="timeline.render_in_place", params=p)
@@ -6871,7 +6936,21 @@ def _timeline_render_in_place_impl(proj, tl, p: Dict[str, Any]):
 
     prev_mode = proj.GetCurrentRenderMode()
     job_id = None
+    disabled_tracks = []
     try:
+        if isolate:
+            # Disable every OTHER video track for the render so the bake is the
+            # isolated clip (matching the UI's Render in Place), not the track
+            # composite. Restored in the finally block.
+            try:
+                for ti in range(1, int(_timeline_track_count(tl, "video") or 0) + 1):
+                    if ti == track_index:
+                        continue
+                    if bool(tl.GetIsTrackEnabled("video", ti)) and \
+                            bool(tl.SetTrackEnable("video", ti, False)):
+                        disabled_tracks.append(ti)
+            except Exception:
+                pass
         proj.SetCurrentRenderMode(1)  # 1 = single clip (one continuous movie)
         format_ok = None
         if fmt and codec:
@@ -6938,15 +7017,20 @@ def _timeline_render_in_place_impl(proj, tl, p: Dict[str, Any]):
             new_clip_id=new_id, rendered_file=rendered_path,
             record_frame=start, duration=duration, track_index=track_index,
             job_status=job_status, format_ok=format_ok, settings_ok=settings_ok,
-            export_audio=export_audio,
+            export_audio=export_audio, isolated_tracks=sorted(disabled_tracks),
         )
-        if overlapping_others:
+        if overlapping_others and not disabled_tracks:
             out["warning"] = (
                 f"video track(s) {sorted(set(overlapping_others))} had items overlapping the "
-                "rendered range — the baked clip is the COMPOSITE of those tracks, not the "
-                "isolated clip. Disable other tracks and re-run for a clean bake.")
+                "rendered range and were NOT isolated — the baked clip is the COMPOSITE of "
+                "those tracks. Re-run with isolate=True (default) for a clean bake.")
         return out
     finally:
+        for ti in disabled_tracks:
+            try:
+                tl.SetTrackEnable("video", ti, True)
+            except Exception:
+                pass
         try:
             if job_id:
                 proj.DeleteRenderJob(job_id)
@@ -21763,23 +21847,26 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         DRT-SURGERY. Repositions a clip on its OWN track (same mechanics as move_clip).
       slip_clip(clip_id, frames) -> {new_timeline, original_timeline}
         DRT-SURGERY. Shifts the clip's SOURCE content by frames in either direction (positive =
-        later, negative = earlier; position/duration on the timeline unchanged). Retreat is
-        bounds-checked against the source head.
-      set_clip_speed(clip_id, speed?|keyframes?, new_duration?, ripple?) -> {new_timeline, original_timeline}
+        later, negative = earlier; position/duration on the timeline unchanged). Both directions
+        are bounds-checked live against the source (GetLeftOffset/GetRightOffset headroom).
+      set_clip_speed(clip_id, speed?|keyframes?, new_duration?, ripple?, retime_linked_audio?) -> {new_timeline, original_timeline}
         DRT-SURGERY. Retimes the clip: constant speed (0.5 = half, 2 = double, 1 resets) or a
-        variable-speed ramp via keyframes=[{record_sec, source_sec}] (+ new_duration in frames).
-        Duration rescales by the speed ratio unless new_duration overrides; ripple shifts later
-        clips on the track by the delta. Linked audio is NOT retimed automatically.
+        variable-speed ramp via keyframes=[{record_sec, source_sec}] (new_duration derived from
+        the last keyframe's record_sec x fps when omitted). Duration rescales by the speed ratio
+        unless new_duration overrides; ripple shifts later clips on the track by the delta.
+        retime_linked_audio=True retimes the linked audio clip(s) in the same pass (changes
+        pitch); default False leaves audio at its original length.
       fit_to_fill_edit(clip_id, target_duration, ripple?) -> {new_timeline, original_timeline}
         DRT-SURGERY. Retimes the clip so its current source segment fills exactly target_duration
         timeline frames (classic fit-to-fill; speed derived from the duration ratio).
-      import_srt(path, style?, template_drt?) -> {new_timeline, cues_imported, subtitle_tracks}
+      import_srt(path, style?, mode?, template_drt?) -> {new_timeline, cues_imported, subtitle_tracks}
         DRT-SURGERY. Imports an SRT as a real subtitle track (no API method exists; UI-only)
         by authoring the exported .drt's SubtitleTrackVec with the oracle-validated cue codec
         and importing a NEW '(subtitled)' timeline. Cue template: the timeline's own subtitle
         track if present, else template_drt, else a built-in template (no seeding needed).
-        style={font?, size?, color? ('#rrggbb')} applies per-cue styling (3.2.6). Requires the
-        `zstandard` package. Replaces existing cues on the authored copy's subtitle track.
+        style={font?, size?, color? ('#rrggbb')} applies per-cue styling (3.2.6). mode='replace'
+        (default) swaps the track's existing cues in the authored copy; mode='append' keeps
+        them. Requires the `zstandard` package (a repo dependency since #30).
       split_clip(clip_id?|track_type+track_index, at_frame) -> {new_timeline, original_timeline}
         DRT-SURGERY (razor). Splits the clip spanning at_frame into two source-continuous clips.
       add_transition(track_index, at_frame, duration_frames?, track_type?) -> {new_timeline, original_timeline}
@@ -21795,12 +21882,13 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         DRT-SURGERY + LIVE API. Ripples every clip (video+audio, all tracks, keeps sync) at/after
         record_frame later by the new clip's duration on a NEW timeline, then appends the new
         clip into the opened gap.
-      render_in_place(clip_id, target_dir, format?+codec?, export_audio?, timeout_s?) -> {new_clip_id, rendered_file}
+      render_in_place(clip_id, target_dir, format?+codec?, export_audio?, isolate?, timeout_s?) -> {new_clip_id, rendered_file, isolated_tracks}
         LIVE API, in-place. Renders the clip's record range (single-clip mode + MarkIn/MarkOut)
         into target_dir (REAL media dir — the queue refuses system temp), imports the result, and
-        replaces the clip at the same position/duration. Bakes the COMPOSITE of visible video
-        tracks over the range (warns if others overlap); export_audio defaults False (headless
-        Fairlight stall dodge).
+        replaces the clip at the same position/duration. isolate=True (default) disables the
+        other video tracks during the render (restored after) so the bake is the isolated clip;
+        isolate=False bakes the composite (warns if others overlap). export_audio defaults False
+        (headless Fairlight stall dodge).
       story_spine_report() -> {beats, track_summaries, source_ranges, audio_spine}
       create_variant_from_ranges(name, ranges, markers?, cdl?, dry_run?) -> {success, id, items}
         # example: action_help(name='<action_name>')

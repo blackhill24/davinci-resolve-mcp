@@ -104,6 +104,16 @@ def main() -> int:
         check("system-temp target refused", "error" in refused, str(refused.get("error") or ""))
         shutil.rmtree(tmp_target, ignore_errors=True)
 
+        # An overlapping clip on V2 — isolate=True (default) must disable V2 for
+        # the render and restore it after.
+        tl.AddTrack("video")
+        mp.AppendToTimeline([{
+            "mediaPoolItem": imported[1], "startFrame": 0, "endFrame": CLIP_FRAMES,
+            "trackIndex": 2, "recordFrame": start_a,
+        }])
+        v2_before = bool(tl.GetIsTrackEnabled("video", 2))
+        check("overlap clip placed on V2", len(tl.GetItemListInTrack("video", 2) or []) == 1)
+
         # ---- render in place ----
         result = _run_gated(s, "render_in_place", {
             "clip_id": id_a, "target_dir": RENDER_DIR, "timeout_s": 240})
@@ -132,6 +142,13 @@ def main() -> int:
                   untouched_b is not None and int(untouched_b.GetDuration()) == dur_b)
             check("render queue left clean", not (proj.GetRenderJobList() or []),
                   f"jobs={len(proj.GetRenderJobList() or [])}")
+            check("V2 isolated during the render", result.get("isolated_tracks") == [2],
+                  str(result.get("isolated_tracks")))
+            check("no composite warning with isolation", "warning" not in result,
+                  str(result.get("warning") or ""))
+            check("V2 enable state restored",
+                  bool(tl.GetIsTrackEnabled("video", 2)) == v2_before,
+                  f"before={v2_before} after={tl.GetIsTrackEnabled('video', 2)}")
 
     finally:
         try:

@@ -183,6 +183,27 @@ def main() -> int:
             check("original timeline untouched",
                   int(tl.GetTrackCount("subtitle") or 0) == 0)
 
+            # ---- append mode: import MORE cues onto the (subtitled) timeline,
+            # keeping the existing two ----
+            if new_tl is not None:
+                more_srt = os.path.join(WORK, "more.srt")
+                open(more_srt, "w", encoding="utf-8").write(
+                    "1\n00:00:06,000 --> 00:00:07,000\nAppended third cue\n")
+                proj.SetCurrentTimeline(new_tl)
+                appended = _run_gated(s, "import_srt", {"path": more_srt, "mode": "append"})
+                proj.SetCurrentTimeline(tl)
+                check("import_srt mode=append", bool(appended.get("success")),
+                      str(appended.get("error") or ""))
+                if appended.get("success"):
+                    app_tl, _ = s._find_timeline_by_name(proj, appended["new_timeline"])
+                    if app_tl is not None:
+                        app_items = app_tl.GetItemListInTrack("subtitle", 1) or []
+                        app_texts = [str(it.GetName() or "") for it in app_items]
+                        check("append kept old cues + added new (3 total)",
+                              len(app_items) == 3
+                              and any("Appended third cue" in t for t in app_texts),
+                              str(app_texts))
+
             # ---- style verification via re-export: Resolve must PRESERVE the
             # styled blob through its own import->export round trip ----
             if new_tl is not None:

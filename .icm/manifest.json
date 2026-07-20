@@ -3,11 +3,11 @@
   "layers": 3,
   "root_nav": "CLAUDE.md",
   "synced": "2026-07-20",
-  "_root_structure": "75479c43f99da814",
+  "_root_structure": "01f545d69a3b321e",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "f5ff009a1faa5fe9",
+      "fingerprint": "bc5dcdc3624361bb",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -107,7 +107,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "2cd9bea07acfaa65",
+      "fingerprint": "8a4a2d317418a175",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -540,7 +540,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "234b22af3f9055a1",
+      "fingerprint": "778bb67702f559fc",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -610,7 +610,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "a80708bb11e1bc8c",
+      "fingerprint": "b5d2e8de56262c3c",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",

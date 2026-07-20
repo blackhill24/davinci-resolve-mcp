@@ -7,3 +7,8 @@
 # it, AAF preview honest-refuses (it is never faked); live AAF import into Resolve
 # does not need it (Resolve reads AAF natively).
 pyaaf2>=1.7.0
+
+# zstandard — BMD-exact zstd framing (level 3, content-size, no checksum) for the
+# subtitle-cue EffectFiltersBA codec (src/utils/subtitle_codec.py) behind
+# `timeline import_srt` (issue #30). Without it the tool honest-refuses.
+zstandard>=0.22.0

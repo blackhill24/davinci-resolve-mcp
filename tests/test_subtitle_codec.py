@@ -148,6 +148,22 @@ class AuthoringTest(unittest.TestCase):
         self.assertEqual(style.get("color"), "#00ff00")
         self.assertAlmostEqual(style.get("size"), 48.0, places=2)
 
+    def test_append_mode_keeps_existing_cues(self):
+        xml, n = sc.author_subtitle_track(
+            self._seq_xml(), [(10.0, 11.0, "Appended cue")], fps=24, start_frame=86400,
+            mode="append")
+        self.assertEqual(n, 1)
+        # The template cue survives AND the new cue landed after it.
+        self.assertIn("<Name>HELLO ALPHA CUE</Name>", xml)
+        self.assertIn("<Name>Appended cue</Name>", xml)
+        self.assertLess(xml.index("HELLO ALPHA CUE"), xml.index("Appended cue"))
+
+    def test_bad_mode_rejected(self):
+        with self.assertRaises(ValueError):
+            sc.author_subtitle_track(
+                self._seq_xml(), [(0.0, 1.0, "x")], fps=24, start_frame=86400,
+                mode="merge")
+
     def test_no_template_raises(self):
         bare = '<Sm2SequenceContainer DbId="s1"><SubtitleTrackVec/></Sm2SequenceContainer>'
         with self.assertRaises(ValueError):

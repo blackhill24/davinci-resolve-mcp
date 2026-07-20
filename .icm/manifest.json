@@ -2,12 +2,12 @@
   "version": 2,
   "layers": 3,
   "root_nav": "CLAUDE.md",
-  "synced": "2026-07-19",
+  "synced": "2026-07-20",
   "_root_structure": "75479c43f99da814",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "214a317014569bef",
+      "fingerprint": "5b6e70a32d060815",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -106,7 +106,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "aa9cb5460223f12e",
+      "fingerprint": "8b7d354e383531fb",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -534,7 +534,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "9c764459fa1d5e36",
+      "fingerprint": "2eb05b4f5b3c41ce",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -604,7 +604,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "0834733758fe0b2d",
+      "fingerprint": "41e64df26193eb1f",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -792,7 +792,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "bf4adb4efe7fc3fc",
+      "fingerprint": "93859c440e713509",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

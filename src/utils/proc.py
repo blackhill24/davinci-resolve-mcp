@@ -43,6 +43,46 @@ def sanitized_spawn_env(base_env: Optional[Dict[str, str]] = None) -> Dict[str, 
     return env
 
 
+def preload_audit(base_env: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Report whether an environment carries a known-crashy LD_PRELOAD entry.
+
+    Children we spawn are already protected by :func:`sanitized_spawn_env`, but
+    that cannot help code running *in this process*: a crashy preload
+    (NoMachine's libnxegl.so) still SIGABRTs in-process CUDA — e.g. a future
+    in-process faster-whisper backend — and can segfault in-process GL. This
+    audit lets the server say so at boot, and via the status tool, instead of
+    failing obscurely later.
+
+    Returns ``{poisoned, preload, crashy_entries, tokens, message}`` where
+    ``message`` is a ready-to-log warning string when poisoned, else ``None``.
+    """
+    env = os.environ if base_env is None else base_env
+    preload = env.get("LD_PRELOAD", "") or ""
+    entries = [entry for entry in re.split(r"[:\s]+", preload) if entry]
+    crashy = [
+        entry
+        for entry in entries
+        if any(token in entry for token in _CRASHY_PRELOAD_TOKENS)
+    ]
+    message: Optional[str] = None
+    if crashy:
+        message = (
+            "This server process inherited a known-crashy LD_PRELOAD "
+            f"({', '.join(crashy)}). Subprocesses we spawn (Resolve, whisper, "
+            "ffmpeg) are sanitized, but in-process GPU code (CUDA/cuDNN, GL) "
+            "can still crash. Relaunch the server from a session without this "
+            "preload (e.g. `env -u LD_PRELOAD ...`) if you hit in-process GPU "
+            "aborts. See docs/guides/media-analysis-guide.md."
+        )
+    return {
+        "poisoned": bool(crashy),
+        "preload": preload,
+        "crashy_entries": crashy,
+        "tokens": list(_CRASHY_PRELOAD_TOKENS),
+        "message": message,
+    }
+
+
 # Fairlight's audio engine opens the ALSA "default" device for synchronized
 # duplex (8ch float playback+capture). The PipeWire and Pulse ALSA plugins both
 # fail that post-prepare, so the engine loops open/close forever and every

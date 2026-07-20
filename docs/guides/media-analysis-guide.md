@@ -599,6 +599,53 @@ print(json.dumps(result, indent=2))
 
 ---
 
+## Troubleshooting: session `LD_PRELOAD` poisoning (NoMachine `libnxegl.so`)
+
+If GPU whisper aborts with `Invalid handle. Cannot load symbol cudnnGetVersion`,
+or Resolve segfaults on page switches (`ResolveDebug_C*.txt`), the desktop
+session is likely exporting a crashy `LD_PRELOAD`. NoMachine injects
+`LD_PRELOAD=/usr/NX/lib/libnxegl.so` into the whole session; its `drmIoctl` hook
+segfaults during NVIDIA GL context creation and breaks CUDA/cuDNN in every
+child. Confirm with `systemctl --user show-environment | grep LD_PRELOAD`.
+
+**What the server does about it (defense-in-depth):**
+
+- Every subprocess we spawn (Resolve, whisper, ffmpeg) is launched through
+  `proc.sanitized_spawn_env()`, which strips the crashy entry. So MCP-launched
+  Resolve and GPU whisper are protected without setting `DRM_WHISPER_DEVICE=cpu`.
+- The server **audits its own process** at startup and logs a prominent
+  `ENV AUDIT:` warning when it inherited the crashy preload. Query it any time
+  with `resolve_control(action="env_audit")` → `{poisoned, crashy_entries, message, …}`.
+
+**Warn-only, by design.** The audit warns; it does **not** re-exec the server to
+clean its own env. All spawn sites are already sanitized, so subprocess GPU work
+is safe regardless. The only thing a poisoned server env can still break is
+*in-process* GPU code (e.g. a future in-process faster-whisper backend, which
+would `SIGABRT` on cuDNN). A self-cleaning re-exec would fix that too but is
+invasive (it changes the process the client launched); it was deliberately not
+done. If you add an in-process GPU backend, relaunch the server from a clean
+session (`env -u LD_PRELOAD ...`) or revisit the re-exec decision then.
+
+**Host-side root fix — DONE on this host (2026-07-20).** NoMachine was uninstalled
+entirely (it was used only for remote desktop, which this project does not need —
+Resolve is driven via its scripting API on the physical display `:0`). That removed
+the persistent injector: NoMachine planted `export LD_PRELOAD=/usr/NX/lib/libnxegl.so`
+in `/etc/xdg/plasma-workspace/env/nx-sourceenv.sh`, which KDE sources at every login —
+so the preload survived even `systemctl disable nxserver` + reboot until the package
+was removed. Note for future debugging: `EnableEGLCapture 0` in `node.cfg` does **not**
+stop the injection (that toggle only governs EGL screen capture); the preload is set
+unconditionally by `/usr/NX/scripts/env/nxpreload.sh` and by that Plasma drop-in. If a
+crashy preload ever reappears, `resolve_control(env_audit)` will flag it; check
+`/etc/xdg/plasma-workspace/env/` and `systemctl --user show-environment` for the source.
+Full diagnosis is tracked in GitHub issue #18.
+
+The `sanitized_spawn_env()` sanitizer, the startup `env_audit`, and their tests are
+kept permanently as cheap, general hygiene (they no-op on a clean host). The former
+`~/.local/share/applications/DaVinciResolve.desktop` `env -u LD_PRELOAD` override has
+been removed now that the system launcher is clean.
+
+---
+
 ## Analysis Output Format
 
 Save as JSON sidecar files:

@@ -47,7 +47,7 @@ from src.utils.api_truth import lookup_api_truth, VERIFIED_ON as _API_TRUTH_VERI
 from src.utils.contracts import validate as _validate_params
 from src.utils.cut_ir import build_cut_list as _build_cut_list
 from src.utils.page_lock import open_page_serialized as _open_page_serialized
-from src.utils.proc import resolve_spawn_env, safe_run, sanitized_spawn_env
+from src.utils.proc import preload_audit, resolve_spawn_env, safe_run, sanitized_spawn_env
 from src.utils.readback import verify_by_readback, verification_stats as _verification_stats
 from src.utils.update_check import (
     check_for_updates,
@@ -12855,6 +12855,10 @@ def resolve_control(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         facts about quirky/unreliable Resolve API behavior (no connection needed).
       verification_stats() -> {stats}  — readback-verification tally
         (verified/contradicted/unverified) since server start (no connection needed).
+      env_audit() -> {poisoned, preload, crashy_entries, tokens, message}  — reports
+        whether THIS server process inherited a known-crashy LD_PRELOAD (e.g.
+        NoMachine's libnxegl.so). Spawned children are sanitized, but in-process
+        GPU code (CUDA/cuDNN, GL) can still crash when poisoned (no connection needed).
       job_status(job_id) -> {id, label, status, result?, error?, started_at, ended_at}
         — poll a background job started by a long op run with background=True
           (no connection needed). status is running, done, or error.
@@ -12889,6 +12893,9 @@ def resolve_control(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         stats = _verification_stats()
         return {"stats": stats, "note": "Counts since server start. A rising "
                 "'contradicted' count means the API reported success but a readback disagreed."}
+    if action == "env_audit":
+        # Does THIS process carry a known-crashy LD_PRELOAD? No connection needed.
+        return preload_audit()
 
     # Background-job polling is a registry read — no Resolve connection needed.
     if action == "job_status":
@@ -26366,7 +26373,21 @@ def _install_threaded_tool_dispatch(fastmcp) -> int:
     return wrapped
 
 
+def _log_preload_audit() -> None:
+    """Warn prominently if THIS process inherited a known-crashy LD_PRELOAD.
+
+    Spawn sites are sanitized, but in-process GPU code can't be; surface the
+    poisoning at boot rather than letting it fail obscurely later. Warn-only by
+    design (all spawn sites already strip it) — see resolve_control env_audit
+    and docs/guides/media-analysis-guide.md.
+    """
+    audit = preload_audit()
+    if audit["poisoned"]:
+        logger.warning("ENV AUDIT: %s", audit["message"])
+
+
 if __name__ == "__main__":
+    _log_preload_audit()
     start_background_update_check(VERSION, project_dir, logger, env=_setup_update_env())
     _install_threaded_tool_dispatch(mcp)
 

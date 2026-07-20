@@ -16,7 +16,7 @@ import src.granular.common as granular_common
 import src.server as server
 import src.utils.app_control as app_control
 import src.utils.media_analysis as media_analysis
-from src.utils.proc import resolve_spawn_env, sanitized_spawn_env
+from src.utils.proc import preload_audit, resolve_spawn_env, sanitized_spawn_env
 
 NXEGL = "/usr/NX/lib/libnxegl.so"
 
@@ -168,6 +168,40 @@ class MediaAnalysisSubprocessEnvTest(unittest.TestCase):
         kwargs = run.call_args.kwargs
         self.assertIn("env", kwargs)
         self.assertNotIn("libnxegl", kwargs["env"].get("LD_PRELOAD", ""))
+
+
+class PreloadAuditTest(unittest.TestCase):
+    """The server must be able to see its OWN poisoned env: spawn sanitization
+    can't protect in-process CUDA/GL, so boot and the status tool audit it."""
+
+    def test_poisoned_env_is_flagged(self):
+        audit = preload_audit({"LD_PRELOAD": NXEGL})
+        self.assertTrue(audit["poisoned"])
+        self.assertEqual(audit["crashy_entries"], [NXEGL])
+        self.assertIn("libnxegl", audit["message"])
+
+    def test_poisoned_among_benign_preloads(self):
+        audit = preload_audit({"LD_PRELOAD": f"/usr/lib/libjemalloc.so:{NXEGL}"})
+        self.assertTrue(audit["poisoned"])
+        self.assertEqual(audit["crashy_entries"], [NXEGL])
+
+    def test_clean_env_is_not_flagged(self):
+        audit = preload_audit({"LD_PRELOAD": "/usr/lib/libjemalloc.so"})
+        self.assertFalse(audit["poisoned"])
+        self.assertEqual(audit["crashy_entries"], [])
+        self.assertIsNone(audit["message"])
+
+    def test_no_preload_is_not_flagged(self):
+        audit = preload_audit({"PATH": "/usr/bin"})
+        self.assertFalse(audit["poisoned"])
+        self.assertEqual(audit["preload"], "")
+
+    def test_env_audit_action_reports_poisoning(self):
+        """resolve_control(env_audit) surfaces the process env, no connection."""
+        with mock.patch.dict("os.environ", {"LD_PRELOAD": NXEGL}, clear=False):
+            result = server.resolve_control("env_audit")
+        self.assertTrue(result["poisoned"])
+        self.assertIn(NXEGL, result["crashy_entries"])
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "d801598b6a353bde",
+      "fingerprint": "27e6e7d2a932f565",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -107,7 +107,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "897dc670567a0b56",
+      "fingerprint": "da8d03b0cd297086",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -202,6 +202,7 @@
         "resolve-advanced/test/custom-curve-calibration.test.mjs",
         "resolve-advanced/test/deliverable-qc.test.mjs",
         "resolve-advanced/test/drt-downgrade.test.mjs",
+        "resolve-advanced/test/drx-build-graph.test.mjs",
         "resolve-advanced/test/drx-scaling-matrix.test.mjs",
         "resolve-advanced/test/drx-structural-write-fidelity.test.mjs",
         "resolve-advanced/test/drx-ui-space-scaling.test.mjs",
@@ -272,6 +273,7 @@
         "resolve-advanced/test/polygon-window-calibration.test.mjs",
         "resolve-advanced/test/power-window-calibration.test.mjs",
         "resolve-advanced/test/power-window-transform-calibration.test.mjs",
+        "resolve-advanced/test/project-db-rename-roundtrip.test.mjs",
         "resolve-advanced/test/project-db.test.mjs",
         "resolve-advanced/test/project-read.test.mjs",
         "resolve-advanced/test/provenance-audit.test.mjs",
@@ -536,7 +538,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "a271b0ebd877fe58",
+      "fingerprint": "ab8c388c7f242f1a",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -606,7 +608,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "215162424487ff17",
+      "fingerprint": "77d00146d381b7b8",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -624,10 +626,12 @@
         "tests/live_cloud_project_validation.py",
         "tests/live_color_grade_validation.py",
         "tests/live_delete_governance_check.py",
+        "tests/live_drx_grade_authoring_probe.py",
         "tests/live_duplicate_clips_validation.py",
         "tests/live_edit_engine_validation.py",
         "tests/live_enum_settings_check.py",
         "tests/live_extension_authoring_validation.py",
+        "tests/live_folder_rename_probe.py",
         "tests/live_fuse_diagnose.py",
         "tests/live_fuse_smoke.py",
         "tests/live_fusion_composition_validation.py",
@@ -641,6 +645,7 @@
         "tests/live_pan_probe.py",
         "tests/live_path_probe.py",
         "tests/live_project_lifecycle_validation.py",
+        "tests/live_proxy_build_probe.py",
         "tests/live_render_deliver_validation.py",
         "tests/live_resolve21_stage2_render_validation.py",
         "tests/live_resolve21_stage2_validation.py",
@@ -651,6 +656,7 @@
         "tests/live_sync_event_validation.py",
         "tests/live_timeline_conform_validation.py",
         "tests/live_timeline_edit_gap_workarounds.py",
+        "tests/live_track_selector_probe.py",
         "tests/live_v233_validation.py",
         "tests/test-after-restart.bat",
         "tests/test-after-restart.sh",

@@ -16,6 +16,7 @@
 | Auto-edit pipeline tests | `test_auto_edit.py`, `test_auto_edit_tool.py`, `test_auto_edit_polish.py` (Phase-2 polish decision layer), `test_cut_ir_words.py`, `test_music_analysis.py`, `test_drt_diff.py` (export-diff differ) | `live_auto_edit_validation.py`, `live_auto_edit_twosource_polish.py` (#13 cross-dissolve), `live_auto_edit_ducking_probe.py` unless live | — |
 | resolve-advanced bridge tests | `test_advanced_bridge.py` (read-only panel), `test_advanced_bridge_ops.py` (drt/drp write ops; skips w/o node) | `live_*` | — |
 | Audio/subtitle export-diff RE probes (#22) | `live_pan_probe.py`, `live_audio_fx_probe.py`, `live_channel_format_probe.py` (drp `VirtualAudioTracksBA`), `live_subtitle_probe.py` (drt `SubtitleTrackVec`; text = protobuf-in-zstd `EffectFiltersBA`, timing = plain XML; adds a `roundtrip` phase); setup/diff/cleanup phases around a manual GUI edit | `test_*` | — |
+| SRT import codec probe (#22, 3.2.5) | `live_srt_import_probe.py` (oracle/author/import): validated subtitle-text codec (protobuf tree + BMD length cascade + BMD-exact zstd framing) authoring arbitrary-length cue text; `oracle` phase self-checks offline against 2 embedded ground-truth blobs. Needs `zstandard` (not a repo dep) | `test_*` | — |
 | Benchmark the server | `benchmark_server.py` | `live_*` | `scripts/measure_bridge_cost.py` |
 | Set up a test timeline | `create_test_timeline.py` | — | — |
 

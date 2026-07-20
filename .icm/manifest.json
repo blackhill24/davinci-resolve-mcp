@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "a48052d807730528",
+      "fingerprint": "d801598b6a353bde",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -536,7 +536,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "d1e8a39eece573f0",
+      "fingerprint": "a271b0ebd877fe58",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -606,7 +606,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "039e3626e503d59f",
+      "fingerprint": "215162424487ff17",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -646,6 +646,7 @@
         "tests/live_resolve21_stage2_validation.py",
         "tests/live_review_annotation_validation.py",
         "tests/live_script_smoke.py",
+        "tests/live_srt_import_probe.py",
         "tests/live_subtitle_probe.py",
         "tests/live_sync_event_validation.py",
         "tests/live_timeline_conform_validation.py",

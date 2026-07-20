@@ -148,11 +148,11 @@ equivalent, blocking full automation.
 - **Workaround / current handling:** No workaround exists — subtitle styling is UI-only. Burn-in overlays via Fusion titles are a visual alternative but do not produce proper subtitle tracks.
 - **Tags:** missing-method, subtitle, style, preset
 
-### Speech recognition engine selection and SRT import
+### Speech recognition engine selection
 
 - **Object:** `Timeline`
-- **Behavior:** Timeline.CreateSubtitlesFromAudio(autoCaptionSettings) always uses the built-in Resolve speech recognition engine. There is no API parameter to select an alternative provider (e.g. whisper-cli, Google Speech, AWS Transcribe). The language selection via resolve.AUTO_CAPTION_LANGUAGE_* is the only customization; the engine itself cannot be changed. Furthermore, there is no API method to import an SRT file into a subtitle track programmatically — File -> Import -> Subtitle is UI-only.
-- **Workaround / current handling:** No workaround exists for provider selection or SRT import. External transcripts must be converted to SRT and imported through the Resolve UI.
+- **Behavior:** Timeline.CreateSubtitlesFromAudio(autoCaptionSettings) always uses the built-in Resolve speech recognition engine. There is no API parameter to select an alternative provider (e.g. whisper-cli, Google Speech, AWS Transcribe). The language selection via resolve.AUTO_CAPTION_LANGUAGE_* is the only customization; the engine itself cannot be changed.
+- **Workaround / current handling:** No workaround for provider selection. To use an external ASR engine, transcribe outside Resolve and bring the result in as a subtitle track (see the SRT-import entry).
 - **Tags:** missing-method, subtitle, transcription, speech-recognition, asr
 
 ### Media Pool folder rename

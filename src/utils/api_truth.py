@@ -621,7 +621,7 @@ API_TRUTH: List[Dict[str, Any]] = [
         "submit": "missing",
     },
     {
-        "symbol": "Speech recognition engine selection and SRT import",
+        "symbol": "Speech recognition engine selection",
         "object": "Timeline",
         "reality": "Timeline.CreateSubtitlesFromAudio(autoCaptionSettings) "
                    "always uses the built-in Resolve speech recognition "
@@ -629,15 +629,39 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "provider (e.g. whisper-cli, Google Speech, AWS Transcribe). "
                    "The language selection via resolve.AUTO_CAPTION_LANGUAGE_* "
                    "is the only customization; the engine itself cannot be "
-                   "changed. Furthermore, there is no API method to import an "
-                   "SRT file into a subtitle track programmatically — "
-                   "File -> Import -> Subtitle is UI-only.",
-        "recommended": "No workaround exists for provider selection or SRT "
-                       "import. External transcripts must be converted to SRT "
-                       "and imported through the Resolve UI.",
+                   "changed.",
+        "recommended": "No workaround for provider selection. To use an external "
+                       "ASR engine, transcribe outside Resolve and bring the "
+                       "result in as a subtitle track (see the SRT-import entry).",
         "tags": ["missing-method", "subtitle", "transcription",
                  "speech-recognition", "asr"],
         "submit": "missing",
+    },
+    {
+        "symbol": "Programmatic SRT / external-subtitle import",
+        "object": "Timeline / MediaPool",
+        "reality": "There is no scripting method to import an SRT into a subtitle "
+                   "track (File -> Import -> Subtitle is UI-only), and Resolve's "
+                   "FCPXML importer ignores <caption> elements (verified 3.2.4, "
+                   "21.0.2.4). INVESTIGATED for 3.2.5 (issue #22): a subtitle track "
+                   "CAN be authored in the `.drt` directly and reimported. Each cue "
+                   "is an Sm2TiGenerator in <SubtitleTrackVec> with timing in plain "
+                   "XML <Start>/<Duration> and text in a zstd-compressed protobuf "
+                   "<EffectFiltersBA> blob. A validated codec "
+                   "(tests/live_srt_import_probe.py) authors arbitrary-length "
+                   "UTF-16LE cue text — pinned by an offline oracle (re-encoding "
+                   "cue1 with cue2's text reproduces cue2's real blob byte-for-byte) "
+                   "and confirmed end-to-end: a 3-cue SRT (incl. unicode: café, "
+                   "em-dash, 日本語) round-tripped with exact text + frame timing.",
+        "recommended": "Workaround PROVEN but NOT yet wired as a tool (per 3.2.5 "
+                       "scope decision): parse SRT -> author .drt SubtitleTrackVec "
+                       "(one Sm2TiGenerator per cue; frames from timeline fps + "
+                       "start frame) -> ImportTimelineFromFile. This also unlocks "
+                       "external ASR engines (whisper-cli etc.) feeding proper "
+                       "subtitle tracks. zstd framing must be level 3, "
+                       "content-size, no checksum or Resolve rejects the blob.",
+        "tags": ["missing-method", "subtitle", "srt", "import", "drt",
+                 "offline", "asr", "investigated-not-implemented"],
     },
     {
         "symbol": "Media Pool folder rename",

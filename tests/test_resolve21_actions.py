@@ -26,6 +26,15 @@ class Clip21:
         self._name = name
         self._id = cid
         self.calls = []
+        self._props = {}
+
+    def SetClipProperty(self, *args):
+        self.calls.append(("SetClipProperty", args))
+        self._props[args[0]] = args[1]
+        return True
+
+    def GetClipProperty(self, key):
+        return self._props.get(key)
 
     def GetName(self):
         return self._name
@@ -136,6 +145,7 @@ class MediaPoolStub:
 class Project21:
     def __init__(self):
         self.calls = []
+        self._settings = {}
 
     def GetName(self):
         return "Proj"
@@ -143,6 +153,14 @@ class Project21:
     def GenerateSpeech(self, settings, timecode):
         self.calls.append((settings, timecode))
         return Clip21(name="speech.wav", cid="vo-1")
+
+    def SetSetting(self, *args):
+        self.calls.append(("SetSetting", args))
+        self._settings[args[0]] = args[1]
+        return True
+
+    def GetSetting(self, key):
+        return self._settings.get(key)
 
 
 class LegacyProject:
@@ -380,6 +398,99 @@ class Resolve21CapabilityDetectionTest(unittest.TestCase):
         cm = caps["clip_methods"][0]
         self.assertFalse(cm["perform_audio_classification"])
         self.assertTrue(cm["transcribe_audio"])  # legacy still has transcription
+
+
+class Resolve21SuperScaleProjectTest(unittest.TestCase):
+    def setUp(self):
+        self.proj = Project21()
+        self._orig_check = compound._check
+        compound._check = lambda: (None, self.proj, None)
+
+    def tearDown(self):
+        compound._check = self._orig_check
+
+    def test_plain_mode(self):
+        out = compound.project_settings("set_super_scale", {"mode": 3})
+        self.assertTrue(out["success"])
+        self.assertTrue(out["verified"])
+        self.assertFalse(out["enhanced"])
+        self.assertEqual(self.proj.calls[-1], ("SetSetting", ("superScale", 3)))
+
+    def test_enhanced_mode_passes_four_args(self):
+        out = compound.project_settings(
+            "set_super_scale", {"mode": 2, "sharpness": 0.5, "noise_reduction": 0.25})
+        self.assertTrue(out["success"])
+        self.assertTrue(out["enhanced"])
+        self.assertEqual(self.proj.calls[-1], ("SetSetting", ("superScale", 2, 0.5, 0.25)))
+
+    def test_enhanced_requires_both_params(self):
+        out = compound.project_settings("set_super_scale", {"mode": 2, "sharpness": 0.5})
+        self.assertIn("error", out)
+        self.assertEqual(self.proj.calls, [])
+
+    def test_enhanced_params_only_valid_at_mode_two(self):
+        out = compound.project_settings(
+            "set_super_scale", {"mode": 3, "sharpness": 0.5, "noise_reduction": 0.5})
+        self.assertIn("error", out)
+        self.assertEqual(self.proj.calls, [])
+
+    def test_out_of_range_sharpness_rejected(self):
+        out = compound.project_settings(
+            "set_super_scale", {"mode": 2, "sharpness": 1.5, "noise_reduction": 0.5})
+        self.assertIn("error", out)
+        self.assertEqual(self.proj.calls, [])
+
+    def test_invalid_mode_rejected(self):
+        out = compound.project_settings("set_super_scale", {"mode": 9})
+        self.assertIn("error", out)
+        self.assertEqual(self.proj.calls, [])
+
+    def test_legacy_project_guarded(self):
+        compound._check = lambda: (None, LegacyProject(), None)
+        out = compound.project_settings("set_super_scale", {"mode": 2})
+        self.assertIn("error", out)
+        self.assertIn("21.0", str(out))
+
+
+class Resolve21SuperScaleClipTest(unittest.TestCase):
+    def setUp(self):
+        self.clip = Clip21()
+        self.mp = MediaPoolStub(clip=self.clip)
+        self._orig_get_mp = compound._get_mp
+        self._orig_find_clip = compound._find_clip
+        compound._get_mp = lambda: (None, None, self.mp, None)
+        compound._find_clip = lambda root, cid: self.clip
+
+    def tearDown(self):
+        compound._get_mp = self._orig_get_mp
+        compound._find_clip = self._orig_find_clip
+
+    def test_plain_mode(self):
+        out = compound.media_pool_item("set_clip_super_scale", {"clip_id": "c1", "mode": 4})
+        self.assertTrue(out["success"])
+        self.assertTrue(out["verified"])
+        self.assertEqual(self.clip.calls[-1], ("SetClipProperty", ("Super Scale", 4)))
+
+    def test_enhanced_mode_passes_four_args(self):
+        out = compound.media_pool_item(
+            "set_clip_super_scale",
+            {"clip_id": "c1", "mode": 2, "sharpness": 0.8, "noise_reduction": 0.1})
+        self.assertTrue(out["success"])
+        self.assertTrue(out["enhanced"])
+        self.assertEqual(self.clip.calls[-1], ("SetClipProperty", ("Super Scale", 2, 0.8, 0.1)))
+
+    def test_mode_zero_rejected_for_clips(self):
+        # Clip-level Super Scale has no 'Auto' (0); only the project setting does.
+        out = compound.media_pool_item("set_clip_super_scale", {"clip_id": "c1", "mode": 0})
+        self.assertIn("error", out)
+        self.assertEqual(self.clip.calls, [])
+
+    def test_legacy_clip_guarded(self):
+        self.clip = LegacyClip()
+        compound._find_clip = lambda root, cid: self.clip
+        out = compound.media_pool_item("set_clip_super_scale", {"clip_id": "L1", "mode": 2})
+        self.assertIn("error", out)
+        self.assertIn("21.0", str(out))
 
 
 if __name__ == "__main__":

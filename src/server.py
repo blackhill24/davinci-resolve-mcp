@@ -15095,6 +15095,7 @@ def project_settings(action: str, params: Optional[Dict[str, Any]] = None) -> Di
       delete_color_group(name) -> {success}
       apply_fairlight_preset(preset_name) -> {success}
       generate_speech(speech_generation_settings, timecode?) -> {success, new, new_id}  — Resolve 21+, AI Speech Generator; creates new audio media (confirm-gated)
+      set_super_scale(mode, sharpness?, noise_reduction?) -> {success, verified, mode, enhanced}  — Resolve 21+; mode 0=Auto,1=none,2/3/4=2x/3x/4x. sharpness+noise_reduction (both required together, [0.0,1.0]) select '2x Enhanced' at mode=2
     """
     p = params or {}
     _, proj, err = _check()
@@ -15199,7 +15200,35 @@ def project_settings(action: str, params: Optional[Dict[str, Any]] = None) -> Di
             return {"success": False}
         return {"success": True, "new": new_item.GetName(), "new_id": new_item.GetUniqueId(),
                 "output_path": _rec.output_path, "output_bytes": _rec.output_bytes}
-    return _unknown(action, ["get_name","set_name","get_setting","set_setting","get_unique_id","get_presets","set_preset","refresh_luts","get_gallery","export_frame_as_still","project_summary","load_burnin_preset","insert_audio","get_color_groups","add_color_group","delete_color_group","apply_fairlight_preset","generate_speech"])
+    elif action == "set_super_scale":
+        missing = _requires_method(proj, "SetSetting", "21.0")
+        if missing:
+            return missing
+        mode = p.get("mode")
+        sharpness = p.get("sharpness")
+        noise_reduction = _first_param(p, "noise_reduction", "noiseReduction", default=None)
+        if mode not in (0, 1, 2, 3, 4):
+            return _err("set_super_scale requires mode in {0,1,2,3,4} (0=Auto,1=no scaling,2/3/4=2x/3x/4x)")
+        if (sharpness is None) != (noise_reduction is None):
+            return _err("sharpness and noise_reduction must be provided together")
+        if sharpness is not None:
+            if mode != 2:
+                return _err("sharpness/noise_reduction (2x Enhanced) only apply to mode=2")
+            if not (0.0 <= sharpness <= 1.0) or not (0.0 <= noise_reduction <= 1.0):
+                return _err("sharpness and noise_reduction must be in [0.0, 1.0]")
+            mutate = lambda: proj.SetSetting("superScale", mode, sharpness, noise_reduction)
+        else:
+            mutate = lambda: proj.SetSetting("superScale", mode)
+        res = verify_by_readback(
+            mutate=mutate,
+            observe=lambda: proj.GetSetting("superScale"),
+            compare=lambda before, observed: {"verified": str(observed) == str(mode)},
+            label="project_settings.set_super_scale",
+            intent={"mode": mode, "enhanced": sharpness is not None},
+        )
+        return {"success": res["success_raw"], "verified": res["verified"], "mode": mode,
+                "enhanced": sharpness is not None, "observed": res["observed"]}
+    return _unknown(action, ["get_name","set_name","get_setting","set_setting","get_unique_id","get_presets","set_preset","refresh_luts","get_gallery","export_frame_as_still","project_summary","load_burnin_preset","insert_audio","get_color_groups","add_color_group","delete_color_group","apply_fairlight_preset","generate_speech","set_super_scale"])
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -16439,6 +16468,7 @@ def media_pool_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
       get_media_id(clip_id) -> {media_id}
       get_clip_property(clip_id, key?) -> {properties}
       set_clip_property(clip_id, key, value) -> {success}
+      set_clip_super_scale(clip_id, mode, sharpness?, noise_reduction?) -> {success, verified, mode, enhanced}  — Resolve 21+; mode 1=none,2/3/4=2x/3x/4x. sharpness+noise_reduction (both required together, [0.0,1.0]) select '2x Enhanced' at mode=2
       get_clip_color(clip_id) -> {color}
       set_clip_color(clip_id, color) -> {success}
       clear_clip_color(clip_id) -> {success}
@@ -16629,6 +16659,34 @@ def media_pool_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             if silent:
                 return silent
         return {"success": ok}
+    elif action == "set_clip_super_scale":
+        missing = _requires_method(clip, "SetClipProperty", "21.0")
+        if missing:
+            return missing
+        mode = p.get("mode")
+        sharpness = p.get("sharpness")
+        noise_reduction = _first_param(p, "noise_reduction", "noiseReduction", default=None)
+        if mode not in (1, 2, 3, 4):
+            return _err("set_clip_super_scale requires mode in {1,2,3,4} (1=no scaling,2/3/4=2x/3x/4x)")
+        if (sharpness is None) != (noise_reduction is None):
+            return _err("sharpness and noise_reduction must be provided together")
+        if sharpness is not None:
+            if mode != 2:
+                return _err("sharpness/noise_reduction (2x Enhanced) only apply to mode=2")
+            if not (0.0 <= sharpness <= 1.0) or not (0.0 <= noise_reduction <= 1.0):
+                return _err("sharpness and noise_reduction must be in [0.0, 1.0]")
+            mutate = lambda: clip.SetClipProperty("Super Scale", mode, sharpness, noise_reduction)
+        else:
+            mutate = lambda: clip.SetClipProperty("Super Scale", mode)
+        res = verify_by_readback(
+            mutate=mutate,
+            observe=lambda: clip.GetClipProperty("Super Scale"),
+            compare=lambda before, observed: {"verified": str(observed) == str(mode)},
+            label="media_pool_item.set_clip_super_scale",
+            intent={"mode": mode, "enhanced": sharpness is not None},
+        )
+        return {"success": res["success_raw"], "verified": res["verified"], "mode": mode,
+                "enhanced": sharpness is not None, "observed": res["observed"]}
     elif action == "get_clip_color":
         return {"color": clip.GetClipColor()}
     elif action == "set_clip_color":
@@ -16771,7 +16829,7 @@ def media_pool_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         return {"success": bool(clip.SetMarkInOut(clean["mark_in"], clean["mark_out"], p.get("type", "all")))}
     elif action == "clear_mark_in_out":
         return {"success": bool(clip.ClearMarkInOut(p.get("type", "all")))}
-    return _unknown(action, ["get_name","get_metadata","set_metadata","get_third_party_metadata","set_third_party_metadata","get_media_id","get_clip_property","set_clip_property","get_clip_color","set_clip_color","clear_clip_color","link_proxy","unlink_proxy","replace_clip","set_name","link_full_resolution_media","monitor_growing_file","replace_clip_preserve_sub_clip","get_unique_id","transcribe_audio","clear_transcription","get_transcription","extract_frames","perform_audio_classification","clear_audio_classification","analyze_for_intellisearch","analyze_for_slate","remove_motion_blur","get_audio_mapping","get_mark_in_out","set_mark_in_out","clear_mark_in_out","open_in_viewer"])
+    return _unknown(action, ["get_name","get_metadata","set_metadata","get_third_party_metadata","set_third_party_metadata","get_media_id","get_clip_property","set_clip_property","set_clip_super_scale","get_clip_color","set_clip_color","clear_clip_color","link_proxy","unlink_proxy","replace_clip","set_name","link_full_resolution_media","monitor_growing_file","replace_clip_preserve_sub_clip","get_unique_id","transcribe_audio","clear_transcription","get_transcription","extract_frames","perform_audio_classification","clear_audio_classification","analyze_for_intellisearch","analyze_for_slate","remove_motion_blur","get_audio_mapping","get_mark_in_out","set_mark_in_out","clear_mark_in_out","open_in_viewer"])
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

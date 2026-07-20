@@ -443,13 +443,17 @@ def builtin_template() -> Dict[str, str]:
 
 
 def builtin_track_block() -> str:
-    """A full synthetic <SubtitleTrackVec> block (one track, one template cue)
-    for timelines that have none (their exports carry `<SubtitleTrackVec/>`)."""
+    """A full synthetic <SubtitleTrackVec> block (one empty track) for timelines
+    that have none (their exports carry `<SubtitleTrackVec/>`). The <Items> slot
+    is left empty on purpose — author_subtitle_track receives the per-cue
+    template explicitly via `template=`, so seeding a cue here would leak it into
+    the output on mode='append' (it survives _items_repl's existing-content
+    branch)."""
     return ("<SubtitleTrackVec><Element>"
             '<Sm2TiTrack DbId="9e6b1a58-0000-4000-8000-000000000002">'
             "<FieldsBlob/><Type>2</Type><SubType>3</SubType><Flags>0</Flags>"
             "<Sequence>9e6b1a58-0000-4000-8000-000000000003</Sequence>"
-            f"<Items><Element>{_builtin_cue_element()}</Element></Items>"
+            "<Items/>"
             "<FusionCompHolderItems/><UserDefinedName/><LayersVec/></Sm2TiTrack>"
             "</Element></SubtitleTrackVec>")
 

@@ -183,6 +183,21 @@ class AuthoringTest(unittest.TestCase):
         self.assertIn("<Name>Embedded path</Name>", xml)
         self.assertIn("<Start>86412</Start>", xml)
 
+    def test_embedded_append_on_bare_timeline_does_not_leak_template_cue(self):
+        # Regression: mode='append' on a fresh timeline (no existing subtitle
+        # track) once leaked the synthetic HELLO ALPHA CUE seed at frame 86400
+        # because builtin_track_block seeded <Items> with the template cue and
+        # _items_repl's append branch preserved it.
+        bare = ('<Sm2SequenceContainer DbId="s4"><VideoTrackVec/><AudioTrackVec/>'
+                "<SubtitleTrackVec/><GeometryTrackVec/></Sm2SequenceContainer>")
+        seeded = sc.ensure_subtitle_track(bare)
+        xml, n = sc.author_subtitle_track(
+            seeded, [(0.5, 2.0, "Only cue")], fps=24, start_frame=86400,
+            template=sc.builtin_template(), mode="append")
+        self.assertEqual(n, 1)
+        self.assertIn("<Name>Only cue</Name>", xml)
+        self.assertNotIn(sc._TEMPLATE_TEXT, xml)
+
     def test_ensure_subtitle_track_is_a_noop_when_populated(self):
         xml = self._seq_xml()
         self.assertEqual(sc.ensure_subtitle_track(xml), xml)

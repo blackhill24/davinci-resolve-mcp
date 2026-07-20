@@ -121,6 +121,22 @@ DESTRUCTIVE_ACTIONS_BY_TOOL: Dict[str, FrozenSet[str]] = {
         "clear_mark_in_out",
         "set_title_text",
         "import_into_timeline",
+        # Stage 3.1 (#21) UI-gap workarounds. trim_clip/move_clip/slide_clip/
+        # slip_clip/split_clip/add_transition/insert_edit are drt-surgery
+        # round trips that land on a NEW timeline (never mutate the current
+        # one, same as auto_edit.polish_timeline above) — registered anyway
+        # for the brain_edits log + metric capture, matching that precedent.
+        # replace_edit/place_on_top_edit are pure live-API and DO mutate the
+        # current timeline in place.
+        "trim_clip",
+        "move_clip",
+        "slide_clip",
+        "slip_clip",
+        "split_clip",
+        "add_transition",
+        "insert_edit",
+        "replace_edit",
+        "place_on_top_edit",
     }),
     "timeline_markers": frozenset({
         "add",

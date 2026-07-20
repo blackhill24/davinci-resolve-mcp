@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "f69ecc2f86963756",
+      "fingerprint": "aeee6bd1e50bb041",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -44,6 +44,7 @@
         "src/utils/cdl.py",
         "src/utils/clip_query.py",
         "src/utils/cloud_operations.py",
+        "src/utils/cloud_project_live_probe.py",
         "src/utils/color_grade_live_probe.py",
         "src/utils/contracts.py",
         "src/utils/cut_ir.py",
@@ -106,7 +107,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "8b7d354e383531fb",
+      "fingerprint": "4dd77406c5e721eb",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -534,7 +535,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "57194ecfec8097a5",
+      "fingerprint": "2a61a4c81d72feb4",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -604,10 +605,11 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "93c986411da8da4c",
+      "fingerprint": "63bbcf761bc10191",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
+        "tests/cloud-test-setup.md",
         "tests/create_test_timeline.py",
         "tests/live_api_gap_verification.py",
         "tests/live_audio_fairlight_validation.py",
@@ -616,6 +618,7 @@
         "tests/live_auto_edit_twosource_polish.py",
         "tests/live_auto_edit_validation.py",
         "tests/live_auto_sync_settings_check.py",
+        "tests/live_cloud_project_validation.py",
         "tests/live_color_grade_validation.py",
         "tests/live_delete_governance_check.py",
         "tests/live_duplicate_clips_validation.py",
@@ -641,6 +644,7 @@
         "tests/live_script_smoke.py",
         "tests/live_sync_event_validation.py",
         "tests/live_timeline_conform_validation.py",
+        "tests/live_timeline_edit_gap_workarounds.py",
         "tests/live_v233_validation.py",
         "tests/test-after-restart.bat",
         "tests/test-after-restart.sh",
@@ -672,6 +676,7 @@
         "tests/test_caps_integration.py",
         "tests/test_cdl_and_install_config.py",
         "tests/test_clip_query.py",
+        "tests/test_cloud_operations_readback.py",
         "tests/test_cloud_settings.py",
         "tests/test_color_grade_probe.py",
         "tests/test_confirm_token.py",

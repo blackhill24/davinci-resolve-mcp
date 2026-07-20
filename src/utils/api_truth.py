@@ -72,10 +72,14 @@ API_TRUTH: List[Dict[str, Any]] = [
         "recommended": "Resolve the CLOUD_SETTING_*/CLOUD_SYNC_* constants via the "
                        "live resolve handle (server._normalize_cloud_settings) "
                        "before calling, and treat the bool return from "
-                       "Import/RestoreCloudProject as advisory.",
+                       "Import/RestoreCloudProject as advisory — verify by reading "
+                       "ProjectManager.GetProjectListInCurrentFolder() back "
+                       "(server._verify_cloud_import_restore, mirrored by "
+                       "cloud_operations._verify_cloud_mutation for the granular "
+                       "surface) rather than trusting it.",
         "tags": ["silent-failure", "project", "cloud", "enum"],
         "submit": "bug",
-        "mitigation": ["_normalize_cloud_settings"],
+        "mitigation": ["_normalize_cloud_settings", "_verify_cloud_import_restore"],
     },
     {
         "symbol": "Timeline.Export",
@@ -239,8 +243,10 @@ API_TRUTH: List[Dict[str, Any]] = [
         "reality": "The scripting API exposes no method to add, read, copy, or "
                    "clone an edit transition (cross-dissolve, etc.). Transitions "
                    "applied in the UI are invisible to and unmodifiable by scripts.",
-        "recommended": "Apply/duplicate transitions in the Resolve UI; no scripted "
-                       "equivalent exists.",
+        "recommended": "Apply/duplicate transitions in the Resolve UI, or use "
+                       "timeline(action='add_transition'|'list_transitions') — offline "
+                       "drt surgery via resolve-advanced (drp-format place_transition), "
+                       "landing on a NEW timeline (Stage 3.1, issue #21).",
         "tags": ["missing-method", "timeline", "transition"],
         "submit": "missing",
     },
@@ -267,9 +273,12 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "rolled, moved to another time/track, or have its duration "
                    "changed once it is on the timeline. Verified via dir() on "
                    "Resolve 21.0.0 (getters only).",
-        "recommended": "Do edit-point adjustments in the Resolve UI, or rebuild the "
-                       "timeline from MediaPool.AppendToTimeline clipInfos with the "
-                       "desired startFrame/endFrame/recordFrame.",
+        "recommended": "Do edit-point adjustments in the Resolve UI, or use "
+                       "timeline(action='trim_clip'|'move_clip'|'slide_clip'|'slip_clip') "
+                       "— offline drt surgery via resolve-advanced (drp-format), landing "
+                       "on a NEW timeline (Stage 3.1, issue #21). slip_clip only supports "
+                       "advancing the source in-point (frames > 0) — retreating it needs "
+                       "a vendor primitive that doesn't exist yet.",
         "tags": ["missing-method", "timeline", "edit", "trim"],
         "submit": "missing",
     },
@@ -278,8 +287,11 @@ API_TRUTH: List[Dict[str, Any]] = [
         "object": "Timeline / TimelineItem",
         "reality": "There is no method to split/cut/blade a clip at a given frame. "
                    "Verified absent on Timeline and TimelineItem (dir(), 21.0.0).",
-        "recommended": "Split in the Resolve UI, or construct the cut up-front by "
-                       "appending two clipInfos with the desired in/out points.",
+        "recommended": "Split in the Resolve UI, construct the cut up-front by "
+                       "appending two clipInfos with the desired in/out points, or use "
+                       "timeline(action='split_clip') — offline drt surgery via "
+                       "resolve-advanced (drp-format), landing on a NEW timeline "
+                       "(Stage 3.1, issue #21).",
         "tags": ["missing-method", "timeline", "edit"],
         "submit": "missing",
     },

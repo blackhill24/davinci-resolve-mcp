@@ -171,6 +171,40 @@ test('trimClipHead (ripple) keeps Start, advances In, shifts later clips left', 
   assert.strictEqual(f.find((c) => c.id === 'c2').start, 160, 'c2 shifted by -40');
 });
 
+// Real Resolve 21 exports write a PLAIN integer `<In>12</In>` (verified live,
+// issue #21) — no pipe/hex suffix. synthDrp()'s `<In/>` fixture and every test
+// above never exercised that shape, which is why clipIn()'s original
+// pipe-only regex (`/<In>(\d+)\|/`) silently read 0 for every real export.
+async function synthDrpWithIn(inPoint) {
+  const JSZip = require('jszip');
+  const clip = `<Element><Sm2TiVideoClip DbId="c0"><FieldsBlob/><Name>clip0</Name>` +
+    `<Start>0</Start><Duration>100</Duration><In>${inPoint}</In><MediaStartTime>0</MediaStartTime>` +
+    `<MediaFilePath>/x/0.mov</MediaFilePath></Sm2TiVideoClip></Element>`;
+  const track =
+    '<Element><Sm2TiTrack DbId="t1"><FieldsBlob/><Type>0</Type><SubType>0</SubType><Flags>0</Flags>' +
+    `<Sequence>seq1</Sequence><Items>${clip}</Items><FusionCompHolderItems/><UserDefinedName/><LayersVec/></Sm2TiTrack></Element>`;
+  const seq =
+    '<?xml version="1.0" encoding="UTF-8"?>\n<Sm2SequenceContainer DbId="seq-1"><FieldsBlob/>' +
+    `<VideoTrackVec>${track}</VideoTrackVec><AudioTrackVec/></Sm2SequenceContainer>`;
+  const zip = new JSZip();
+  zip.file('SeqContainer/seq-1.xml', seq);
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
+test('trimClipHead reads a real-export plain-integer <In> (regression: was silently misread as 0)', async () => {
+  const buf = await synthDrpWithIn(12);
+  const res = await trimClipHead(buf, { track: 1, clipIndex: 0, frames: 10 });
+  assert.strictEqual(res.newIn, 22, 'oldIn (12) + frames (10), not frames (10) alone');
+});
+
+test('splitClip continues source from a real-export plain-integer <In>', async () => {
+  const buf = await synthDrpWithIn(12);
+  const res = await splitClip(buf, { track: 1, at: 40 });
+  const f = await clipFields(res.buffer);
+  const right = f.find((c) => c.id === res.rightDbId);
+  assert.strictEqual(right.srcIn, 12 + 40, 'right half continues from leftIn(12) + leftDuration(40)');
+});
+
 test('trimClipHead rejects frames >= duration', async () => {
   const buf = await synthDrp(1);
   await assert.rejects(() => trimClipHead(buf, { track: 1, frames: 100 }), />=/);

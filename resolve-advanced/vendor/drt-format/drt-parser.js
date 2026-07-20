@@ -67,6 +67,23 @@ function extractClipsFromTrackXml(trackXml, trackType) {
   return clips;
 }
 
+function extractTransitionsFromTrackXml(trackXml) {
+  const transitions = [];
+  const re = /<Sm2TiTransition\b[^>]*?DbId="([^"]+)"[^>]*>([\s\S]*?)<\/Sm2TiTransition>/g;
+  let m;
+  while ((m = re.exec(trackXml)) !== null) {
+    const inner = m[2];
+    transitions.push({
+      transitionId: m[1],
+      start: extractInt(inner, 'Start'),
+      duration: extractInt(inner, 'Duration'),
+      prettyType: extractScalar(inner, 'PrettyType'),
+      name: extractScalar(inner, 'Name'),
+    });
+  }
+  return transitions;
+}
+
 function extractTracks(seqXml, trackVecTag, trackTagBase, trackType) {
   const tracks = [];
   // Match the *VideoTrackVec or *AudioTrackVec block.
@@ -89,6 +106,7 @@ function extractTracks(seqXml, trackVecTag, trackTagBase, trackType) {
       trackId,
       trackType,
       clips: extractClipsFromTrackXml(trackInner, trackType),
+      transitions: extractTransitionsFromTrackXml(trackInner),
     });
   }
   return tracks;

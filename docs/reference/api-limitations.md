@@ -75,7 +75,7 @@ equivalent, blocking full automation.
 
 - **Object:** `Timeline / TimelineItem`
 - **Behavior:** The scripting API exposes no method to add, read, copy, or clone an edit transition (cross-dissolve, etc.). Transitions applied in the UI are invisible to and unmodifiable by scripts.
-- **Workaround / current handling:** Apply/duplicate transitions in the Resolve UI; no scripted equivalent exists.
+- **Workaround / current handling:** Apply/duplicate transitions in the Resolve UI, or use timeline(action='add_transition'|'list_transitions') — offline drt surgery via resolve-advanced (drp-format place_transition), landing on a NEW timeline (Stage 3.1, issue #21).
 - **Tags:** missing-method, timeline, transition
 
 ### Cloud project enumeration / export / user management
@@ -89,14 +89,14 @@ equivalent, blocking full automation.
 
 - **Object:** `TimelineItem`
 - **Behavior:** TimelineItem exposes GetStart, GetEnd, GetDuration, GetLeftOffset, GetRightOffset and GetSourceStart/EndFrame, but NO matching setters. A clip cannot be trimmed, slipped, slid, rolled, moved to another time/track, or have its duration changed once it is on the timeline. Verified via dir() on Resolve 21.0.0 (getters only).
-- **Workaround / current handling:** Do edit-point adjustments in the Resolve UI, or rebuild the timeline from MediaPool.AppendToTimeline clipInfos with the desired startFrame/endFrame/recordFrame.
+- **Workaround / current handling:** Do edit-point adjustments in the Resolve UI, or use timeline(action='trim_clip'|'move_clip'|'slide_clip'|'slip_clip') — offline drt surgery via resolve-advanced (drp-format), landing on a NEW timeline (Stage 3.1, issue #21). slip_clip only supports advancing the source in-point (frames > 0) — retreating it needs a vendor primitive that doesn't exist yet.
 - **Tags:** missing-method, timeline, edit, trim
 
 ### Razor / blade / split a timeline item
 
 - **Object:** `Timeline / TimelineItem`
 - **Behavior:** There is no method to split/cut/blade a clip at a given frame. Verified absent on Timeline and TimelineItem (dir(), 21.0.0).
-- **Workaround / current handling:** Split in the Resolve UI, or construct the cut up-front by appending two clipInfos with the desired in/out points.
+- **Workaround / current handling:** Split in the Resolve UI, construct the cut up-front by appending two clipInfos with the desired in/out points, or use timeline(action='split_clip') — offline drt surgery via resolve-advanced (drp-format), landing on a NEW timeline (Stage 3.1, issue #21).
 - **Tags:** missing-method, timeline, edit
 
 ### Clip speed / retime ratio and speed ramps
@@ -203,7 +203,7 @@ values, or automation-hostile modal prompts.
 - **Object:** `ProjectManager`
 - **Signature:** `(..., cloudSettings) -> Project | bool`
 - **Behavior:** All four take an enum-keyed {cloudSettings} dict (resolve.CLOUD_SETTING_* keys, resolve.CLOUD_SYNC_* sync-mode values). Plain string keys are silently rejected, so a settings dict built from human-readable keys yields no project / False.
-- **Workaround / current handling:** Resolve the CLOUD_SETTING_*/CLOUD_SYNC_* constants via the live resolve handle (server._normalize_cloud_settings) before calling, and treat the bool return from Import/RestoreCloudProject as advisory.
+- **Workaround / current handling:** Resolve the CLOUD_SETTING_*/CLOUD_SYNC_* constants via the live resolve handle (server._normalize_cloud_settings) before calling, and treat the bool return from Import/RestoreCloudProject as advisory — verify by reading ProjectManager.GetProjectListInCurrentFolder() back (server._verify_cloud_import_restore, mirrored by cloud_operations._verify_cloud_mutation for the granular surface) rather than trusting it.
 - **Tags:** silent-failure, project, cloud, enum
 
 ### Timeline.Export

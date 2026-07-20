@@ -52,7 +52,15 @@ function encodeSourceIn(frame) {
   return `${frame}|${buf.toString('hex')}`;
 }
 function clipIn(clipXml) {
-  const m = clipXml.match(/<In>(\d+)\|/);
+  // Two on-disk encodings: a real Resolve 21 export writes a PLAIN integer
+  // (`<In>12</In>`); this module's own `setClipIn` writes framePos|hex (matching
+  // `encodeSourceIn`, verified round-trippable). Both must parse — a
+  // pipe-only regex silently read 0 for every real export (verified live: a
+  // clip appended with source in-point 12 round-tripped through trimClipHead
+  // as if its in-point were 0, corrupting the result). The leading digits are
+  // the in-point in both encodings; whatever follows (`|hex` or nothing) is
+  // the LE-double byte form, not needed for reading.
+  const m = clipXml.match(/<In>(\d+)/);
   return m ? parseInt(m[1], 10) : 0; // empty <In/> ⇒ in-point 0
 }
 function setClipIn(clipXml, framePos) {

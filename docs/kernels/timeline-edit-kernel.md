@@ -158,7 +158,13 @@ Current partial areas:
 These are blocked by Resolve's public scripting API, not by MCP plumbing:
 
 - Transition cloning: no public timeline-item transition clone/read/write API.
+  Offline workaround: `timeline(action="add_transition"|"list_transitions")` —
+  see Advanced (offline) server below.
 - Razor/split edits: no direct public timeline split primitive.
+  Offline workaround: `timeline(action="split_clip")` — see below.
+- Trim/move/slip/slide: no TimelineItem position setters (`docs/reference/
+  api-limitations.md`). Offline workaround: `timeline(action="trim_clip"|
+  "move_clip"|"slide_clip"|"slip_clip")` — see below.
 - True partial lift: no safe partial-item delete without a split primitive.
 - Source-less item cloning through append: titles, generators, Fusion
   compositions, and subtitles can exist on the timeline, but source-less items
@@ -196,6 +202,36 @@ accurate change list without opening either timeline. For conforming/relinking
 that change list, see the Timeline Conform / Interchange kernel and the
 `resolve-conform` skill; for the edit ↔ offline routing, see the `resolve-edit`
 skill (`.claude/skills/timeline-edit.md`).
+
+### Stage 3.1 UI-gap workarounds (issue #21)
+
+A second family of `timeline` actions closes the trim/razor/transition/edit-mode
+gaps above by exporting the *current* timeline to `.drt`, running verified
+`resolve-advanced` (drp-format) ops on it, and reimporting the result as a
+**NEW** `"<name> (edited)"` timeline — the original is never modified (same
+convention as `auto_edit.polish_timeline`). Requires Node.js 18+ on PATH
+(`advanced_bridge.node_available()`); honestly refuses otherwise.
+
+- `trim_clip(clip_id, edge?, new_duration?|frames?, ripple?)` — tail or head trim.
+- `move_clip(clip_id, to_track?, to_start?)` / `slide_clip(clip_id, to_start)` —
+  reposition, no ripple/collision-check.
+- `slip_clip(clip_id, frames)` — shifts source content later (`frames > 0`
+  only; drp-format has no head-extend primitive to retreat the in-point).
+- `split_clip(clip_id?|track_type+track_index, at_frame)` — razor.
+- `add_transition(track_index, at_frame, duration_frames?)` /
+  `list_transitions()` — cross-dissolve; `list_transitions` is read-only (no
+  reimport).
+- `replace_edit(clip_id, media_pool_item_id, source_start_frame?)` /
+  `place_on_top_edit(media_pool_item_id, record_frame, source_end_frame, ...)`
+  — pure live-API, mutate the CURRENT timeline in place (position/duration
+  don't change, so no drt surgery is needed).
+- `insert_edit(media_pool_item_id, record_frame, track_index, source_end_frame,
+  ...)` — drt-surgery ripple (`ripple_timeline`, all tracks, keeps A/V sync)
+  + a live append into the opened gap on the new timeline.
+
+Deferred to a follow-up pass: clip speed/retime (needs a new drp-format
+mutate primitive), Render in Place (pure live-API, unrelated machinery), and
+native multicam clip creation (needs drt-diff investigation first).
 
 ## Development Guardrails
 

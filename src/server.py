@@ -45,6 +45,7 @@ from src.utils.cdl import normalize_cdl_payload
 from src.utils.mcp_stdio import run_fastmcp_stdio
 from src.utils.api_truth import lookup_api_truth, VERIFIED_ON as _API_TRUTH_VERIFIED_ON
 from src.utils.contracts import validate as _validate_params
+from src.utils.cloud_operations import cloud_sync_status_label
 from src.utils.cut_ir import build_cut_list as _build_cut_list
 from src.utils.page_lock import open_page_serialized as _open_page_serialized
 from src.utils.proc import preload_audit, resolve_spawn_env, safe_run, sanitized_spawn_env
@@ -5785,6 +5786,731 @@ def _import_timeline_checked(proj, mp, p: Dict[str, Any]):
         return out
 
     return _run_maybe_background("timeline.import_timeline_checked", p, _work)
+
+
+def _advanced_edit_resolve_clip(tl, p: Dict[str, Any]):
+    """Resolve a `clip_id` param to the drp-format selector it needs.
+
+    Returns ``(track_type, track_index, clip_index, item, err)``. ``clip_index``
+    is the item's 0-based position within `tl.GetItemListInTrack(track_type,
+    track_index)` — the same ordering drp-format's exported-track `<Items>`
+    walk produces, so it lines up with the vendor ops' `clipIndex` selector.
+    """
+    clip_id = p.get("clip_id") or p.get("timeline_item_id")
+    if not clip_id:
+        return None, None, None, None, _err("clip_id is required")
+    item = _find_timeline_item_by_id(tl, clip_id)
+    if not item:
+        return None, None, None, None, _err(f"timeline item not found: {clip_id}")
+    track_info, err = _timeline_item_track_info(item)
+    if err:
+        return None, None, None, None, err
+    track_type, track_index = track_info
+    if track_type not in ("video", "audio"):
+        return None, None, None, None, _err(
+            f"advanced timeline-edit actions support video/audio clips only (got {track_type!r})")
+    items = tl.GetItemListInTrack(track_type, track_index) or []
+    item_id = _safe_timeline_item_id(item)
+    clip_index = next(
+        (i for i, it in enumerate(items) if _safe_timeline_item_id(it) == item_id), None)
+    if clip_index is None:
+        return None, None, None, None, _err("could not determine clip position on its track")
+    return track_type, track_index, clip_index, item, None
+
+
+def _advanced_timeline_edit(
+    proj,
+    tl,
+    p: Dict[str, Any],
+    *,
+    action_name: str,
+    ops: Any,
+    warning: str,
+    extra_preview: Optional[Dict[str, Any]] = None,
+    extra_result: Optional[Dict[str, Any]] = None,
+):
+    """Shared export→drp-ops→reimport round trip for the Stage 3.1 UI-gap
+    workarounds (trim/move/slip/slide, razor, edit modes, transitions).
+
+    Generalizes the auto_edit `polish_timeline` pattern (`_export_timeline_checked`
+    → `_advanced_bridge.run_drp_op_chain` → `_import_timeline_checked`) into a
+    reusable helper. Never mutates the current timeline: the edited result always
+    lands as a NEW uniquely-named timeline, exactly like `polish_timeline`.
+
+    ``ops`` is either a list of ``{"op", "args"}`` specs, or a callable
+    ``(drt_src) -> (ops, err)`` for actions whose op args depend on the exported
+    .drt (e.g. `slip_clip` needs a clip's real DbId, only known after export).
+    """
+    full_action = f"timeline.{action_name}"
+    if not _advanced_bridge.node_available():
+        return _err(
+            f"{action_name} requires the Node advanced-server bridge (drp-format), "
+            "and Node.js was not found on PATH — install Node 18+ to enable it.",
+        )
+    if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+        preview = {
+            "operation": full_action,
+            "warning": warning,
+            "source_timeline": tl.GetName(),
+            "ops": (
+                "resolved after export (indices/DbIds depend on the exported .drt)"
+                if callable(ops)
+                else [{"op": o.get("op"), "args": o.get("args")} for o in ops]
+            ),
+        }
+        if extra_preview:
+            preview.update(extra_preview)
+        return _issue_confirm_token(action=full_action, params=p, preview=preview)
+    blocked = _consume_confirm_token(action=full_action, params=p)
+    if blocked:
+        return blocked
+
+    source_name = tl.GetName()
+    baseline_media = _timeline_media_coverage(tl)
+
+    scratch = tempfile.mkdtemp(prefix=f"timeline_{action_name}_")
+    export_path = os.path.join(scratch, f"{re.sub(r'[^A-Za-z0-9._-]+', '_', source_name).strip('_') or 'timeline'}.drt")
+    exported = _export_timeline_checked(tl, {
+        "path": export_path, "format": "drt",
+        "require_temp_path": False, "background": False, "async_job": False,
+    })
+    if not exported.get("success"):
+        return _err(f"drt export failed — cannot {action_name}") | {"export": exported}
+    drt_src = exported.get("primary_file") or export_path
+
+    if callable(ops):
+        ops, ops_err = ops(drt_src)
+        if ops_err:
+            return ops_err
+
+    chain = _advanced_bridge.run_drp_op_chain(ops, drt_src, scratch_dir=os.path.join(scratch, "ops"))
+    if not chain.get("success"):
+        return _err(chain.get("error") or f"{action_name} op chain failed") | {"chain": chain}
+    edited_drt = chain["output_path"]
+
+    mp = proj.GetMediaPool()
+    if not mp:
+        return _err("No media pool")
+    new_name = _unique_timeline_name(proj, f"{source_name} (edited)")
+    imported = _import_timeline_checked(proj, mp, {
+        "path": edited_drt, "timeline_name": new_name,
+        "require_temp_path": False,
+    })
+    if not imported.get("success"):
+        return _err(imported.get("error") or "reimport of edited .drt failed") | {
+            "import": imported, "chain": chain}
+
+    # Resolve names the imported timeline after the .drt container, ignoring the
+    # timelineName import option (verified live on 21, see polish_timeline) —
+    # rename it explicitly so it reads as "<source> (edited)".
+    final_name = imported.get("name") or new_name
+    imp_tl = None
+    for i in range(1, int(proj.GetTimelineCount() or 0) + 1):
+        cand = proj.GetTimelineByIndex(i)
+        if cand and str(cand.GetUniqueId()) == str(imported.get("id")):
+            imp_tl = cand
+            break
+    if imp_tl is not None:
+        try:
+            if imp_tl.SetName(new_name):
+                final_name = new_name
+        except Exception:
+            pass
+
+    # ImportTimelineFromFile makes the newly-imported timeline Resolve's
+    # CURRENT one — left alone, that silently drags every later, independent
+    # timeline() call onto the new "(edited)" timeline instead of the one the
+    # caller actually asked about (found live: a chain of these actions kept
+    # drifting onto the previous action's output). Restore the ORIGINAL
+    # current timeline so "no existing timeline is modified" also covers the
+    # user's current-timeline context, not just its content.
+    try:
+        proj.SetCurrentTimeline(tl)
+    except Exception:
+        pass
+
+    media = imported.get("media") or {}
+    dropped = _auto_edit_mod.dropped_source_clips(
+        baseline_linked=int(baseline_media.get("linked", 0)),
+        polished_linked=int(media.get("linked", 0)))
+    out = _ok(
+        new_timeline=final_name,
+        new_timeline_id=imported.get("id"),
+        original_timeline=source_name,
+        ops_applied=len(ops),
+        media_link=media,
+        baseline_media_link=baseline_media,
+        clips_relinked=dropped <= 0,
+    )
+    if dropped > 0:
+        out["warning"] = (
+            f"{dropped} source clip(s) went offline after the drt round-trip — "
+            "check media relinking.")
+    if extra_result:
+        out.update(extra_result)
+    return out
+
+
+def _advanced_edit_lookup_clip_db_id(drt_src: str, track_type: str, track_index: int, clip_index: int):
+    """Read a clip's real drp-format DbId out of an exported .drt (read-only `drt.parse`).
+
+    Needed when a chain of ops must keep targeting the SAME clip across steps
+    that can change its position in the track's item list (e.g. `move_clip`
+    always re-appends at the end) — `clipDbId` selects the clip regardless of
+    position, `clipIndex` does not.
+    """
+    payload = _advanced_bridge.run_node_bridge(
+        "scripts/drp-bridge.mjs", ["drt", "parse", json.dumps({"drtPath": drt_src})])
+    if not payload.get("success"):
+        return None, _err(payload.get("error") or "drt parse failed")
+    timelines = (payload.get("result") or {}).get("timelines") or []
+    if not timelines:
+        return None, _err("drt parse returned no timelines")
+    tracks_key = "videoTracks" if track_type == "video" else "audioTracks"
+    tracks = timelines[0].get(tracks_key) or []
+    if track_index < 1 or track_index > len(tracks):
+        return None, _err(f"drt parse: {track_type} track {track_index} not found in the export")
+    clips = tracks[track_index - 1].get("clips") or []
+    if clip_index < 0 or clip_index >= len(clips):
+        return None, _err(
+            f"drt parse: clip index {clip_index} not found on {track_type} track {track_index} "
+            "in the export")
+    clip_id = clips[clip_index].get("clipId")
+    if not clip_id:
+        return None, _err("drt parse: clip has no clipId")
+    return clip_id, None
+
+
+def _timeline_trim_clip_impl(proj, tl, p: Dict[str, Any]):
+    track_type, track_index, clip_index, _item, err = _advanced_edit_resolve_clip(tl, p)
+    if err:
+        return err
+    edge = str(p.get("edge", "tail")).lower()
+    ripple = bool(p.get("ripple", False))
+    if edge == "tail":
+        new_duration = p.get("new_duration", p.get("newDuration"))
+        if new_duration is None:
+            return _err("trim_clip edge='tail' requires new_duration")
+        try:
+            new_duration = int(new_duration)
+        except (TypeError, ValueError):
+            return _err("new_duration must be an integer")
+        if new_duration < 1:
+            return _err("new_duration must be a positive integer")
+        op_name = "trim_clip"
+        op_args = {"track": track_index, "newDuration": new_duration, "clipIndex": clip_index,
+                   "ripple": ripple, "trackType": track_type}
+    elif edge == "head":
+        frames = p.get("frames")
+        if frames is None:
+            return _err("trim_clip edge='head' requires frames")
+        try:
+            frames = int(frames)
+        except (TypeError, ValueError):
+            return _err("frames must be an integer")
+        if frames < 1:
+            return _err("frames must be a positive integer")
+        op_name = "trim_clip_head"
+        op_args = {"track": track_index, "frames": frames, "clipIndex": clip_index,
+                   "ripple": ripple, "trackType": track_type}
+    else:
+        return _err("edge must be 'tail' or 'head'")
+
+    return _advanced_timeline_edit(
+        proj, tl, p,
+        action_name="trim_clip",
+        ops=[{"op": op_name, "args": op_args}],
+        warning=(
+            f"Exports the current timeline as .drt, {edge}-trims the target clip via offline "
+            "drt surgery, and imports a NEW '(edited)' timeline. No existing timeline is modified."
+        ),
+    )
+
+
+def _timeline_move_clip_impl(proj, tl, p: Dict[str, Any]):
+    track_type, track_index, clip_index, _item, err = _advanced_edit_resolve_clip(tl, p)
+    if err:
+        return err
+    to_track = p.get("to_track", p.get("toTrack", track_index))
+    to_start = p.get("to_start", p.get("toStart"))
+    try:
+        to_track = int(to_track)
+    except (TypeError, ValueError):
+        return _err("to_track must be an integer")
+    if to_start is not None:
+        try:
+            to_start = int(to_start)
+        except (TypeError, ValueError):
+            return _err("to_start must be an integer")
+    if to_start is None and to_track == track_index:
+        return _err("move_clip requires to_track (a different track) and/or to_start")
+
+    op_args = {"fromTrack": track_index, "toTrack": to_track, "clipIndex": clip_index,
+               "trackType": track_type}
+    if to_start is not None:
+        op_args["toStart"] = to_start
+    return _advanced_timeline_edit(
+        proj, tl, p,
+        action_name="move_clip",
+        ops=[{"op": "move_clip", "args": op_args}],
+        warning=(
+            "Exports the current timeline as .drt, relocates the target clip via offline drt "
+            "surgery, and imports a NEW '(edited)' timeline. No existing timeline is modified. "
+            "Does not ripple or collision-check neighboring clips."
+        ),
+    )
+
+
+def _timeline_slide_clip_impl(proj, tl, p: Dict[str, Any]):
+    track_type, track_index, clip_index, _item, err = _advanced_edit_resolve_clip(tl, p)
+    if err:
+        return err
+    to_start = p.get("to_start", p.get("toStart"))
+    if to_start is None:
+        return _err("slide_clip requires to_start")
+    try:
+        to_start = int(to_start)
+    except (TypeError, ValueError):
+        return _err("to_start must be an integer")
+
+    op_args = {"fromTrack": track_index, "toTrack": track_index, "toStart": to_start,
+               "clipIndex": clip_index, "trackType": track_type}
+    return _advanced_timeline_edit(
+        proj, tl, p,
+        action_name="slide_clip",
+        ops=[{"op": "move_clip", "args": op_args}],
+        warning=(
+            "Exports the current timeline as .drt, repositions the target clip on its OWN "
+            "track via offline drt surgery, and imports a NEW '(edited)' timeline. No existing "
+            "timeline is modified. Does not ripple or collision-check neighboring clips."
+        ),
+    )
+
+
+def _timeline_slip_clip_impl(proj, tl, p: Dict[str, Any]):
+    track_type, track_index, clip_index, item, err = _advanced_edit_resolve_clip(tl, p)
+    if err:
+        return err
+    frames = p.get("frames")
+    if frames is None:
+        return _err("slip_clip requires frames")
+    try:
+        frames = int(frames)
+    except (TypeError, ValueError):
+        return _err("frames must be an integer")
+    if frames <= 0:
+        return _err(
+            "slip_clip only supports frames > 0 (advancing the source in-point later in time). "
+            "drp-format has no head-EXTEND primitive to retreat the in-point, so shifting source "
+            "content earlier isn't possible without new vendor work — deferred alongside the "
+            "Stage 3.1 clip speed/retime follow-up."
+        )
+    duration = _frame_int(item.GetDuration())
+    start = _frame_int(item.GetStart())
+    if duration is None or start is None:
+        return _err("could not read the clip's current start/duration")
+    if frames >= duration:
+        return _err(f"frames ({frames}) must be less than the clip's duration ({duration})")
+
+    def _build_ops(drt_src):
+        clip_db_id, lookup_err = _advanced_edit_lookup_clip_db_id(
+            drt_src, track_type, track_index, clip_index)
+        if lookup_err:
+            return None, lookup_err
+        # clipDbId (not clipIndex) for every step: move_clip re-appends the clip
+        # at the end of the track's item list, which would silently retarget a
+        # clipIndex-based selector at the wrong clip on the later steps.
+        sel = {"clipDbId": clip_db_id, "trackType": track_type}
+        return [
+            {"op": "trim_clip_head", "args": {"track": track_index, "frames": frames,
+                                               "ripple": False, **sel}},
+            {"op": "move_clip", "args": {"fromTrack": track_index, "toTrack": track_index,
+                                          "toStart": start, **sel}},
+            {"op": "trim_clip", "args": {"track": track_index, "newDuration": duration,
+                                          "ripple": False, **sel}},
+        ], None
+
+    return _advanced_timeline_edit(
+        proj, tl, p,
+        action_name="slip_clip",
+        ops=_build_ops,
+        warning=(
+            "Exports the current timeline as .drt, slips the target clip's source content later "
+            "by `frames` via offline drt surgery (timeline position and duration unchanged), and "
+            "imports a NEW '(edited)' timeline. No existing timeline is modified."
+        ),
+    )
+
+
+def _timeline_split_clip_impl(proj, tl, p: Dict[str, Any]):
+    at_frame = p.get("at_frame", p.get("frame"))
+    if at_frame is None:
+        return _err("split_clip requires at_frame")
+    try:
+        at_frame = int(at_frame)
+    except (TypeError, ValueError):
+        return _err("at_frame must be an integer")
+
+    if p.get("clip_id") or p.get("timeline_item_id"):
+        track_type, track_index, _clip_index, _item, err = _advanced_edit_resolve_clip(tl, p)
+        if err:
+            return err
+    else:
+        track_type = str(p.get("track_type", "video")).lower()
+        track_index = p.get("track_index")
+        if track_index is None:
+            return _err("split_clip requires clip_id, or track_type+track_index")
+        try:
+            track_index = int(track_index)
+        except (TypeError, ValueError):
+            return _err("track_index must be an integer")
+
+    ops = [{"op": "split_clip", "args": {"track": track_index, "at": at_frame, "trackType": track_type}}]
+    return _advanced_timeline_edit(
+        proj, tl, p,
+        action_name="split_clip",
+        ops=ops,
+        warning=(
+            "Exports the current timeline as .drt, razors the clip spanning at_frame into two "
+            "source-continuous clips via offline drt surgery, and imports a NEW '(edited)' "
+            "timeline. No existing timeline is modified."
+        ),
+    )
+
+
+def _timeline_add_transition_impl(proj, tl, p: Dict[str, Any]):
+    track_type = str(p.get("track_type", "video")).lower()
+    if track_type != "video":
+        return _err("add_transition only supports video (no bundled audio cross-dissolve template)")
+    track_index = p.get("track_index")
+    if track_index is None:
+        return _err("add_transition requires track_index")
+    try:
+        track_index = int(track_index)
+    except (TypeError, ValueError):
+        return _err("track_index must be an integer")
+    at_frame = p.get("at_frame", p.get("frame"))
+    if at_frame is None:
+        return _err("add_transition requires at_frame (the abutting cut's frame)")
+    try:
+        at_frame = int(at_frame)
+    except (TypeError, ValueError):
+        return _err("at_frame must be an integer")
+    duration_frames = p.get("duration_frames", p.get("durationFrames", 24))
+    try:
+        duration_frames = int(duration_frames)
+    except (TypeError, ValueError):
+        return _err("duration_frames must be an integer")
+    if duration_frames < 2:
+        return _err("duration_frames must be >= 2")
+
+    ops = [{"op": "place_transition", "args": {
+        "track": track_index, "atFrame": at_frame, "durationFrames": duration_frames}}]
+    return _advanced_timeline_edit(
+        proj, tl, p,
+        action_name="add_transition",
+        ops=ops,
+        warning=(
+            "Exports the current timeline as .drt, places a cross-dissolve at the abutting cut "
+            "via offline drt surgery, and imports a NEW '(edited)' timeline. No existing "
+            "timeline is modified. Requires handle media on both sides of the cut."
+        ),
+    )
+
+
+def _timeline_list_transitions_impl(proj, tl, p: Dict[str, Any]):
+    if not _advanced_bridge.node_available():
+        return _err(
+            "list_transitions requires the Node advanced-server bridge (drp-format), "
+            "and Node.js was not found on PATH — install Node 18+ to enable it.",
+        )
+    scratch = tempfile.mkdtemp(prefix="timeline_list_transitions_")
+    export_path = os.path.join(scratch, "timeline.drt")
+    exported = _export_timeline_checked(tl, {
+        "path": export_path, "format": "drt",
+        "require_temp_path": False, "background": False, "async_job": False,
+    })
+    if not exported.get("success"):
+        return _err("drt export failed — cannot list transitions") | {"export": exported}
+    drt_src = exported.get("primary_file") or export_path
+
+    payload = _advanced_bridge.run_node_bridge(
+        "scripts/drp-bridge.mjs", ["drt", "parse", json.dumps({"drtPath": drt_src})])
+    if not payload.get("success"):
+        return _err(payload.get("error") or "drt parse failed")
+    timelines = (payload.get("result") or {}).get("timelines") or []
+    if not timelines:
+        return _ok(transitions=[], count=0)
+
+    transitions = []
+    for track_type, key in (("video", "videoTracks"), ("audio", "audioTracks")):
+        for track_idx, track in enumerate(timelines[0].get(key) or [], start=1):
+            for t in (track.get("transitions") or []):
+                transitions.append({**t, "track_type": track_type, "track_index": track_idx})
+    return _ok(transitions=transitions, count=len(transitions))
+
+
+def _timeline_replace_edit_impl(proj, tl, p: Dict[str, Any]):
+    """Replace a timeline clip with a different Media Pool item at the same
+    position/duration. Pure live-API (delete + append) — no DRT surgery needed
+    since the position/duration don't change, so this mutates the CURRENT
+    timeline in place (unlike the drt-surgery actions above)."""
+    track_type, track_index, _clip_index, item, err = _advanced_edit_resolve_clip(tl, p)
+    if err:
+        return err
+    media_pool_item_id = p.get("media_pool_item_id")
+    if not media_pool_item_id:
+        return _err("replace_edit requires media_pool_item_id (the replacement Media Pool clip)")
+    mp = proj.GetMediaPool()
+    if not mp:
+        return _err("No media pool")
+    root = mp.GetRootFolder()
+
+    start = _frame_int(item.GetStart())
+    end = _frame_int(item.GetEnd())
+    duration = _timeline_item_duration(item, start, end)
+    if start is None or duration is None:
+        return _err("could not read the target clip's timeline position/duration")
+    source_start = p.get("source_start_frame", p.get("sourceStartFrame", 0))
+    try:
+        source_start = int(source_start or 0)
+    except (TypeError, ValueError):
+        return _err("source_start_frame must be an integer")
+
+    timeline_start = int(_timeline_start_frame(tl) or 0)
+    ci = {
+        "media_pool_item_id": media_pool_item_id,
+        "start_frame": source_start,
+        "end_frame": source_start + duration,
+        "track_index": track_index,
+        "record_frame": start,
+        # start is already an ABSOLUTE frame (item.GetStart()) —
+        # _normalize_record_frame's default "relative" mode would otherwise
+        # add timeline_start again and place the replacement frames too late
+        # (found live: silently landed ~86400 frames past where it should).
+        "record_frame_mode": "absolute",
+    }
+    built, build_err = _build_append_clip_info_dict(root, ci, 0, timeline_start)
+    if build_err:
+        return build_err
+
+    if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+        return _issue_confirm_token(
+            action="timeline.replace_edit", params=p,
+            preview={
+                "operation": "timeline.replace_edit",
+                "warning": "Deletes the target clip and appends the replacement Media Pool item "
+                           "at the same position/duration on the CURRENT timeline. Cannot be "
+                           "selectively undone (roll back via timeline_versioning).",
+                "target_clip_id": p.get("clip_id"),
+                "replacement_media_pool_item_id": media_pool_item_id,
+                "track_type": track_type, "track_index": track_index,
+                "record_frame": start, "duration": duration,
+            },
+        )
+    blocked = _consume_confirm_token(action="timeline.replace_edit", params=p)
+    if blocked:
+        return blocked
+
+    if not bool(tl.DeleteClips([item], False)):
+        return _err("failed to delete the target clip")
+    appended = mp.AppendToTimeline([built])
+    if not appended or len(appended) < 1:
+        return _err(
+            "delete succeeded but AppendToTimeline of the replacement failed — the timeline now "
+            "has a gap where the old clip was; append the replacement manually.",
+        )
+    new_id = _safe_timeline_item_id(appended[0])
+    if not new_id:
+        recovered = _find_appended_timeline_item_summary(
+            tl, track_type=track_type, target_track_index=track_index,
+            record_frame=start, duration=duration,
+            source_media_pool_item=built.get("mediaPoolItem"))
+        new_id = (recovered or {}).get("timeline_item_id")
+    return _ok(
+        replaced_clip_id=p.get("clip_id") or p.get("timeline_item_id"),
+        new_clip_id=new_id,
+        track_type=track_type, track_index=track_index,
+        record_frame=start, duration=duration,
+    )
+
+
+def _timeline_place_on_top_edit_impl(proj, tl, p: Dict[str, Any]):
+    """Add a new top track and append a Media Pool item there. Pure live-API —
+    no DRT surgery needed since nothing existing moves."""
+    media_pool_item_id = p.get("media_pool_item_id")
+    if not media_pool_item_id:
+        return _err("place_on_top_edit requires media_pool_item_id")
+    mp = proj.GetMediaPool()
+    if not mp:
+        return _err("No media pool")
+    root = mp.GetRootFolder()
+    track_type = str(p.get("track_type", "video")).lower()
+    if track_type not in ("video", "audio"):
+        return _err("track_type must be 'video' or 'audio'")
+    record_frame = p.get("record_frame", p.get("recordFrame"))
+    if record_frame is None:
+        return _err("place_on_top_edit requires record_frame")
+    try:
+        record_frame = int(record_frame)
+    except (TypeError, ValueError):
+        return _err("record_frame must be an integer")
+    source_start = int(p.get("source_start_frame", p.get("sourceStartFrame", 0)) or 0)
+    source_end = p.get("source_end_frame", p.get("sourceEndFrame"))
+    if source_end is None:
+        return _err("place_on_top_edit requires source_end_frame (source range on the Media Pool clip)")
+    try:
+        source_end = int(source_end)
+    except (TypeError, ValueError):
+        return _err("source_end_frame must be an integer")
+
+    target_track = _timeline_track_count(tl, track_type) + 1
+    if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+        return _issue_confirm_token(
+            action="timeline.place_on_top_edit", params=p,
+            preview={
+                "operation": "timeline.place_on_top_edit",
+                "warning": f"Adds a new {track_type} track ({target_track}) above all existing "
+                           "tracks and appends the Media Pool item there on the CURRENT timeline. "
+                           "Adding a track cannot be selectively undone.",
+                "media_pool_item_id": media_pool_item_id,
+                "target_track_index": target_track, "record_frame": record_frame,
+            },
+        )
+    blocked = _consume_confirm_token(action="timeline.place_on_top_edit", params=p)
+    if blocked:
+        return blocked
+
+    if not bool(tl.AddTrack(track_type)):
+        return _err(f"failed to add a new {track_type} track")
+    timeline_start = int(_timeline_start_frame(tl) or 0)
+    ci = {
+        "media_pool_item_id": media_pool_item_id,
+        "start_frame": source_start, "end_frame": source_end,
+        "track_index": target_track, "record_frame": record_frame,
+        "record_frame_mode": "absolute",  # record_frame is caller-supplied ABSOLUTE
+    }
+    built, build_err = _build_append_clip_info_dict(root, ci, 0, timeline_start)
+    if build_err:
+        return build_err | {"added_track": True, "track_index": target_track}
+    appended = mp.AppendToTimeline([built])
+    if not appended or len(appended) < 1:
+        return _err("track added but AppendToTimeline failed") | {
+            "added_track": True, "track_index": target_track}
+    new_id = _safe_timeline_item_id(appended[0])
+    if not new_id:
+        recovered = _find_appended_timeline_item_summary(
+            tl, track_type=track_type, target_track_index=target_track,
+            record_frame=record_frame, duration=source_end - source_start,
+            source_media_pool_item=built.get("mediaPoolItem"))
+        new_id = (recovered or {}).get("timeline_item_id")
+    return _ok(
+        new_clip_id=new_id,
+        track_type=track_type, track_index=target_track, record_frame=record_frame,
+    )
+
+
+def _timeline_insert_edit_impl(proj, tl, p: Dict[str, Any]):
+    """Ripple everything at/after record_frame later by the new clip's duration
+    (offline drt surgery, all tracks, keeps A/V sync), reimport as a NEW
+    timeline, then append the new clip into the opened gap on that timeline."""
+    media_pool_item_id = p.get("media_pool_item_id")
+    if not media_pool_item_id:
+        return _err("insert_edit requires media_pool_item_id")
+    record_frame = p.get("record_frame", p.get("recordFrame"))
+    if record_frame is None:
+        return _err("insert_edit requires record_frame (the insert point)")
+    try:
+        record_frame = int(record_frame)
+    except (TypeError, ValueError):
+        return _err("record_frame must be an integer")
+    track_type = str(p.get("track_type", "video")).lower()
+    track_index = p.get("track_index")
+    if track_index is None:
+        return _err("insert_edit requires track_index")
+    try:
+        track_index = int(track_index)
+    except (TypeError, ValueError):
+        return _err("track_index must be an integer")
+    source_start = int(p.get("source_start_frame", p.get("sourceStartFrame", 0)) or 0)
+    source_end = p.get("source_end_frame", p.get("sourceEndFrame"))
+    if source_end is None:
+        return _err("insert_edit requires source_end_frame (source range on the Media Pool clip)")
+    try:
+        source_end = int(source_end)
+    except (TypeError, ValueError):
+        return _err("source_end_frame must be an integer")
+    duration = source_end - source_start
+    if duration <= 0:
+        return _err("source_end_frame must be greater than source_start_frame")
+
+    ops = [{"op": "ripple_timeline", "args": {"at": record_frame, "delta": duration}}]
+    result = _advanced_timeline_edit(
+        proj, tl, p,
+        action_name="insert_edit",
+        ops=ops,
+        warning=(
+            "Exports the current timeline as .drt, ripples every clip (video+audio, all tracks) "
+            f"at/after record_frame {record_frame} later by {duration} frame(s) via offline drt "
+            "surgery, imports a NEW '(edited)' timeline, then appends the new clip into the "
+            "opened gap on that new timeline. No existing timeline is modified."
+        ),
+    )
+    if not result.get("success"):
+        return result
+
+    new_tl_id = result.get("new_timeline_id")
+    new_tl = _find_timeline_by_id(proj, new_tl_id)[0] if new_tl_id else None
+    if new_tl is None:
+        result["warning"] = (
+            (result.get("warning", "") + " ").lstrip() +
+            "Ripple applied, but the new timeline could not be located to place the clip into — "
+            "place it manually."
+        ).strip()
+        return result
+
+    mp = proj.GetMediaPool()
+    if not mp:
+        result["place_error"] = "No media pool"
+        return result
+    root = mp.GetRootFolder()
+    timeline_start = int(_timeline_start_frame(new_tl) or 0)
+    ci = {
+        "media_pool_item_id": media_pool_item_id,
+        "start_frame": source_start, "end_frame": source_end,
+        "track_index": track_index, "record_frame": record_frame,
+        "record_frame_mode": "absolute",  # record_frame is caller-supplied ABSOLUTE
+    }
+    built, build_err = _build_append_clip_info_dict(root, ci, 0, timeline_start)
+    if build_err:
+        result["place_error"] = build_err
+        return result
+    # AppendToTimeline always targets Resolve's CURRENT timeline (no explicit
+    # target arg) — _advanced_timeline_edit above already restored current to
+    # the ORIGINAL timeline, so it must be switched to new_tl for this append
+    # (found live: without this, the clip silently appended onto the original,
+    # colliding with content the ripple never touched there).
+    proj.SetCurrentTimeline(new_tl)
+    appended = mp.AppendToTimeline([built])
+    try:
+        proj.SetCurrentTimeline(tl)
+    except Exception:
+        pass
+    if not appended or len(appended) < 1:
+        result["place_error"] = "ripple succeeded but AppendToTimeline of the new clip failed"
+        return result
+    inserted_id = _safe_timeline_item_id(appended[0])
+    if not inserted_id:
+        # Resolve can return a thin object with no readable id even though the
+        # append succeeded (same quirk _append_and_recover_timeline_item works
+        # around) — recover by scanning the target track for the placed clip.
+        recovered = _find_appended_timeline_item_summary(
+            new_tl, track_type=track_type, target_track_index=track_index,
+            record_frame=record_frame, duration=duration,
+            source_media_pool_item=built.get("mediaPoolItem"))
+        inserted_id = (recovered or {}).get("timeline_item_id")
+    result["inserted_clip_id"] = inserted_id
+    return result
 
 
 # A .drp/.drt is a zip of SeqContainer*.xml entries. Two on-disk naming conventions,
@@ -14998,6 +15724,30 @@ def project_manager_folders(action: str, params: Optional[Dict[str, Any]] = None
     return _unknown(action, ["list","get_current","create","delete","open","goto_root","goto_parent"])
 
 
+def _verify_cloud_import_restore(pm, mutate, project_name: Optional[str], label: str) -> Dict[str, Any]:
+    """Import/RestoreCloudProject return an advisory bool only (documented as
+    unreliable, like AutoSyncAudio) — verify by reading the current folder's
+    project list back instead of trusting the return value."""
+    def project_names():
+        try:
+            return list(pm.GetProjectListInCurrentFolder() or [])
+        except Exception:
+            return []
+
+    return verify_by_readback(
+        mutate=mutate,
+        observe=project_names,
+        snapshot=project_names,
+        compare=lambda before, after: {
+            "verified": (project_name in (after or [])) if project_name else len(after or []) > len(before or []),
+            "projects_before": before,
+            "projects_after": after,
+        },
+        intent={"project_name": project_name},
+        label=label,
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # TOOL 6: project_manager_cloud
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -15009,8 +15759,8 @@ def project_manager_cloud(action: str, params: Optional[Dict[str, Any]] = None) 
     Actions:
       create(settings) -> {success}  — settings: {CLOUD_SETTING_PROJECT_NAME, ...}
       load(settings) -> {success}
-      import_project(path, settings) -> {success}
-      restore(folder_path, settings) -> {success}
+      import_project(path, settings) -> {success, verified}  — verified is readback-based
+      restore(folder_path, settings) -> {success, verified}  — verified is readback-based
     """
     p = params or {}
     r = get_resolve()
@@ -15022,17 +15772,32 @@ def project_manager_cloud(action: str, params: Optional[Dict[str, Any]] = None) 
     # keys against the live handle so human-readable settings aren't silently
     # rejected. Unrecognized keys are dropped and reported in ignored_settings.
     settings, ignored = _normalize_cloud_settings(p.get("settings"), r)
+    project_name = settings.get(getattr(r, "CLOUD_SETTING_PROJECT_NAME", None))
 
-    if action == "create":
-        proj = pm.CreateCloudProject(settings)
-        return _ok(name=proj.GetName(), ignored_settings=ignored) if proj else _err("Failed to create cloud project")
-    elif action == "load":
-        proj = pm.LoadCloudProject(settings)
-        return _ok(name=proj.GetName(), ignored_settings=ignored) if proj else _err("Failed to load cloud project")
-    elif action == "import_project":
-        return {"success": bool(pm.ImportCloudProject(p["path"], settings)), "ignored_settings": ignored}
-    elif action == "restore":
-        return {"success": bool(pm.RestoreCloudProject(p["folder_path"], settings)), "ignored_settings": ignored}
+    try:
+        if action == "create":
+            proj = pm.CreateCloudProject(settings)
+            return _ok(name=proj.GetName(), ignored_settings=ignored) if proj else _err("Failed to create cloud project")
+        elif action == "load":
+            proj = pm.LoadCloudProject(settings)
+            return _ok(name=proj.GetName(), ignored_settings=ignored) if proj else _err("Failed to load cloud project")
+        elif action in ("import_project", "restore"):
+            if action == "import_project":
+                mutate = lambda: pm.ImportCloudProject(p["path"], settings)
+                label = "project_manager_cloud.import_project"
+            else:
+                mutate = lambda: pm.RestoreCloudProject(p["folder_path"], settings)
+                label = "project_manager_cloud.restore"
+            res = _verify_cloud_import_restore(pm, mutate, project_name, label)
+            return {
+                "success": res["success_raw"],
+                "verified": res["verified"],
+                "projects_before": res["projects_before"],
+                "projects_after": res["projects_after"],
+                "ignored_settings": ignored,
+            }
+    except Exception as exc:
+        return _err(f"{action} failed: {exc}")
     return _unknown(action, ["create","load","import_project","restore"])
 
 
@@ -16471,7 +17236,7 @@ def media_pool_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
       get_third_party_metadata(clip_id, key?) -> {metadata}
       set_third_party_metadata(clip_id, key, value) -> {success}
       get_media_id(clip_id) -> {media_id}
-      get_clip_property(clip_id, key?) -> {properties}
+      get_clip_property(clip_id, key?) -> {properties, cloud_sync_status?}  — cloud_sync_status is a friendly label for the "Cloud Sync" enum (present when key is '' or 'Cloud Sync')
       set_clip_property(clip_id, key, value) -> {success}
       set_clip_super_scale(clip_id, mode, sharpness?, noise_reduction?) -> {success, verified, mode, enhanced}  — Resolve 21+; mode 1=none,2/3/4=2x/3x/4x. sharpness+noise_reduction (both required together, [0.0,1.0]) select '2x Enhanced' at mode=2
       get_clip_color(clip_id) -> {color}
@@ -16656,7 +17421,14 @@ def media_pool_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
     elif action == "get_media_id":
         return {"media_id": clip.GetMediaId()}
     elif action == "get_clip_property":
-        return {"properties": _ser(clip.GetClipProperty(p.get("key", "")))}
+        key = p.get("key", "")
+        raw = _ser(clip.GetClipProperty(key))
+        result = {"properties": raw}
+        if key == "" and isinstance(raw, dict) and "Cloud Sync" in raw:
+            result["cloud_sync_status"] = cloud_sync_status_label(raw.get("Cloud Sync"))
+        elif key == "Cloud Sync":
+            result["cloud_sync_status"] = cloud_sync_status_label(raw)
+        return result
     elif action == "set_clip_property":
         ok = bool(clip.SetClipProperty(p["key"], p["value"]))
         if ok:
@@ -19965,6 +20737,17 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             except Exception:
                 pass
 
+        # NOTE (checked, intentional): ImportTimelineFromFile makes the polished
+        # timeline Resolve's CURRENT one, same mechanism Stage 3.1 (#21) found
+        # and restores-away for its trim/move/split/etc. actions. Deliberately
+        # left as-is here: `finish` looks up the built timeline by NAME via the
+        # plan and calls proj.SetCurrentTimeline(tl) itself before doing any
+        # work (see the "finish" branch above), so it never depends on current-
+        # timeline state either way — and the docstring's own next-step guidance
+        # ("review the (polished) timeline") wants it front-and-center in the
+        # Resolve UI right after this call, unlike the small composable Stage
+        # 3.1 edits where switching the user's context away is a surprise.
+
         # Media-link honesty: the polish adds media-less items (a lower-third Text+
         # and, in the reimported timeline, a cross-dissolve transition item) that
         # all read as "offline", so an offline-count diff false-positives. The
@@ -20038,6 +20821,8 @@ _TIMELINE_ACTIONS = [
     "set_track_name", "get_items", "delete_clips", "set_clips_linked", "duplicate",
     "duplicate_clips", "copy_clips", "move_clips", "copy_range", "duplicate_range",
     "overwrite_range", "lift_range", "story_spine_report", "create_variant_from_ranges",
+    "trim_clip", "move_clip", "slide_clip", "slip_clip", "split_clip",
+    "add_transition", "list_transitions", "replace_edit", "place_on_top_edit", "insert_edit",
     "bulk_set_item_properties", "apply_look_to_items", "thumbnail_contact_sheet",
     "marker_thumbnail_review", "edit_kernel_capabilities", "probe_edit_kernel_item",
     "title_property_scan", "set_title_text", "bulk_set_title_text", "create_compound_clip",
@@ -20121,6 +20906,35 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         ripple=True closes the gap left by those deleted items (shifts later clips left). It
         does NOT close a pre-existing empty gap: if no item overlaps the range, deleted=0 and
         nothing moves. (frames here are TIMELINE/record frames.)
+      trim_clip(clip_id, edge?, new_duration?|frames?, ripple?) -> {new_timeline, original_timeline}
+        DRT-SURGERY (Stage 3.1). No live TimelineItem setter exists for trim, so this exports the
+        current timeline as .drt, trims via resolve-advanced (drp-format), and imports a NEW
+        "<name> (edited)" timeline — the original is never modified. edge='tail' (default) sets
+        new_duration; edge='head' advances the source in-point by frames. requires Node.js.
+      move_clip(clip_id, to_track?, to_start?) -> {new_timeline, original_timeline}
+        DRT-SURGERY. Relocates a clip to another track and/or a new start on a NEW timeline (same
+        caveats as trim_clip). Does not ripple or collision-check neighbors.
+      slide_clip(clip_id, to_start) -> {new_timeline, original_timeline}
+        DRT-SURGERY. Repositions a clip on its OWN track (same mechanics as move_clip).
+      slip_clip(clip_id, frames) -> {new_timeline, original_timeline}
+        DRT-SURGERY. Shifts the clip's SOURCE content later by frames (position/duration on the
+        timeline unchanged). frames must be > 0 — retreating the in-point needs a vendor primitive
+        that doesn't exist yet (deferred with the clip-speed/retime follow-up).
+      split_clip(clip_id?|track_type+track_index, at_frame) -> {new_timeline, original_timeline}
+        DRT-SURGERY (razor). Splits the clip spanning at_frame into two source-continuous clips.
+      add_transition(track_index, at_frame, duration_frames?, track_type?) -> {new_timeline, original_timeline}
+        DRT-SURGERY. Places a cross-dissolve at an abutting cut. Video only; needs handle media.
+      list_transitions() -> {transitions, count}
+        Read-only. Exports the current timeline and reads back existing transitions (no reimport).
+      replace_edit(clip_id, media_pool_item_id, source_start_frame?) -> {success, new_clip_id}
+        LIVE API, in-place (no DRT surgery — position/duration don't change). Deletes the target
+        clip and appends the replacement Media Pool item at the same position/duration.
+      place_on_top_edit(media_pool_item_id, record_frame, source_end_frame, source_start_frame?, track_type?) -> {success, new_clip_id}
+        LIVE API, in-place. Adds a new top track and appends the clip there.
+      insert_edit(media_pool_item_id, record_frame, track_index, source_end_frame, source_start_frame?, track_type?) -> {new_timeline, inserted_clip_id}
+        DRT-SURGERY + LIVE API. Ripples every clip (video+audio, all tracks, keeps sync) at/after
+        record_frame later by the new clip's duration on a NEW timeline, then appends the new
+        clip into the opened gap.
       story_spine_report() -> {beats, track_summaries, source_ranges, audio_spine}
       create_variant_from_ranges(name, ranges, markers?, cdl?, dry_run?) -> {success, id, items}
         # example: action_help(name='<action_name>')
@@ -20435,6 +21249,26 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         return _timeline_copy_range_impl(proj, tl, p, overwrite=True)
     elif action == "lift_range":
         return _timeline_lift_range_impl(tl, p)
+    elif action == "trim_clip":
+        return _timeline_trim_clip_impl(proj, tl, p)
+    elif action == "move_clip":
+        return _timeline_move_clip_impl(proj, tl, p)
+    elif action == "slide_clip":
+        return _timeline_slide_clip_impl(proj, tl, p)
+    elif action == "slip_clip":
+        return _timeline_slip_clip_impl(proj, tl, p)
+    elif action == "split_clip":
+        return _timeline_split_clip_impl(proj, tl, p)
+    elif action == "add_transition":
+        return _timeline_add_transition_impl(proj, tl, p)
+    elif action == "list_transitions":
+        return _timeline_list_transitions_impl(proj, tl, p)
+    elif action == "replace_edit":
+        return _timeline_replace_edit_impl(proj, tl, p)
+    elif action == "place_on_top_edit":
+        return _timeline_place_on_top_edit_impl(proj, tl, p)
+    elif action == "insert_edit":
+        return _timeline_insert_edit_impl(proj, tl, p)
     elif action == "story_spine_report":
         return _timeline_story_spine_report(tl, p)
     elif action == "create_variant_from_ranges":

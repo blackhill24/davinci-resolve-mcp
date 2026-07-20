@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "63aec153fe1ecebe",
+      "fingerprint": "3835f05f3115d84d",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -536,7 +536,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "83209434e74c4f14",
+      "fingerprint": "ae5a255dda553615",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -606,7 +606,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "e7e1c6b953d7b0b3",
+      "fingerprint": "ebd76e3b8f58ae9c",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -620,6 +620,7 @@
         "tests/live_auto_edit_twosource_polish.py",
         "tests/live_auto_edit_validation.py",
         "tests/live_auto_sync_settings_check.py",
+        "tests/live_channel_format_probe.py",
         "tests/live_cloud_project_validation.py",
         "tests/live_color_grade_validation.py",
         "tests/live_delete_governance_check.py",

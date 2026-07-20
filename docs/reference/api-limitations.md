@@ -12,7 +12,7 @@ that none exists).
 
 **Verified on:** DaVinci Resolve Studio 21.0.0
 
-**Totals:** 19 missing capabilities, 11 bugs / unreliable behaviors.
+**Totals:** 18 missing capabilities, 11 bugs / unreliable behaviors.
 
 The authoritative source is the runtime-queryable `api_truth` ledger
 (`resolve_control api_truth "<query>"`); this document is generated from
@@ -55,14 +55,6 @@ equivalent, blocking full automation.
 - **Workaround / current handling:** Accept the limitation for titles/generators (insert lands on V1). For clips that DO have a MediaPoolItem, target a track with MediaPool.AppendToTimeline's clipInfo 'trackIndex' instead (exposed as media_pool append_to_timeline clip_infos). See issue #74.
 - **Reference:** [issue #74](https://github.com/samuelgursky/davinci-resolve-mcp/issues/74)
 - **Tags:** missing-method, timeline, title, generator, track
-
-### Per-clip audio channel-format conversion (Stereo<->Mono)
-
-- **Object:** `MediaPoolItem / TimelineItem`
-- **Behavior:** No scripting method converts an individual clip's audio channel format. ConvertTimelineToStereo is timeline-wide, and CreateStereoClip builds a 3D *visual* stereoscopic clip, not an audio mono->stereo change. The Edit-page 'Clip Attributes > Audio' channel mapping is UI-only.
-- **Workaround / current handling:** Use the supported surface: timeline add_track with audioType (create mono/stereo tracks), get_track_sub_type (query format), convert_to_stereo (timeline-wide), and timeline_item get_source_audio_channel_mapping. Per-clip conversion is not possible. See issue #73.
-- **Reference:** [issue #73](https://github.com/samuelgursky/davinci-resolve-mcp/issues/73)
-- **Tags:** missing-method, audio, channel
 
 ### Native multicam clip creation
 

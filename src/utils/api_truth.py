@@ -211,19 +211,51 @@ API_TRUTH: List[Dict[str, Any]] = [
     },
     {
         "symbol": "Per-clip audio channel-format conversion (Stereo<->Mono)",
-        "object": "MediaPoolItem / TimelineItem",
-        "reality": "No scripting method converts an individual clip's audio "
-                   "channel format. ConvertTimelineToStereo is timeline-wide, and "
+        "object": "MediaPoolItem / TimelineItem / drp MpFolder",
+        "reality": "No scripting method sets an individual clip's audio channel "
+                   "format live. ConvertTimelineToStereo is timeline-wide, and "
                    "CreateStereoClip builds a 3D *visual* stereoscopic clip, not an "
                    "audio mono->stereo change. The Edit-page 'Clip Attributes > "
-                   "Audio' channel mapping is UI-only.",
-        "recommended": "Use the supported surface: timeline add_track with audioType "
-                       "(create mono/stereo tracks), get_track_sub_type (query "
-                       "format), convert_to_stereo (timeline-wide), and "
-                       "timeline_item get_source_audio_channel_mapping. Per-clip "
-                       "conversion is not possible. See issue #73.",
-        "tags": ["missing-method", "audio", "channel"],
-        "submit": "missing",
+                   "Audio' channel mapping is UI-only. Verified live on Resolve "
+                   "Studio 21.0.2.4 (issue #22, 3.2.3): SetClipProperty('Audio Ch'|"
+                   "'Format'|'Audio Channels'|'Channels'|'Audio Format', ...) all "
+                   "return False with no change; 'Audio Ch' is a READ-ONLY property "
+                   "that reflects the format (2 for a stereo clip, 1 after a manual "
+                   "Mono override). OFFLINE, however, the override DOES round-trip "
+                   "into an exported .drp (NOT the .drt — this is a source-clip "
+                   "attribute, not a timeline property): a Stereo->Mono change in "
+                   "Clip Attributes populates the media-pool item's "
+                   "<VirtualAudioTracksBA> element in MediaPool/Master/MpFolder.xml. "
+                   "Default/source-native format serializes as empty "
+                   "(<VirtualAudioTracksBA/>) in BOTH the item's baseline and a "
+                   "no-op re-export; only an explicit override writes a populated "
+                   "blob, so the encoding is override-only. The blob is a keyed "
+                   "binary archive (same UTF-16BE keyed-dict family as FieldsBlob) "
+                   "with two keys: 'ChannelsBA' (nested source-channel -> track -> "
+                   "channel-in-track mapping) and 'AudioType' (the format enum; a "
+                   "Mono override's tail decodes to AudioType=1). One verified "
+                   "sample (stereo wav -> Mono, single Embedded Channel 1 -> Audio 1 "
+                   "Mono): <VirtualAudioTracksBA> 000000010000000100000002003000000"
+                   "00c0000000054000000010000000200000014004300680061006e006e006506"
+                   "c0073004200410000000c000000000c0000000200000001000040010000001"
+                   "20041007500640069006f0054007900700065000000020000000001. The "
+                   "per-format 'ChannelsBA' sub-layout (5.1, LCR, etc.) is NOT yet "
+                   "mapped -- only the Stereo->Mono single-sample shape is known.",
+        "recommended": "Live: not possible -- use the supported surface (timeline "
+                       "add_track with audioType, get_track_sub_type, "
+                       "convert_to_stereo (timeline-wide), timeline_item "
+                       "get_source_audio_channel_mapping). Offline: a .drp-surgery "
+                       "workaround is possible in principle (the override IS "
+                       "representable as <VirtualAudioTracksBA> via "
+                       "resolve-advanced/vendor/drp-format keyed-dict), but is NOT "
+                       "implemented -- it needs (a) mapping the 'ChannelsBA' "
+                       "sub-layout across formats via more single-variable "
+                       "export-diff samples, and (b) a full-project .drp "
+                       "export->edit->reimport path (heavier than the timeline-level "
+                       ".drt reimport used for clip volume/pan, since the attribute "
+                       "lives on the source clip, not the timeline). See issue #73.",
+        "tags": ["missing-method", "audio", "channel", "drp", "offline",
+                 "investigated-not-implemented"],
         "issue": 73,
     },
     {

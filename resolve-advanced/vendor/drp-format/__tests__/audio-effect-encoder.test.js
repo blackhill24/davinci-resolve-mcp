@@ -18,6 +18,20 @@ const {
   enableEffectFiltersFlag,
 } = require('../audio-effect-encoder');
 
+// zstd compress: native (Node 22.15+) → zstd-codec WASM fallback, matching the
+// runtime path in server/grade-body-patch.mjs. Avoids depending on
+// zlib.zstdCompressSync, which does not exist on the declared engine floor
+// (Node >=18); zlib.zstdCompressSync landed in Node 22.15.0.
+const nodeZlib = require('node:zlib');
+const HAS_NATIVE_ZSTD = typeof nodeZlib.zstdCompressSync === 'function';
+function zstdCompress(buf) {
+  if (HAS_NATIVE_ZSTD) return Promise.resolve(nodeZlib.zstdCompressSync(buf));
+  const { ZstdCodec } = require('zstd-codec');
+  return new Promise((resolve) => {
+    ZstdCodec.run((z) => resolve(Buffer.from(new z.Simple().compress(new Uint8Array(buf)))));
+  });
+}
+
 // Captured live on Resolve 21.0.2.4.
 const EFF_12DB = '000000020000001e800a1b087c4a0f085f1a0b0a091100000000000028404a004a004a004a00';
 const FB_UNITY = '000000020000000c800a070a05a80180a3057804';
@@ -65,13 +79,12 @@ test('enableEffectFiltersFlag inserts f4=1 byte-exact and is idempotent', () => 
   assert.equal(enableEffectFiltersFlag(FB_FLAGGED), FB_FLAGGED); // already flagged
 });
 
-test('enableEffectFiltersFlag handles the zstd-compressed (0x81) FieldsBlob form', () => {
+test('enableEffectFiltersFlag handles the zstd-compressed (0x81) FieldsBlob form', async () => {
   // Resolve 21 also exports FieldsBlob as 0x81 + zstd frame (seen live on
   // 21.0.2.4, #30 sweep). Build one by compressing FB_UNITY's raw protobuf;
   // the flagged result must decompress to exactly the raw-form output.
-  const zlib = require('node:zlib');
   const raw = Buffer.from(FB_UNITY, 'hex').subarray(9); // proto after hdr+0x80
-  const frame = zlib.zstdCompressSync(raw);
+  const frame = await zstdCompress(raw);
   const payload = Buffer.concat([Buffer.from([0x81]), frame]);
   const hdr = Buffer.alloc(8);
   hdr.writeUInt32BE(2, 0);

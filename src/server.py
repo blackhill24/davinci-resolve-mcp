@@ -18998,7 +18998,12 @@ def edit_engine(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
 def _auto_edit_project_context(p: Dict[str, Any], *, need_resolve: bool):
     """(resolve, proj, project_root, err) — same contract as edit_engine's."""
     analysis_root = p.get("analysis_root") or p.get("analysisRoot")
-    explicit_root = str(analysis_root) if analysis_root and os.path.isdir(str(analysis_root)) else None
+    if analysis_root and not os.path.isdir(str(analysis_root)):
+        # A typo'd root must not silently fall back to the open project's store
+        # (briefs/plans would be read from — or written to — the wrong place).
+        return None, None, None, _err(
+            f"analysis_root is not a directory: {str(analysis_root)!r}")
+    explicit_root = str(analysis_root) if analysis_root else None
     if not need_resolve and explicit_root:
         # Offline actions with an explicit evidence root never touch Resolve.
         return None, None, explicit_root, None
@@ -19177,13 +19182,18 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             probe_targets.append(path)
         if probe_targets:
             # The probes are independent; run them concurrently instead of
-            # paying one spawn+probe latency per file back to back.
-            from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=min(4, len(probe_targets))) as pool:
-                for path, (ok, why) in zip(
-                        probe_targets, pool.map(_auto_edit_ffprobe_ok, probe_targets)):
-                    if not ok:
-                        problems.append(f"unreadable media {path!r}: {why}")
+            # paying one spawn+probe latency per file back to back. Probes can
+            # take up to 30s each, and auto_edit is async — keep the wait off
+            # the event loop.
+            def _probe_all():
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=min(4, len(probe_targets))) as pool:
+                    return list(pool.map(_auto_edit_ffprobe_ok, probe_targets))
+            import anyio
+            for path, (ok, why) in zip(
+                    probe_targets, await anyio.to_thread.run_sync(_probe_all)):
+                if not ok:
+                    problems.append(f"unreadable media {path!r}: {why}")
         if problems:
             return _err("invalid brief: " + "; ".join(problems))
         mp = proj.GetMediaPool()
@@ -19595,7 +19605,14 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             [int(r.get("trackIndex", 1)) for r in built
              if int(r.get("mediaType", 1)) == 2] or [0])
         while need_audio and int(tl.GetTrackCount("audio") or 1) < need_audio:
-            tl.AddTrack("audio")
+            if not tl.AddTrack("audio"):
+                # AddTrack can refuse (locked timeline, modal open); bail rather
+                # than spin — the append below then drops the A2+ rows, which the
+                # build_errors surface makes visible.
+                build_errors.append({
+                    "error": f"AddTrack('audio') refused; need {need_audio} audio "
+                             f"tracks, have {tl.GetTrackCount('audio')}"})
+                break
         appended = mp.AppendToTimeline(built) if built else None
 
         # 4) Punch-in zoom on jump-cut segments (static transform per item).
@@ -19788,7 +19805,12 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                     out["error"] = "render job did not complete"
                 return out
 
-            render_result = _run_maybe_background("auto_edit.finish_render", p, _render_work)
+            # auto_edit is async, so the inline (non-background) render path —
+            # a poll loop that lasts the whole render — must not run on the
+            # event loop; every concurrent MCP request would stall until done.
+            import anyio
+            render_result = await anyio.to_thread.run_sync(
+                lambda: _run_maybe_background("auto_edit.finish_render", p, _render_work))
             result["render"] = render_result
             if isinstance(render_result, dict) and render_result.get("success") is False:
                 result["success"] = False

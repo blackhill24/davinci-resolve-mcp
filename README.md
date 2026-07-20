@@ -160,6 +160,60 @@ The open-source servers are complete and fully functional on their own.
 | Render and deliver | Format/codec matrix probing, render settings validation, queued job lifecycle checks, guarded Quick Export |
 | Extension authoring | Fuse, DCTL, ACES DCTL, and Resolve-page Lua/Python script lifecycle helpers with safe MCP-marked install/remove |
 
+## Capability Boundaries
+
+DaVinci Resolve's scripting API does not expose everything the UI can do. This table draws
+the three lines that matter: what the servers can drive today, what is reachable but not
+wrapped as a single tool, and what Resolve itself gives no automation path for. The full,
+behaviorally-verified gap list (and the API bugs we work around) lives in
+[api-limitations.md](docs/reference/api-limitations.md).
+
+### ✅ Supported today — coded and callable
+
+The live server covers **100% of the non-deprecated scripting API** (336/336 methods) plus
+guarded workflow helpers; the advanced server adds offline `.drp`/`.drt`/`.drx` and DB/XML
+authoring with no Resolve running. See [Core Capabilities](#core-capabilities) above for the
+per-domain breakdown.
+
+| Area | Representative supported operations |
+|------|-------------------------------------|
+| App & project | Launch/reconnect, page switching, project/folder/database CRUD, settings, presets, archives |
+| Media pool & ingest | Safe import, image sequences, bin organization, metadata normalization, relink/proxy **link** guards |
+| Timeline & conform | Track/item probing, title text read/write, range & marker ops, gap/overlap scans, checked interchange import/export |
+| Color | Node enable/label/count, CDL read/write, whole-grade copy, DRX/LUT apply, versions, Gallery stills, color groups |
+| Audio | Channel-mapping reads, voice isolation state, auto-sync planning, transcription/subtitle probes |
+| Render & deliver | Format/codec probing, render-settings validation, queued job lifecycle, guarded Quick Export |
+| Analysis (source-safe) | File/clip/bin/project analysis, sync-event detection, metadata & marker writeback, vision & transcription |
+
+### 🟡 Reachable but not wrapped — possible, not a one-call tool
+
+Achievable by composing existing tools, finishing a step in the Resolve UI, or installing an
+optional dependency — but there is no single MCP action for it.
+
+| Capability | How it is reachable | Why it isn't a tool |
+|------------|--------------------|----------------------|
+| "Render in Place" bake | Render the clip's in/out range from Deliver (`AddRenderJob` + MarkIn/MarkOut), then relink/append the result | No `Render in Place` API method; the render-cache (`set_color_cache`/`set_fusion_cache`) covers the playback-load case losslessly |
+| Native multicam clip | `media_pool.setup_multicam_timeline` preps a stacked timeline; the clip conversion is finished in the UI | Multicam-clip creation is a UI-only step — no `MediaPool` method for it |
+| Advanced offline `audio`/image paths | Install user-side tools (`ffmpeg`, `sharp`, `better-sqlite3`) — call the advanced `capabilities` tool for live status & install hints | Core is pure-JS/MIT; heavy media deps are intentionally opt-in, not bundled |
+| SRT / external-transcript import | Convert to SRT and import via the Resolve UI | `CreateSubtitlesFromAudio` only uses the built-in engine; no SRT-import API |
+
+### ⛔ Beyond the MCP — no scripting API exists (UI-only)
+
+Resolve exposes no scripting surface for these, so neither server can drive them. They must be
+done in the Resolve UI. (Verified live on Studio 21.0.0 — see
+[api-limitations.md](docs/reference/api-limitations.md) for method-level detail.)
+
+| Feature area | What has no API |
+|--------------|-----------------|
+| Timeline editing | Trim/slip/slide/roll/move a placed clip (getters only, no setters); razor/blade split; insert / overwrite / replace / fit-to-fill edit modes; source/auto track selector (destination-track patch panel) |
+| Transitions | Add, read, copy, or clone edit transitions (cross-dissolve, etc.) |
+| Retiming | Clip % speed, reverse, and speed ramps (only retime *quality* is settable) |
+| Color grading | Add/delete/connect nodes; read/write primary grade values (lift/gamma/gain/offset/contrast/curves/qualifiers/power windows) — limited to CDL, whole-grade DRX/LUT, and copy |
+| Audio / Fairlight | Clip or track volume, pan, EQ, automation, FairlightFX; per-clip stereo↔mono channel conversion |
+| Subtitles | Per-subtitle text & timing; font/color/position styling & presets; ASR engine selection |
+| Media pool | Proxy / optimized-media **generation** (only link/unlink existing proxies); Smart Bins & Power Bins; folder rename |
+| Cloud projects | Enumerate available cloud projects, export-to-cloud, add/remove collaborators (only create/load/import/restore exist) |
+
 ## Source Media Safety
 
 This project treats camera originals and source media as immutable. Analysis tools read source files and write reports only to sidecar, scratch, or project analysis directories; confirmed metadata publishing writes only to Resolve's project database. The server must not modify, transcode, proxy, or create derivatives of source media unless the user explicitly asks for that. See [Media Analysis Guide](docs/guides/media-analysis-guide.md) for the detailed source-safe workflow.

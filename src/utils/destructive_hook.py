@@ -74,12 +74,15 @@ DESTRUCTIVE_ACTIONS_BY_TOOL: Dict[str, FrozenSet[str]] = {
         "execute_swap",
     }),
     # auto_edit execute paths: build_timeline creates the timeline from the
-    # approved CutList; finish grades/subtitles/renders it. approve_cut only
+    # approved CutList; finish grades/subtitles/renders it; polish_timeline
+    # imports a NEW "(polished)" timeline via the drt round-trip — a project
+    # mutation like build_timeline, so it versions too. approve_cut only
     # records the checkpoint decision (plan JSON, no timeline mutation) so it
     # stays confirm-token gated without version-on-mutate.
     "auto_edit": frozenset({
         "build_timeline",
         "finish",
+        "polish_timeline",
     }),
     "timeline": frozenset({
         "delete_clips",
@@ -642,11 +645,16 @@ def destructive_op(tool_name: str) -> Callable[[Callable[..., Any]], Callable[..
         if inspect.iscoroutinefunction(fn):
             @functools.wraps(fn)
             async def wrapper(action: str, params: Optional[Dict[str, Any]] = None, *args, **kwargs) -> Any:
+                import anyio
                 call = _MutationHookCall(tool_name, action, params)
-                call.pre()
+                # pre()/post() do blocking work (Resolve calls, timeline archive
+                # export, prefs I/O); async tools run on the event loop, so keep
+                # the hook off it — a slow archive must not stall the server.
+                await anyio.to_thread.run_sync(call.pre)
                 if call.refusal is not None:
                     return call.refusal
-                return call.post(await fn(action, params, *args, **kwargs))
+                result = await fn(action, params, *args, **kwargs)
+                return await anyio.to_thread.run_sync(call.post, result)
         else:
             @functools.wraps(fn)
             def wrapper(action: str, params: Optional[Dict[str, Any]] = None, *args, **kwargs) -> Any:

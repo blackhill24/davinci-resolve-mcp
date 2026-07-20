@@ -275,7 +275,45 @@ CUT_LIST_KIND = "auto_edit_cut"
 #   montage_hook — the opening attention shot before the beat grid kicks in
 MONTAGE_SEGMENT_ROLES = {"montage", "montage_hook"}
 SEGMENT_ROLES = {"intro", "speech", "broll", "outro"} | MONTAGE_SEGMENT_ROLES
-DUCKING_MODES = {"none", "static", "rendered_bed"}
+
+# ── Ducking mode ladder ──────────────────────────────────────────────────────
+#
+# The value a plan's ``music.ducking.mode`` may hold, weakest→strongest. The mode
+# is the single source of truth for HOW the bed sits under dialogue; the executor
+# and reporting read it, so the strings live here (the schema layer), not
+# scattered as literals. music_analysis re-exports them for its callers.
+#
+#   static        — no consent given: one flat bed level, no ducking. (Phase 1)
+#   rendered_bed   — Tier 1, consent-gated: an ffmpeg-rendered DERIVATIVE bed,
+#                    gain-staged + faded + trimmed. The supported ducking path
+#                    today (issue #7). (Phase 1)
+#   drt_automation — Tier 2: the bed gain written straight into the exported .drt
+#                    as the music clip's volume level, no derivative media and no
+#                    consent needed (nothing is rendered). The encoding was
+#                    reverse-engineered + verified live on Resolve 21.0.2.4 and is
+#                    authored by resolve-advanced drp-format `set_audio_level`
+#                    (issue #14). Applied during polish_timeline's drt round-trip.
+#   xmeml_keyframes — Tier 3 fallback, RESERVED: xmeml "Audio Levels" keyframes —
+#                    no longer needed now the drt route works (issue #14).
+DUCKING_STATIC = "static"
+DUCKING_RENDERED_BED = "rendered_bed"
+DUCKING_DRT_AUTOMATION = "drt_automation"
+DUCKING_XMEML_KEYFRAMES = "xmeml_keyframes"
+
+# Modes a code path can actually PRODUCE today. xmeml_keyframes stays out of this
+# set (never implemented — the drt route made it unnecessary) so a stray
+# assignment can't silently claim an unproven tier.
+DUCKING_MODES_IMPLEMENTED = frozenset({
+    DUCKING_STATIC, DUCKING_RENDERED_BED, DUCKING_DRT_AUTOMATION,
+})
+DUCKING_MODES_ALL = frozenset({
+    DUCKING_STATIC, DUCKING_RENDERED_BED, DUCKING_DRT_AUTOMATION,
+    DUCKING_XMEML_KEYFRAMES,
+})
+
+# What validate_cut_list accepts: "none" (no bed at all) plus every producible
+# mode — derived, so a new tier can never brick revise-after-approve again.
+DUCKING_MODES = frozenset({"none"}) | DUCKING_MODES_IMPLEMENTED
 
 
 def make_cut_list_segment(

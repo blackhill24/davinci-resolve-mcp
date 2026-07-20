@@ -27,10 +27,22 @@ const {
 } = require('./audio-effect-encoder');
 
 // Audio clip <Element> blocks within a track's <Items> (excludes video clips).
+const AUDIO_CLIP_PATTERN =
+  '<Element>\\s*<Sm2TiAudioClip\\b[\\s\\S]*?<\\/Sm2TiAudioClip>\\s*<\\/Element>';
+
 function splitAudioClips(itemsInner) {
-  return itemsInner.match(
-    /<Element>\s*<Sm2TiAudioClip\b[\s\S]*?<\/Sm2TiAudioClip>\s*<\/Element>/g,
-  ) || [];
+  return itemsInner.match(new RegExp(AUDIO_CLIP_PATTERN, 'g')) || [];
+}
+
+// Audio clip blocks with their byte offsets, so a patch can splice by position
+// instead of String.replace (which expands `$` patterns in the replacement and
+// always hits the FIRST occurrence — wrong clip when two elements are identical).
+function matchAudioClips(itemsInner) {
+  const re = new RegExp(AUDIO_CLIP_PATTERN, 'g');
+  const out = [];
+  let m;
+  while ((m = re.exec(itemsInner)) !== null) out.push({ xml: m[0], at: m.index });
+  return out;
 }
 
 // Replace the clip's own (first) <FieldsBlob> and its <EffectFiltersBA>. Both are
@@ -50,7 +62,8 @@ function applyToClip(clipXml, volumeDb) {
   } else {
     throw new Error('set-audio-level: target audio clip has no <EffectFiltersBA> element');
   }
-  return out;
+  // Hand the encoded blob back so the caller reports the exact bytes written.
+  return { xml: out, effHex };
 }
 
 /**
@@ -85,16 +98,16 @@ async function setAudioLevel(drtInput, opts = {}) {
   }
 
   const items = getItemsInner(tracks[track - 1]);
-  const clips = splitAudioClips(items);
+  const clips = matchAudioClips(items);
   if (clipIndex >= clips.length) {
     throw new Error(
       `setAudioLevel: clip index ${clipIndex} out of range on audio track ${track} ` +
       `(${clips.length} clip(s))`,
     );
   }
-  const target = clips[clipIndex];
-  const patched = applyToClip(target, volumeDb);
-  const newItems = items.replace(target, patched);
+  const { xml: target, at } = clips[clipIndex];
+  const { xml: patched, effHex } = applyToClip(target, volumeDb);
+  const newItems = items.slice(0, at) + patched + items.slice(at + target.length);
   tracks[track - 1] = setItemsInner(tracks[track - 1], newItems);
 
   const xml = replaceTrackVec(seqXml, 'audio', vec, tracks);
@@ -107,7 +120,7 @@ async function setAudioLevel(drtInput, opts = {}) {
     track,
     clipIndex,
     volumeDb,
-    effectFiltersHex: encodeAudioVolumeEffectFiltersBA(volumeDb),
+    effectFiltersHex: effHex,
   };
 }
 

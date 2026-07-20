@@ -606,6 +606,10 @@ def apply_revision(
     segments = list(plan.get("segments") or [])
     removed = list(plan.get("removed") or [])
     titles = list(plan.get("titles") or [])
+    # Positional snapshot so overlays can follow their segment through the
+    # edits below — the ops move the same dicts around, so identity survives
+    # drop→keep round-trips within this call.
+    original_segments = list(segments)
     # Drop indices are quoted against the plan as displayed. Applying drops
     # high→low makes displayed indices land on the right segments regardless of
     # listed order (and leaves repeated-index drops chaining as before). Once a
@@ -681,6 +685,20 @@ def apply_revision(
     if not segments:
         return {"success": False, "error": "revision would leave no segments"}
 
+    # Re-point overlays at their segment's new index; an overlay whose covered
+    # segment was dropped goes with it (otherwise it would silently cover
+    # whichever segment shifted into the old slot).
+    overlays = []
+    for overlay in list(plan.get("overlays") or []):
+        idx = overlay.get("over_segment_index")
+        if isinstance(idx, int) and 0 <= idx < len(original_segments):
+            target = original_segments[idx]
+            new_idx = next((j for j, s in enumerate(segments) if s is target), None)
+            if new_idx is None:
+                continue
+            overlay = dict(overlay, over_segment_index=new_idx)
+        overlays.append(overlay)
+
     revised = dict(plan)
     revised.pop("plan_id", None)
     revised.pop("fingerprint", None)
@@ -688,6 +706,7 @@ def apply_revision(
     revised.pop("approved_at", None)
     revised.update({
         "segments": segments, "removed": removed, "titles": titles,
+        "overlays": overlays,
         "revision": int(plan.get("revision") or 0) + 1,
         "revision_notes": notes,
         "revised_from": plan_id,

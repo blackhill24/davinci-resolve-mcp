@@ -8,6 +8,7 @@ than re-applied at every call site.
 """
 import os
 import re
+import stat
 import subprocess
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple
@@ -160,11 +161,27 @@ def resolve_spawn_env(
     conf = _ALSA_CONF_TEMPLATE.format(
         p_card=playback[0], p_dev=playback[1], c_card=capture[0], c_dev=capture[1]
     )
-    conf_path = os.path.join(
-        conf_dir or tempfile.gettempdir(), f"drm-resolve-alsa-{os.getuid()}.conf"
-    )
+    # ALSA configs can load plugin libraries, so the file must not be writable
+    # or plantable by another user: keep it in a per-user 0700 dir (not bare
+    # /tmp, where the predictable name could be pre-created), and refuse to
+    # follow a symlink at the final open.
+    if conf_dir is None:
+        conf_dir = os.path.join(tempfile.gettempdir(), f"drm-resolve-{os.getuid()}")
+        try:
+            os.makedirs(conf_dir, mode=0o700, exist_ok=True)
+            st = os.lstat(conf_dir)
+            if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid():
+                return env
+        except OSError:
+            return env
+    conf_path = os.path.join(conf_dir, f"drm-resolve-alsa-{os.getuid()}.conf")
     try:
-        with open(conf_path, "w", encoding="utf-8") as fh:
+        fd = os.open(
+            conf_path,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(conf)
     except OSError:
         return env
@@ -173,16 +190,24 @@ def resolve_spawn_env(
 
 
 def safe_run(*args: Any, **kwargs: Any) -> "subprocess.CompletedProcess":
-    """subprocess.run with stdin defaulted to DEVNULL (override by passing stdin).
+    """subprocess.run with stdin defaulted to DEVNULL and env sanitized.
 
-    If ``input`` is given, stdin is left alone — subprocess forbids passing both.
+    stdin can be overridden by passing it explicitly; if ``input`` is given,
+    stdin is left alone — subprocess forbids passing both. ``env`` defaults to
+    :func:`sanitized_spawn_env` so no caller inherits the session's crashy
+    LD_PRELOAD by forgetting the kwarg (pass ``env`` explicitly to override).
     """
     if "input" not in kwargs:
         kwargs.setdefault("stdin", subprocess.DEVNULL)
+    if kwargs.get("env") is None:
+        kwargs["env"] = sanitized_spawn_env()
     return subprocess.run(*args, **kwargs)
 
 
 def safe_popen(*args: Any, **kwargs: Any) -> "subprocess.Popen":
-    """subprocess.Popen with stdin defaulted to DEVNULL (override by passing stdin)."""
+    """subprocess.Popen with stdin defaulted to DEVNULL and env sanitized
+    (see :func:`safe_run`); override either by passing it explicitly."""
     kwargs.setdefault("stdin", subprocess.DEVNULL)
+    if kwargs.get("env") is None:
+        kwargs["env"] = sanitized_spawn_env()
     return subprocess.Popen(*args, **kwargs)

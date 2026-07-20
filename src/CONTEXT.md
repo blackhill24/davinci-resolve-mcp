@@ -31,6 +31,9 @@ Python MCP that drives a **running** DaVinci Resolve via its scripting API.
 - Follow existing action-dispatch + helper patterns; never invent ad hoc temp paths for
   files Resolve writes — use the repo's safe path helpers.
 - Source-media safety in `AGENTS.md` is non-negotiable and applies to every tool here.
+- Resolve's render queue REFUSES the system temp dir (`AddRenderJob` silently returns
+  falsy) — render to a real media dir (e.g. `~/Videos`). `render build_proxies` defaults
+  `require_temp_target=False` for this reason. ExportAudio=False dodges the headless stall.
 
 > Upkeep: when files here change (add/remove/rename), fix the table + key files above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root. Content-only

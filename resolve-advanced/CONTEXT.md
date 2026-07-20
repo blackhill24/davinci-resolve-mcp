@@ -28,6 +28,11 @@ DB/XML edits with **no Resolve running**. Also usable as a library (`server/lib.
 - Two `bin` entrypoints ship from one npm package (`bin/*.mjs` at repo root); this server is
   `davinci-resolve-advanced-mcp.mjs`.
 - File tools never touch a running Resolve — that separation is the point; keep it.
+- Bridge scripts: stdout is a ONE-JSON contract. Never `console.log` to stdout from a codec
+  (corrupts it + MCP stdio) — `drp-bridge` routes console.log→stderr; Python side decodes
+  UTF-8 (codec progress logs a `→`). `drp-bridge` dispatches `drp`/`drt`/`drx`.
+- `npm test` fails on Node 24 (bare-dir args to `node --test` rejected); run per-glob:
+  `node --test "test/*.test.mjs" "vendor/*/__tests__/*.test.js"`.
 
 > Upkeep: when files here change (add/remove/rename), fix the table + key files above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root. Content-only

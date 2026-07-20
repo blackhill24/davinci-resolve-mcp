@@ -1619,7 +1619,7 @@ def generate_speech(text_input: str, voice_model: str = "", timecode: str = "",
     pm, current_project = get_current_project()
     if not current_project:
         return {"error": "No project currently open"}
-    if not hasattr(current_project, "GenerateSpeech"):
+    if not _has_method(current_project, "GenerateSpeech"):
         return {"error": "GenerateSpeech requires DaVinci Resolve 21+ and the AI Speech Generator Extra"}
     if not text_input:
         return {"error": "text_input is required"}
@@ -1646,3 +1646,32 @@ def generate_speech(text_input: str, voice_model: str = "", timecode: str = "",
     if not new_item:
         return {"success": False, "error": "GenerateSpeech returned no media item"}
     return {"success": True, "new": new_item.GetName(), "new_id": new_item.GetUniqueId()}
+
+
+@mcp.tool()
+def set_super_scale(mode: int, sharpness: Optional[float] = None,
+                     noise_reduction: Optional[float] = None) -> Dict[str, Any]:
+    """Set the project's Super Scale setting, including the 4-arg '2x Enhanced' form (Resolve 21+).
+
+    Args:
+        mode: 0=Auto, 1=no scaling, 2=2x, 3=3x, 4=4x.
+        sharpness: 2x Enhanced only — float in [0.0, 1.0]. Must be given together with
+            noise_reduction; per the API, omitting either falls back to plain 2x.
+        noise_reduction: 2x Enhanced only — float in [0.0, 1.0].
+    """
+    pm, current_project = get_current_project()
+    if not current_project:
+        return {"error": "No project currently open"}
+    if mode not in (0, 1, 2, 3, 4):
+        return {"error": "mode must be 0 (Auto), 1 (no scaling), 2 (2x), 3 (3x), or 4 (4x)"}
+    if (sharpness is None) != (noise_reduction is None):
+        return {"error": "sharpness and noise_reduction must be provided together"}
+    if sharpness is not None:
+        if mode != 2:
+            return {"error": "sharpness/noise_reduction (2x Enhanced) only apply to mode=2"}
+        if not (0.0 <= sharpness <= 1.0) or not (0.0 <= noise_reduction <= 1.0):
+            return {"error": "sharpness and noise_reduction must be in [0.0, 1.0]"}
+        result = current_project.SetSetting("superScale", mode, sharpness, noise_reduction)
+    else:
+        result = current_project.SetSetting("superScale", mode)
+    return {"success": bool(result), "mode": mode, "enhanced": sharpness is not None}

@@ -614,6 +614,39 @@ def set_clip_property(clip_id: str, property_name: str, property_value: str) -> 
 
 
 @mcp.tool()
+def set_clip_super_scale(clip_id: str, mode: int, sharpness: Optional[float] = None,
+                          noise_reduction: Optional[float] = None) -> Dict[str, Any]:
+    """Set a clip's Super Scale property, including the 4-arg '2x Enhanced' form (Resolve 21+).
+
+    Args:
+        clip_id: Unique ID of the clip.
+        mode: 1=no scaling, 2=2x, 3=3x, 4=4x.
+        sharpness: 2x Enhanced only — float in [0.0, 1.0]. Must be given together with
+            noise_reduction; per the API, omitting either falls back to plain 2x.
+        noise_reduction: 2x Enhanced only — float in [0.0, 1.0].
+    """
+    _, mp, err = _get_mp()
+    if err:
+        return err
+    clip = _find_clip_by_id(mp.GetRootFolder(), clip_id)
+    if not clip:
+        return {"error": f"Clip {clip_id} not found"}
+    if mode not in (1, 2, 3, 4):
+        return {"error": "mode must be 1 (no scaling), 2 (2x), 3 (3x), or 4 (4x)"}
+    if (sharpness is None) != (noise_reduction is None):
+        return {"error": "sharpness and noise_reduction must be provided together"}
+    if sharpness is not None:
+        if mode != 2:
+            return {"error": "sharpness/noise_reduction (2x Enhanced) only apply to mode=2"}
+        if not (0.0 <= sharpness <= 1.0) or not (0.0 <= noise_reduction <= 1.0):
+            return {"error": "sharpness and noise_reduction must be in [0.0, 1.0]"}
+        result = clip.SetClipProperty("Super Scale", mode, sharpness, noise_reduction)
+    else:
+        result = clip.SetClipProperty("Super Scale", mode)
+    return {"success": bool(result), "mode": mode, "enhanced": sharpness is not None}
+
+
+@mcp.tool()
 def get_clip_property(clip_id: str, property_name: str = "") -> Dict[str, Any]:
     """Get a property of a Media Pool clip.
 
@@ -918,7 +951,7 @@ def perform_clip_audio_classification(clip_id: str) -> Dict[str, Any]:
     clip = _find_clip_by_id(mp.GetRootFolder(), clip_id)
     if not clip:
         return {"error": f"Clip {clip_id} not found"}
-    if not hasattr(clip, "PerformAudioClassification"):
+    if not _has_method(clip, "PerformAudioClassification"):
         return {"error": "PerformAudioClassification requires DaVinci Resolve 21+"}
     return {"success": bool(clip.PerformAudioClassification())}
 
@@ -936,7 +969,7 @@ def clear_clip_audio_classification(clip_id: str) -> Dict[str, Any]:
     clip = _find_clip_by_id(mp.GetRootFolder(), clip_id)
     if not clip:
         return {"error": f"Clip {clip_id} not found"}
-    if not hasattr(clip, "ClearAudioClassification"):
+    if not _has_method(clip, "ClearAudioClassification"):
         return {"error": "ClearAudioClassification requires DaVinci Resolve 21+"}
     return {"success": bool(clip.ClearAudioClassification())}
 
@@ -956,7 +989,7 @@ def analyze_clip_for_intellisearch(clip_id: str, identify_faces: bool = False, i
     clip = _find_clip_by_id(mp.GetRootFolder(), clip_id)
     if not clip:
         return {"error": f"Clip {clip_id} not found"}
-    if not hasattr(clip, "AnalyzeForIntellisearch"):
+    if not _has_method(clip, "AnalyzeForIntellisearch"):
         return {"error": "AnalyzeForIntellisearch requires DaVinci Resolve 21+"}
     return {"success": bool(clip.AnalyzeForIntellisearch(bool(identify_faces), bool(is_better_mode)))}
 
@@ -976,7 +1009,7 @@ def analyze_clip_for_slate(clip_id: str, marker_color: str = "Blue") -> Dict[str
     clip = _find_clip_by_id(mp.GetRootFolder(), clip_id)
     if not clip:
         return {"error": f"Clip {clip_id} not found"}
-    if not hasattr(clip, "AnalyzeForSlate"):
+    if not _has_method(clip, "AnalyzeForSlate"):
         return {"error": "AnalyzeForSlate requires DaVinci Resolve 21+"}
     if marker_color not in _MARKER_COLORS:
         return {"error": f"Invalid marker_color '{marker_color}'. Valid: {', '.join(_MARKER_COLORS)}"}
@@ -1000,7 +1033,7 @@ def remove_clip_motion_blur(clip_id: str, deblur_option: Optional[Dict[str, Any]
     clip = _find_clip_by_id(mp.GetRootFolder(), clip_id)
     if not clip:
         return {"error": f"Clip {clip_id} not found"}
-    if not hasattr(clip, "RemoveMotionBlur"):
+    if not _has_method(clip, "RemoveMotionBlur"):
         return {"error": "RemoveMotionBlur requires DaVinci Resolve 21+"}
     new_clip = clip.RemoveMotionBlur(deblur_option or {})
     if not new_clip:

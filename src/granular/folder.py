@@ -325,7 +325,7 @@ def folder_perform_audio_classification(folder_path: str = "") -> Dict[str, Any]
     folder, err = _resolve_folder(mp, folder_path)
     if err:
         return err
-    if not hasattr(folder, "PerformAudioClassification"):
+    if not _has_method(folder, "PerformAudioClassification"):
         return {"error": "PerformAudioClassification requires DaVinci Resolve 21+"}
     return {"success": bool(folder.PerformAudioClassification())}
 
@@ -343,7 +343,7 @@ def folder_clear_audio_classification(folder_path: str = "") -> Dict[str, Any]:
     folder, err = _resolve_folder(mp, folder_path)
     if err:
         return err
-    if not hasattr(folder, "ClearAudioClassification"):
+    if not _has_method(folder, "ClearAudioClassification"):
         return {"error": "ClearAudioClassification requires DaVinci Resolve 21+"}
     return {"success": bool(folder.ClearAudioClassification())}
 
@@ -363,7 +363,7 @@ def folder_analyze_for_intellisearch(folder_path: str = "", identify_faces: bool
     folder, err = _resolve_folder(mp, folder_path)
     if err:
         return err
-    if not hasattr(folder, "AnalyzeForIntellisearch"):
+    if not _has_method(folder, "AnalyzeForIntellisearch"):
         return {"error": "AnalyzeForIntellisearch requires DaVinci Resolve 21+"}
     return {"success": bool(folder.AnalyzeForIntellisearch(bool(identify_faces), bool(is_better_mode)))}
 
@@ -383,7 +383,7 @@ def folder_analyze_for_slate(folder_path: str = "", marker_color: str = "Blue") 
     folder, err = _resolve_folder(mp, folder_path)
     if err:
         return err
-    if not hasattr(folder, "AnalyzeForSlate"):
+    if not _has_method(folder, "AnalyzeForSlate"):
         return {"error": "AnalyzeForSlate requires DaVinci Resolve 21+"}
     if marker_color not in _MARKER_COLORS:
         return {"error": f"Invalid marker_color '{marker_color}'. Valid: {', '.join(_MARKER_COLORS)}"}
@@ -407,7 +407,7 @@ def folder_remove_motion_blur(folder_path: str = "", deblur_option: Optional[Dic
     folder, err = _resolve_folder(mp, folder_path)
     if err:
         return err
-    if not hasattr(folder, "RemoveMotionBlur"):
+    if not _has_method(folder, "RemoveMotionBlur"):
         return {"error": "RemoveMotionBlur requires DaVinci Resolve 21+"}
     result = folder.RemoveMotionBlur(deblur_option or {})
     created = []

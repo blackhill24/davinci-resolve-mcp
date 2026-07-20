@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "88a455fd91192aa9",
+      "fingerprint": "3a839d85c6d6dca5",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -607,7 +607,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "72db4b3da1e961d2",
+      "fingerprint": "354a4592b4176689",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",

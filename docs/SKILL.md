@@ -1629,16 +1629,15 @@ user to open it via Workspace menu if export fails.
 
 **Python version** — the only hard requirement is Python **3.10+** (the MCP SDK
 floor). There is no upper cap: 3.13/3.14 are accepted, and Python 3.14 is verified
-working against Resolve Studio 20.3.2. On *older* Resolve builds the scripting
+working against Resolve Studio 21.0.2.4. On *older* Resolve builds the scripting
 bridge may still fail to load on 3.13+ (`scriptapp("Resolve")` returns `None`);
 `setup`/`doctor` warn on 3.13+ and their connection check surfaces a real failure.
 If that happens, recreate the venv with Python 3.10–3.12 (the lowest-risk range).
 The running server only warns on 3.13+ rather than exiting.
 
-**Resolve version guards** — Resolve 20-specific actions return a clear
-`requires DaVinci Resolve 20.x+` error when called against older builds. Resolve
-19.1.3 remains the compatibility baseline; Resolve 20 additions were live-tested
-on Resolve Studio 20.3.2.
+**Resolve baseline** — Resolve 21.0 Studio is the sole supported baseline; there
+is no backward compatibility and pre-21 version guards have been removed. The
+live surface was re-validated on Resolve Studio 21.0.2.4 (Linux).
 
 **Source media integrity** — Do not transcode, convert, create proxies, or write
 derivatives of source media unless the user explicitly asks. Analysis and tests
@@ -1718,10 +1717,12 @@ timeline(action="get_items", params={"track_type": "video", "index": 1})
 
 ## API Coverage
 
-All 336 non-deprecated methods of the DaVinci Resolve Scripting API are covered.
-331 methods have been live-tested across Resolve 19.1.3 Studio and Resolve
-20.3.2 Studio. Five methods require infrastructure not available in typical
-setups:
+All 348 non-deprecated methods of the DaVinci Resolve Scripting API are covered
+(recount via `scripts/audit_api_parity.py --count`). 331 methods have been
+live-tested — originally across Resolve 19.1.3 / 20.3.2 Studio and re-validated
+on Resolve 21.0.2.4 Studio (Linux) with no regressions. The 12 Resolve 21 delta
+methods are exposed and await dedicated live validation in Stage 2. Five other
+methods require infrastructure not available in typical setups:
 
 | Method | Requires |
 |---|---|

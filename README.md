@@ -5,8 +5,8 @@
 [![API Coverage](https://img.shields.io/badge/API%20Coverage-100%25-brightgreen.svg)](docs/reference/api-coverage.md)
 [![Tools](https://img.shields.io/badge/MCP%20Tools-34%20(341%20full)-blue.svg)](#server-modes)
 [![Advanced](https://img.shields.io/badge/Advanced%20(offline)-18%20tools-blueviolet.svg)](#server-modes)
-[![Tested](https://img.shields.io/badge/Live%20Tested-98.5%25-green.svg)](docs/reference/api-coverage.md#test-results)
-[![DaVinci Resolve](https://img.shields.io/badge/DaVinci%20Resolve-18.5+-darkred.svg)](https://www.blackmagicdesign.com/products/davinciresolve)
+[![Tested](https://img.shields.io/badge/Live%20Tested-95.1%25-green.svg)](docs/reference/api-coverage.md#test-results)
+[![DaVinci Resolve](https://img.shields.io/badge/DaVinci%20Resolve-21.0+-darkred.svg)](https://www.blackmagicdesign.com/products/davinciresolve)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
@@ -170,7 +170,7 @@ behaviorally-verified gap list (and the API bugs we work around) lives in
 
 ### ✅ Supported today — coded and callable
 
-The live server covers **100% of the non-deprecated scripting API** (336/336 methods) plus
+The live server covers **100% of the non-deprecated scripting API** (348/348 methods) plus
 guarded workflow helpers; the advanced server adds offline `.drp`/`.drt`/`.drx` and DB/XML
 authoring with no Resolve running. See [Core Capabilities](#core-capabilities) above for the
 per-domain breakdown.
@@ -229,10 +229,10 @@ The default server is a local stdio process launched by your MCP client; it does
 | MCP Tools | **35** compound / **341** granular (live server) |
 | Advanced (offline) tools | **18** — .drp/.drt/.drx + DB authoring, no Resolve running |
 | Kernel Actions | **155** guarded workflow actions across 10 compound tools |
-| API Methods Covered | **336/336** (100%) |
-| Methods Live Tested | **331/336** (98.5%) |
+| API Methods Covered | **348/348** (100%) |
+| Methods Live Tested | **331/348** (95.1%) |
 | Live Test Pass Rate | **331/331** (100%) |
-| Tested Against | DaVinci Resolve 19.1.3 Studio + Resolve 20.3.2 Studio |
+| Tested Against | DaVinci Resolve 21.0.2.4 Studio (Linux) |
 
 For method-by-method status, see [API Coverage and Test Results](docs/reference/api-coverage.md). For current workflow support, see [Kernel Action Coverage](docs/kernels/README.md).
 
@@ -260,11 +260,11 @@ Extension authoring references live in [docs/authoring](docs/authoring/). Resolv
 
 ## Requirements
 
-- DaVinci Resolve Studio 18.5+ on macOS, Windows, or Linux. The free edition does not support external scripting.
-- Python 3.10+ (3.10-3.12 is the lowest-risk range). Python 3.13/3.14 also work on recent Resolve builds (verified on Studio 20.3.2); older builds may fail to connect on 3.13+, in which case use 3.10-3.12.
+- DaVinci Resolve Studio 21.0+ on macOS, Windows, or Linux. The free edition does not support external scripting.
+- Python 3.10+ (3.10-3.12 is the lowest-risk range). Python 3.13/3.14 also work on recent Resolve builds (verified on Studio 21.0.2.4); older builds may fail to connect on 3.13+, in which case use 3.10-3.12.
 - Resolve external scripting set to **Local**.
 
-Resolve 19.1.3 remains the compatibility baseline. Resolve 20.x scripting calls are additive, version-guarded, and live-tested on 20.3.2. Resolve 21.0 scripting additions (audio classification, speaker-detection transcription, IntelliSearch, slate analysis, motion-deblur, speech generation, session background-task control) are exposed behind runtime capability detection, so they stay inert on older builds and activate automatically on Resolve 21+.
+DaVinci Resolve 21.0 Studio is the sole supported baseline — there is no backward compatibility, and pre-21 version guards have been removed. Resolve 21.0 scripting additions (audio classification, speaker-detection transcription, IntelliSearch, slate analysis, motion-deblur, speech generation, session background-task control) are covered; their dedicated live validation lands in Stage 2 of the API-control epic.
 
 ## Development
 

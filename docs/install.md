@@ -10,14 +10,14 @@ This guide covers Resolve requirements, the universal installer, supported MCP c
 - DaVinci Resolve running with **Preferences > General > "External scripting using"** set to **Local**
 
 > **Python 3.13 / 3.14:** these are **allowed** — setup will use them and warn.
-> Python 3.14 is verified working against DaVinci Resolve Studio 20.3.2. On
+> Python 3.14 is verified working against DaVinci Resolve Studio 21.0.2.4. On
 > *older* Resolve builds the scripting bridge may fail to load on 3.13+
 > (`scriptapp("Resolve")` returns `None`); setup's connection check will tell you
 > if that happens. If it does, install a 3.10–3.12 interpreter
 > (`brew install python@3.12`, `pyenv install 3.12`, or python.org on Windows) and
 > point the launcher at it with `DAVINCI_RESOLVE_MCP_PYTHON=/path/to/python3.12`.
 
-Validated live coverage is based on **DaVinci Resolve 19.1.3 Studio** for the original API surface, plus **DaVinci Resolve 20.3.2 Studio** for the Resolve 20.0-20.2.2 scripting additions. Resolve 21 beta APIs are intentionally deferred until a stable release.
+Validated live coverage targets **DaVinci Resolve 21.0.2.4 Studio (Linux)**, the sole supported baseline — no backward compatibility. The method-by-method surface was originally live-tested on Resolve 19.1.3 / 20.3.2 Studio and re-validated on 21.0.2.4; the 12 Resolve 21 delta methods are exposed and await dedicated live validation in Stage 2.
 
 ## Quick Start
 

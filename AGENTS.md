@@ -99,7 +99,7 @@ venv/bin/python scripts/audit_api_parity.py
 
 Python 3.10+ is required (the MCP SDK floor). 3.10-3.12 is the lowest-risk range
 for Resolve scripting; 3.13/3.14 are accepted and verified on Resolve Studio
-20.3.2, but older Resolve builds may fail to connect on 3.13+.
+21.0.2.4, but older Resolve builds may fail to connect on 3.13+.
 
 ## Development Notes
 

@@ -10,20 +10,19 @@ echo "========================================================"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
-# Check if DaVinci Resolve is running
-check_resolve_running() {
-    ps -ef | grep -i "[D]aVinci Resolve" > /dev/null
-    return $?
-}
+# Preflight: report Resolve state (closed / open_no_project / open_project)
+# before anything runs, so failures downstream aren't mystery NOT_CONNECTED.
+PYTHON_BIN="${PYTHON_BIN:-$SCRIPT_DIR/../.venv/bin/python}"
+[ -x "$PYTHON_BIN" ] || PYTHON_BIN=python3
 
-if ! check_resolve_running; then
-    echo "⚠️ DaVinci Resolve is not running. Please start it before continuing."
+if ! "$PYTHON_BIN" "$SCRIPT_DIR/preflight.py"; then
+    echo "⚠️ Resolve is not ready (see preflight output above)."
     read -p "Start testing anyway? (y/n): " continue_anyway
     if [[ "$continue_anyway" != "y" ]]; then
         echo "Aborting test."
         exit 1
     fi
-    echo "Continuing with testing despite DaVinci Resolve not running..."
+    echo "Continuing with testing despite Resolve not being ready..."
 fi
 
 # Step 1: Restart the server using the restart script

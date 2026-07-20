@@ -138,4 +138,6 @@ def main():
 
 
 if __name__ == "__main__":
+    from preflight import gate
+    gate("project")
     main()

@@ -895,7 +895,12 @@ def get_resolve():
         # Try to connect to an already-running Resolve.
         if _try_connect():
             return resolve
-        # Not running — launch it automatically.
+        # Not running — launch it automatically unless the caller opted out
+        # (test harnesses set DAVINCI_MCP_NO_AUTOLAUNCH=1 to fail fast with
+        # NOT_CONNECTED instead of blocking up to 60s on a Resolve launch).
+        if os.environ.get("DAVINCI_MCP_NO_AUTOLAUNCH"):
+            logger.info("Resolve not running; auto-launch disabled by DAVINCI_MCP_NO_AUTOLAUNCH")
+            return None
         logger.info("Resolve not running, attempting to launch automatically...")
         _launch_resolve()
         return resolve

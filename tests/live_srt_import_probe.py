@@ -338,6 +338,8 @@ def main() -> int:
     if phase == "author":
         return phase_author(sys.argv[2], sys.argv[3])
     if phase == "import":
+        from preflight import gate  # oracle/author phases are offline — only gate here
+        gate("project")
         return phase_import(sys.argv[2])
     print(f"unknown phase {phase!r} (oracle|author|import)")
     return 1

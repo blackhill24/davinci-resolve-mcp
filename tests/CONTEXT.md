@@ -24,12 +24,16 @@
 
 - `_error_envelope_helpers.py` — shared assertions for the action-dispatch error envelope;
   reuse when asserting tool responses.
-- `test-after-restart.sh` / `.bat` — post-restart validation harness.
+- `preflight.py` — pre-run Resolve status gate (closed / open_no_project / open_project);
+  `--require open|project|timeline`, `--json`; exit 0 ready, 2 not ready, 3 no scripting.
+  Every `live_*` `__main__` calls `gate()` — new live harnesses must too.
+- `test-after-restart.sh` / `.bat` — post-restart validation harness (`.sh` calls preflight).
 
 ## Conventions & gotchas
 
 - `live_*` tests are excluded from offline CI — they connect to a real Resolve; follow the
-  live-validation guidance in `docs/process/release-process.md`.
+  live-validation guidance in `docs/process/release-process.md`. Harness `gate()` calls
+  set `DAVINCI_MCP_NO_AUTOLAUNCH=1` so a closed Resolve fails fast, not launches.
 - For Resolve-behavior changes, update focused tests rather than broad ones.
 
 > Upkeep: when files here change (add/remove/rename), fix the table + key files above in the

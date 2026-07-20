@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "da30b038620e9135",
+      "fingerprint": "88a455fd91192aa9",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -537,7 +537,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "f1f12706ea8a6fb6",
+      "fingerprint": "f906b9b36290dde9",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -607,7 +607,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "b058073524398506",
+      "fingerprint": "72db4b3da1e961d2",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -658,6 +658,7 @@
         "tests/live_timeline_edit_gap_workarounds.py",
         "tests/live_track_selector_probe.py",
         "tests/live_v233_validation.py",
+        "tests/preflight.py",
         "tests/test-after-restart.bat",
         "tests/test-after-restart.sh",
         "tests/test_action_help.py",

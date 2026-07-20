@@ -189,4 +189,6 @@ async def main_async() -> int:
 
 
 if __name__ == "__main__":
+    from preflight import gate
+    gate("open")
     raise SystemExit(asyncio.run(main_async()))

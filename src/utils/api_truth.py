@@ -535,10 +535,22 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "LinkFullResolutionMedia exist (attach/detach EXISTING proxies). "
                    "There is no method to generate proxies or optimized media. "
                    "Verified via MediaPoolItem dir() (21.0.0).",
-        "recommended": "Trigger proxy/optimized-media generation from the Resolve "
-                       "UI; scripting can only link/unlink already-rendered proxies.",
+        "recommended": "Workaround shipped (issue #23, 3.3.4): render build_proxies "
+                       "composes the render queue with LinkProxyMedia — renders the "
+                       "target clips as INDIVIDUAL clips into a proxy dir "
+                       "(ExportAudio=False to dodge the headless Fairlight/PipeWire "
+                       "0%-stall), matches each output to its source by filename, "
+                       "LinkProxyMedia, and verifies via the clip's 'Proxy Media "
+                       "Path' readback. Live-verified on 21.0.2.4 "
+                       "(tests/live_proxy_build_probe.py). GOTCHA: Resolve's render "
+                       "queue refuses to write into the system temp dir (AddRenderJob "
+                       "fails), so proxy_dir must be a real media location — the "
+                       "action defaults require_temp_target=False for that reason. "
+                       "Optimized media (as distinct from proxies) still has no "
+                       "generate or link API and stays UI-only.",
         "tags": ["missing-method", "media-pool", "proxy"],
         "submit": "missing",
+        "issue": 23,
     },
     {
         "symbol": "Insert / Overwrite / Replace / Fit-to-Fill edit modes",

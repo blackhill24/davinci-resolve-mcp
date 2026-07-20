@@ -116,7 +116,8 @@ equivalent, blocking full automation.
 
 - **Object:** `MediaPoolItem`
 - **Behavior:** Only LinkProxyMedia, UnlinkProxyMedia and LinkFullResolutionMedia exist (attach/detach EXISTING proxies). There is no method to generate proxies or optimized media. Verified via MediaPoolItem dir() (21.0.0).
-- **Workaround / current handling:** Trigger proxy/optimized-media generation from the Resolve UI; scripting can only link/unlink already-rendered proxies.
+- **Workaround / current handling:** Workaround shipped (issue #23, 3.3.4): render build_proxies composes the render queue with LinkProxyMedia — renders the target clips as INDIVIDUAL clips into a proxy dir (ExportAudio=False to dodge the headless Fairlight/PipeWire 0%-stall), matches each output to its source by filename, LinkProxyMedia, and verifies via the clip's 'Proxy Media Path' readback. Live-verified on 21.0.2.4 (tests/live_proxy_build_probe.py). GOTCHA: Resolve's render queue refuses to write into the system temp dir (AddRenderJob fails), so proxy_dir must be a real media location — the action defaults require_temp_target=False for that reason. Optimized media (as distinct from proxies) still has no generate or link API and stays UI-only.
+- **Reference:** [issue #23](https://github.com/samuelgursky/davinci-resolve-mcp/issues/23)
 - **Tags:** missing-method, media-pool, proxy
 
 ### Insert / Overwrite / Replace / Fit-to-Fill edit modes

@@ -16209,6 +16209,7 @@ _RENDER_KERNEL_ACTIONS = [
     "quick_export_capabilities",
     "safe_quick_export",
     "export_render_boundary_report",
+    "build_proxies",
 ]
 
 
@@ -16548,6 +16549,139 @@ def _export_render_boundary_report(proj, p: Dict[str, Any]):
     return report
 
 
+def _resolve_proxy_clips(mp, p):
+    """Resolve the media-pool clips a proxy build targets: explicit clip_ids, a
+    folder_path, or (default) the current folder. Returns a list of MediaPoolItems."""
+    root = mp.GetRootFolder()
+
+    def all_clips(folder):
+        out = list(folder.GetClipList() or [])
+        for sub in folder.GetSubFolderList() or []:
+            out.extend(all_clips(sub))
+        return out
+
+    if p.get("clip_ids"):
+        wanted = set(p["clip_ids"])
+        return [c for c in all_clips(root) if c.GetUniqueId() in wanted]
+    if p.get("folder_path"):
+        folder = _navigate_folder(mp, p["folder_path"])
+        if not folder:
+            return []
+        return list(folder.GetClipList() or [])
+    current = mp.GetCurrentFolder() or root
+    return list(current.GetClipList() or [])
+
+
+def _build_proxies(proj, p):
+    """Generate proxy media by rendering (the API has no GenerateProxy) and link each
+    result back with LinkProxyMedia — closing the proxy-generation UI gap (issue #23,
+    3.3.4). Renders the target clips as INDIVIDUAL clips into proxy_dir with
+    ExportAudio=False (dodges the headless Fairlight/PipeWire 0%-stall), matches each
+    output to its source by filename, LinkProxyMedia, and verifies via the clip's
+    'Proxy Media Path' readback.
+
+    Params: proxy_dir (temp-gated unless require_temp_target=False); clip_ids OR
+    folder_path (default: current folder); format+codec (optional — both or neither;
+    default keeps the project's current pair); width/height (optional downscale);
+    timeout_s (default 300); dry_run.
+    """
+    proxy_dir = p.get("proxy_dir") or p.get("target_dir")
+    if not proxy_dir:
+        return _err("proxy_dir is required")
+    proxy_dir = os.path.abspath(os.path.expanduser(proxy_dir))
+    if not os.path.isdir(proxy_dir):
+        return _err(f"proxy_dir does not exist: {proxy_dir}")
+    # Resolve's render queue refuses to write into the system temp dir (AddRenderJob
+    # fails), so proxies must land in a real media location — require_temp_target
+    # defaults False here (unlike other render helpers). Opt back in explicitly if
+    # you have a temp dir Resolve accepts.
+    if p.get("require_temp_target", False) and not _render_temp_path_ok(proxy_dir):
+        return _err("proxy_dir must be under the system temp directory unless require_temp_target=False")
+    if not os.access(proxy_dir, os.W_OK):
+        return _err(f"proxy_dir is not writable: {proxy_dir}")
+
+    mp = proj.GetMediaPool()
+    clips = _resolve_proxy_clips(mp, p)
+    if not clips:
+        return _err("no clips resolved for proxy build (check clip_ids/folder_path)")
+
+    fmt, codec = p.get("format"), p.get("codec")
+    if bool(fmt) != bool(codec):
+        return _err("pass BOTH format and codec, or neither")
+
+    if p.get("dry_run"):
+        return _ok(would_build=len(clips), proxy_dir=proxy_dir,
+                   clips=[c.GetName() for c in clips], format=fmt, codec=codec)
+
+    tl_name = f"_proxy_build_{int(time.time())}"
+    timeline = mp.CreateTimelineFromClips(tl_name, clips)
+    if not timeline:
+        return _err("failed to create the proxy-render timeline")
+    prev_mode = proj.GetCurrentRenderMode()
+    try:
+        proj.SetCurrentTimeline(timeline)
+        proj.SetCurrentRenderMode(0)  # 0 = Individual clips
+        format_ok = None
+        if fmt and codec:
+            format_ok = bool(proj.SetCurrentRenderFormatAndCodec(_render_format_id(proj, fmt), codec))
+        settings = {"TargetDir": proxy_dir, "ExportVideo": True, "ExportAudio": False,
+                    "SelectAllFrames": True, "UniqueFilenameStyle": 0}
+        if p.get("width") and p.get("height"):
+            settings["FormatWidth"] = int(p["width"])
+            settings["FormatHeight"] = int(p["height"])
+        settings_ok = bool(proj.SetRenderSettings(settings))
+
+        existing_before = set(os.listdir(proxy_dir))
+        proj.DeleteAllRenderJobs()
+        job_id = proj.AddRenderJob()
+        if not job_id:
+            return _err("AddRenderJob failed", state={"format_ok": format_ok, "settings_ok": settings_ok})
+        if not bool(proj.StartRendering([job_id], False)):
+            return _err("StartRendering failed", state={"job_id": job_id})
+
+        timeout_s = float(p.get("timeout_s", 300))
+        deadline = time.time() + timeout_s
+        status = {}
+        while time.time() < deadline:
+            status = _ser(proj.GetRenderJobStatus(job_id)) or {}
+            if status.get("JobStatus") in ("Complete", "Failed", "Cancelled"):
+                break
+            time.sleep(1.5)
+        job_status = status.get("JobStatus")
+        if job_status != "Complete":
+            return _err(f"proxy render did not complete (status={job_status})",
+                        state={"job_status": job_status, "detail": status})
+
+        # Match new files to source clips and link.
+        new_files = [f for f in os.listdir(proxy_dir) if f not in existing_before]
+        results = []
+        for c in clips:
+            stem = os.path.splitext(c.GetName())[0]
+            match = next((f for f in new_files if stem in os.path.splitext(f)[0]), None)
+            linked, readback = False, ""
+            if match:
+                abspath = os.path.join(proxy_dir, match)
+                linked = bool(c.LinkProxyMedia(abspath))
+                if linked:
+                    readback = c.GetClipProperty("Proxy Media Path") or ""
+            results.append({"clip": c.GetName(), "rendered_file": match,
+                            "linked": linked, "proxy_media_path": readback})
+
+        linked_count = sum(1 for r in results if r["linked"] and r["proxy_media_path"])
+        return _ok(job_status=job_status, proxy_dir=proxy_dir, built=len(new_files),
+                   linked=linked_count, of=len(clips), format_ok=format_ok,
+                   settings_ok=settings_ok, clips=results)
+    finally:
+        try:
+            proj.SetCurrentRenderMode(prev_mode)
+        except Exception:
+            pass
+        try:
+            mp.DeleteTimelines([timeline])
+        except Exception:
+            pass
+
+
 @mcp.tool()
 def render(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Render pipeline: jobs, presets, formats, codecs, and rendering.
@@ -16586,6 +16720,10 @@ def render(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, An
       quick_export_capabilities() -> {presets, safe_params, guards}
       safe_quick_export(preset, target_dir?|params?, custom_name?, dry_run?, allow_render?) -> {success, status}
       export_render_boundary_report(include_matrix?, max_pairs?, include_quick_export?) -> {capabilities, settings, matrix?}
+      build_proxies(proxy_dir, clip_ids?|folder_path?, format?+codec?, width?, height?, timeout_s?, dry_run?) -> {linked, of, clips[]}
+        — proxy/optimized-media GENERATION (the API has no GenerateProxy). Renders the
+          target clips as individual clips into proxy_dir with ExportAudio=False, then
+          LinkProxyMedia each and verifies via the 'Proxy Media Path' readback.
     """
     p = params or {}
     _, proj, err = _check()
@@ -16682,6 +16820,8 @@ def render(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, An
         return _safe_quick_export(proj, p)
     elif action == "export_render_boundary_report":
         return _export_render_boundary_report(proj, p)
+    elif action == "build_proxies":
+        return _build_proxies(proj, p)
     return _unknown(action, ["add_job","delete_job","delete_all_jobs","list_jobs","get_job_status","start","stop","is_rendering","get_formats","get_codecs","get_format_and_codec","set_format_and_codec","get_mode","set_mode","get_resolutions","get_settings","set_settings","list_presets","load_preset","save_preset","delete_preset","quick_export_presets","quick_export",*_RENDER_KERNEL_ACTIONS])
 
 

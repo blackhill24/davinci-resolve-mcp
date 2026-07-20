@@ -737,7 +737,16 @@ def _get_timeline_item(track_type="video", track_index=1, item_index=0):
     return items[item_index], None
 
 def _has_method(obj, method_name):
-    return callable(getattr(obj, method_name, None))
+    # The Python bridge fabricates a callable for ANY attribute name, so
+    # getattr/hasattr can never report a method as absent (verified on 21.0.0:
+    # SetStart, Razor, AddNode etc. all reported present though none exist).
+    # dir(obj) lists only the real methods — test membership against it.
+    if obj is None:
+        return False
+    try:
+        return method_name in dir(obj)
+    except Exception:
+        return False
 
 def _requires_method(obj, method_name, min_version):
     if _has_method(obj, method_name):

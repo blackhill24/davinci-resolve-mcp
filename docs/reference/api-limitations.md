@@ -12,7 +12,7 @@ that none exists).
 
 **Verified on:** DaVinci Resolve Studio 21.0.0
 
-**Totals:** 18 missing capabilities, 11 bugs / unreliable behaviors.
+**Totals:** 17 missing capabilities, 11 bugs / unreliable behaviors.
 
 The authoritative source is the runtime-queryable `api_truth` ledger
 (`resolve_control api_truth "<query>"`); this document is generated from
@@ -140,13 +140,6 @@ equivalent, blocking full automation.
 - **Behavior:** Only AddSubFolder (a regular bin) exists. Smart Bins (rule-based) and Power Bins (cross-project) cannot be created or configured. Verified via MediaPool dir() (21.0.0).
 - **Workaround / current handling:** Create Smart/Power Bins in the Resolve UI; only regular bins are scriptable.
 - **Tags:** missing-method, media-pool, bins
-
-### Per-subtitle text content and timing editing
-
-- **Object:** `TimelineItem (subtitle track)`
-- **Behavior:** TimelineItem on a subtitle track exposes only 21 standard transform/composite properties (Pan, Tilt, ZoomX, Opacity, Crop, etc.). There are no methods to get or set subtitle text (GetText/SetText), start time, end time, or duration for individual subtitle items. Subtitles created via CreateSubtitlesFromAudio or imported via the Resolve UI cannot have their content or timing read or modified programmatically. Verified via dir() and GetProperty() on Resolve 21.0.0.48.
-- **Workaround / current handling:** No workaround exists — subtitle text and timing are completely inaccessible from the scripting API. Must be edited in the Resolve UI.
-- **Tags:** missing-method, subtitle, text, timing
 
 ### Subtitle track styling and presets
 

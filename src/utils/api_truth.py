@@ -566,20 +566,38 @@ API_TRUTH: List[Dict[str, Any]] = [
     {
         "symbol": "Per-subtitle text content and timing editing",
         "object": "TimelineItem (subtitle track)",
-        "reality": "TimelineItem on a subtitle track exposes only 21 standard "
-                   "transform/composite properties (Pan, Tilt, ZoomX, Opacity, "
-                   "Crop, etc.). There are no methods to get or set subtitle "
-                   "text (GetText/SetText), start time, end time, or duration "
-                   "for individual subtitle items. Subtitles created via "
-                   "CreateSubtitlesFromAudio or imported via the Resolve UI "
-                   "cannot have their content or timing read or modified "
-                   "programmatically. Verified via dir() and GetProperty() on "
-                   "Resolve 21.0.0.48.",
-        "recommended": "No workaround exists — subtitle text and timing are "
-                       "completely inaccessible from the scripting API. Must "
-                       "be edited in the Resolve UI.",
-        "tags": ["missing-method", "subtitle", "text", "timing"],
-        "submit": "missing",
+        "reality": "No live setter: a subtitle TimelineItem exposes only the 21 "
+                   "transform/composite properties, with no GetText/SetText or "
+                   "start/end/duration mutators. (Read is partial: GetName() "
+                   "returns the cue text and GetStart()/GetEnd() the timing, so "
+                   "server._timeline_transcript already reads subtitles.) "
+                   "INVESTIGATED for 3.2.4 (issue #22) via export-diff on "
+                   "21.0.2.4 (tests/live_subtitle_probe.py): FCPXML is a dead "
+                   "end both ways — Resolve exports zero subtitle data and "
+                   "ignores hand-authored <caption> on import (6 role/placement "
+                   "variants -> 0 subtitle tracks). The .drt DOES carry them: a "
+                   "subtitle track is an Sm2TiTrack SubType=3 in "
+                   "<SubtitleTrackVec>; each cue is an Sm2TiGenerator whose "
+                   "TIMING is plain XML <Start>/<Duration> (frames) and whose "
+                   "TEXT lives in <EffectFiltersBA> (00000002 + 4-byte-BE len + "
+                   "0x81 + zstd frame -> a protobuf envelope wrapping a BMD "
+                   "4-byte-LE inner struct holding the UTF-16LE text plus font/"
+                   "colour). .drt export->reimport round-trips cues, and a "
+                   "text edit was proven end-to-end (decode zstd, swap UTF-16LE "
+                   "text, recompress).",
+        "recommended": "Workaround representable via .drt file surgery "
+                       "(export->edit SubtitleTrackVec->ImportTimelineFromFile) "
+                       "but NOT yet implemented as a tool. Timing edits are "
+                       "trivial (plain-integer <Start>/<Duration>). Text edits "
+                       "must recompress the EffectFiltersBA zstd frame with BMD's "
+                       "exact framing — zstd level 3, write_content_size=True, "
+                       "write_checksum=False (python `zstandard`); the zstd CLI's "
+                       "windowed+checksum frame is rejected and the cue silently "
+                       "resets to the default 'Subtitle' name. Same-length text "
+                       "works today; variable-length needs a protobuf-aware "
+                       "re-serializer for the nested length cascade.",
+        "tags": ["missing-method", "subtitle", "text", "timing", "drt",
+                 "offline", "investigated-not-implemented"],
     },
     {
         "symbol": "Subtitle track styling and presets",

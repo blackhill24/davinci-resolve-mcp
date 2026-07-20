@@ -317,13 +317,38 @@ API_TRUTH: List[Dict[str, Any]] = [
     {
         "symbol": "Native multicam clip creation",
         "object": "MediaPool",
-        "reality": "There is no method to create a native multicam clip from a set "
-                   "of angles. Angles can be stacked onto tracks programmatically, "
-                   "but the multicam-clip conversion is a UI-only step.",
-        "recommended": "Prepare a stacked timeline (media_pool setup_multicam_timeline) "
-                       "and finish the multicam-clip conversion in the Resolve UI.",
-        "tags": ["missing-method", "media-pool", "multicam"],
+        "reality": "There is no scripting method to create a native multicam clip "
+                   "from a set of angles (the R21 API doc has zero multicam mentions). "
+                   "Angles can be stacked onto tracks programmatically "
+                   "(media_pool setup_multicam_timeline), but the multicam-clip "
+                   "conversion itself is a UI-only step. The on-disk encoding IS "
+                   "captured (tests/live_multicam_drt_probe.py, export-diff of the UI "
+                   "conversion on 21.0.2.4): the multicam clip is its own "
+                   "Sm2SequenceContainer (a new SeqContainer/<uuid>.xml, NOT an "
+                   "MpVideoClip) with one Sm2TiTrack per angle in VideoTrackVec + a "
+                   "mirrored AudioTrackVec; each angle track carries a protobuf "
+                   "FieldsBlob (NumLayers, AngleId='Camera N'), UserDefinedName "
+                   "'Angle N', a shared <Sequence> uuid, and an Items->Sm2TiVideoClip "
+                   "pointing at the source MediaRef/MediaFilePath with Start/Duration "
+                   "set from the sync (timecode). Media-pool side: the source clips are "
+                   "relocated into a new '000_Original Clips' MpFolder and the master "
+                   "gains a STANDARD_CLIP '<first> Multicam' entry whose "
+                   "VirtualAudioTracksBA references the container.",
+        "recommended": "Live: not possible -- prepare a stacked timeline "
+                       "(media_pool setup_multicam_timeline) and finish the "
+                       "multicam-clip conversion in the Resolve UI. Offline: authorable "
+                       "in principle via resolve-advanced/vendor/drp-format "
+                       "SeqContainer machinery, but NOT implemented -- it is a heavy new "
+                       "vendor op (author a fresh Sm2SequenceContainer + per-angle "
+                       "Sm2TiTrack, re-encode the zstd-compressed protobuf FieldsBlobs "
+                       "-- same codec family cracked in 3.2.4 -- relocate originals into "
+                       "a subfolder, add the '<first> Multicam' master clip, and thread "
+                       "it through a full-project .drp export->edit->reimport). See "
+                       "issue #30 (3.1.7).",
+        "tags": ["missing-method", "media-pool", "multicam", "drp", "offline",
+                 "investigated-not-implemented"],
         "submit": "missing",
+        "issue": 30,
     },
     {
         "symbol": "Transition create / copy / clone",

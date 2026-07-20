@@ -13001,7 +13001,7 @@ def resolve_control(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             return missing
         r.DisableBackgroundTasksForCurrentResolveSession()
         return _ok()
-    return _unknown(action, ["launch","get_version","api_truth","verification_stats","job_status","list_jobs","mcp_update_status","set_mcp_update_policy","ignore_mcp_update","snooze_mcp_update","clear_mcp_update_preferences","get_page","open_page","get_keyframe_mode","set_keyframe_mode","quit","get_fairlight_presets","set_high_priority","disable_background_tasks_for_current_session","open_control_panel","control_panel_status","close_control_panel","save_state","restore_state"])
+    return _unknown(action, ["launch","get_version","api_truth","verification_stats","env_audit","job_status","list_jobs","mcp_update_status","set_mcp_update_policy","ignore_mcp_update","snooze_mcp_update","clear_mcp_update_preferences","get_page","open_page","get_keyframe_mode","set_keyframe_mode","quit","get_fairlight_presets","set_high_priority","disable_background_tasks_for_current_session","open_control_panel","control_panel_status","close_control_panel","save_state","restore_state"])
 
 
 # ─── V2 C4: Per-field corrections with provenance + changelog ────────────────

@@ -16435,7 +16435,12 @@ def folder(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, An
             total_bytes = 0
             for pair in (result or []):
                 try:
-                    orig, new = pair
+                    # Live-verified on 21.0.2.4 (issue #20): Folder.RemoveMotionBlur
+                    # returns [{1: origMediaPoolItem, 2: newMediaPoolItem}, ...] — an
+                    # int-keyed dict per pair, not a 2-tuple. Unpacking a dict yields
+                    # its keys (1, 2), not the items, so plain `orig, new = pair`
+                    # silently produced garbage here. See utils/api_truth.py.
+                    orig, new = (pair[1], pair[2]) if isinstance(pair, dict) else pair
                     path, nbytes = _clip_file_size(new)
                     if nbytes:
                         total_bytes += nbytes

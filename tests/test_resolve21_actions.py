@@ -124,7 +124,8 @@ class Folder21:
         self.calls.append(("RemoveMotionBlur", (deblur_option,)))
         orig = Clip21(name="a.mov", cid="a")
         new = Clip21(name="a_deblurred.mov", cid="a-deblur")
-        return [[orig, new]]
+        # Live-verified shape (issue #20): a list of int-keyed dicts, not tuples.
+        return [{1: orig, 2: new}]
 
 
 class MediaPoolStub:

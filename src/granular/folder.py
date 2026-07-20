@@ -413,7 +413,10 @@ def folder_remove_motion_blur(folder_path: str = "", deblur_option: Optional[Dic
     created = []
     for pair in (result or []):
         try:
-            orig, new = pair
+            # Live-verified on 21.0.2.4 (issue #20): each pair is an int-keyed
+            # dict {1: origMediaPoolItem, 2: newMediaPoolItem}, not a 2-tuple —
+            # see utils/api_truth.py.
+            orig, new = (pair[1], pair[2]) if isinstance(pair, dict) else pair
             created.append({"original": orig.GetName(), "new": new.GetName(), "new_id": new.GetUniqueId()})
         except Exception:
             continue

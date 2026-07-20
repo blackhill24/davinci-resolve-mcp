@@ -677,6 +677,30 @@ API_TRUTH: List[Dict[str, Any]] = [
                  "silent-failure", "positioned-append"],
         "issue": 12,
     },
+    {
+        "symbol": "Project.GenerateSpeech",
+        "object": "Project",
+        "signature": "({speechGenerationSettings}, timecode) -> MediaPoolItem",
+        "reality": "Live-tested on Resolve Studio 21.0.2.4 with a plain "
+                   "{'TextInput': '...'} dict (this is NOT an enum-keyed dict — "
+                   "unlike AutoSyncAudio/CreateSubtitlesFromAudio, there is no "
+                   "resolve.SPEECH_*/VOICE_* constant defined on the live "
+                   "resolve handle at all, confirmed via dir(resolve)). The call "
+                   "returns None in well under a second — too fast to be an "
+                   "actual synthesis attempt — consistent with the AI Speech "
+                   "Generator Extra not being installed on this machine, though "
+                   "the API gives no error string to confirm that diagnosis; a "
+                   "box with the Extra installed is needed to verify the "
+                   "settings-dict shape end to end.",
+        "recommended": "Treat a None return as 🔬 hardware/package-gated "
+                       "(missing AI Speech Generator Extra) rather than a "
+                       "settings-shape bug; re-probe on a machine with the "
+                       "Extra installed before assuming the plain-string-key "
+                       "shape is complete (e.g. VoiceModel value formats are "
+                       "still unverified).",
+        "tags": ["ai", "speech", "extra-gated", "resolve-21", "unverified-live"],
+        "issue": 20,
+    },
 ]
 
 

@@ -12,7 +12,7 @@ that none exists).
 
 **Verified on:** DaVinci Resolve Studio 21.0.0
 
-**Totals:** 19 missing capabilities, 11 bugs / unreliable behaviors.
+**Totals:** 19 missing capabilities, 13 bugs / unreliable behaviors.
 
 The authoritative source is the runtime-queryable `api_truth` ledger
 (`resolve_control api_truth "<query>"`); this document is generated from
@@ -218,7 +218,7 @@ values, or automation-hostile modal prompts.
 
 - **Object:** `ProjectManager`
 - **Signature:** `(projectName) -> bool`
-- **Behavior:** Returns False (no deletion) when the target project is, or recently was, the current project, and is flaky on the first attempt — so a single bool() call leaves the project undeleted with no useful error.
+- **Behavior:** Returns False (no deletion) when the target project is, or recently was, the current project, and is flaky on the first attempt — so a single bool() call leaves the project undeleted with no useful error. Guard re-verified live on Studio 21.0.2.4 (Stage 4, #24): delete_project_safely deleted the disposable project in 1 attempt across multiple runs, so the switch-away-then-retry mitigation still holds.
 - **Workaround / current handling:** Load/close away from the target first, then retry; use src/utils/project_cleanup.py:delete_project_safely.
 - **Tags:** unreliable-return, project, flaky
 
@@ -232,36 +232,54 @@ values, or automation-hostile modal prompts.
 ### FlowView.SetPos / FlowView.GetPosTable
 
 - **Object:** `Fusion FlowView (comp.CurrentFrame.FlowView)`
-- **Behavior:** Node positions are read/written through the FlowView, not the tool. SetPos returns nothing reliable; GetPosTable returns a 1-indexed table (or dict/tuple depending on bridge).
-- **Workaround / current handling:** Use comp.CurrentFrame.FlowView.SetPos(tool, x, y); confirm with GetPosTable and a liberal position parser.
-- **Tags:** fusion, unreliable-return
+- **Behavior:** Node positions are read/written through the FlowView, not the tool. SetPos returns nothing reliable; GetPosTable returns a 1-indexed table (or dict/tuple depending on bridge). comp.CurrentFrame is only populated while the Fusion page is active — resolving a comp via timeline scope (no page switch) gives CurrentFrame=None, so FlowView is unavailable until resolve.OpenPage('fusion') runs first. Round-trip re-verified live on Resolve Studio 21.0.2.4 (server.fusion_comp set_position/get_position via copy_tool's new node): position sets and reads back within ~0.001 float tolerance once the Fusion page is open.
+- **Workaround / current handling:** Use comp.CurrentFrame.FlowView.SetPos(tool, x, y); confirm with GetPosTable and a liberal position parser. Call resolve.OpenPage('fusion') before get_position/set_position when working via timeline scope (server._fusion_flow_view now returns a wrong_page error with that remediation).
+- **Tags:** fusion, unreliable-return, wrong-page
 
 ### MediaPoolItem.GetClipProperty('Transcription')
 
 - **Object:** `MediaPoolItem`
-- **Behavior:** Returns a PREVIEW of the transcription that ends in an ellipsis when the full transcript is longer than the property exposes.
+- **Behavior:** Returns a PREVIEW of the transcription that ends in an ellipsis when the full transcript is longer than the property exposes. Not re-triggered live on 21.0.2.4 during Stage 4 (#24): reproducing the truncation needs real speech content long enough to overflow the property, which synthetic silent/tone clips can't provide; the `truncated`-flag guard code is unchanged since it was added. Re-probe with real dictation media to get a live 21.0.2.4 stamp on this entry.
 - **Workaround / current handling:** Treat a trailing ellipsis as truncation (see media_pool_item get_transcription's `truncated` flag).
 - **Tags:** transcription, truncation
 
 ### ProjectManager.CreateProject (with a dirty Untitled project)
 
 - **Object:** `ProjectManager`
-- **Behavior:** Returns None and pops a modal 'Save Current Project' dialog when the current unsaved/Untitled project blocks the switch. SaveProject() on an Untitled project re-triggers the same modal.
+- **Behavior:** Returns None and pops a modal 'Save Current Project' dialog when the current unsaved/Untitled project blocks the switch. SaveProject() on an Untitled project re-triggers the same modal. Not live-retriggered on 21.0.2.4 during Stage 4 (#24) by deliberate choice: reproducing it means leaving a dirty Untitled project current and calling raw CreateProject, which risks popping a real blocking modal in the operator's live Resolve session with no scripted way to dismiss it. The recommended workaround is documentation-only (no shipped server.py guard currently routes 'create' through CloseProject first), so there is no code path to verify here — callers/agents must follow it manually.
 - **Workaround / current handling:** CloseProject(current) to discard the untitled project without a prompt, then CreateProject; restore with LoadProject afterward.
 - **Tags:** project, modal, silent-failure
 
 ### hasattr() / getattr() on Resolve API objects (attribute fabrication)
 
 - **Object:** `(all Resolve scripting objects)`
-- **Behavior:** The Python bridge returns a callable for ANY attribute name, so hasattr(obj, 'TotallyMadeUpMethod') is always True and getattr never raises. This makes capability detection by hasattr impossible — verified on 21.0.0 (hasattr reported SetStart, Razor, AddNode, GenerateProxy, AddSmartBin etc. as present though none exist). Only dir() lists the real methods.
-- **Workaround / current handling:** Never probe method existence with hasattr/getattr; test membership against dir(obj) instead. Calling a fabricated method typically returns None/False with no error.
+- **Behavior:** getattr(obj, name) returns None (not an AttributeError) for ANY attribute name, so hasattr(obj, 'TotallyMadeUpMethod') is always True even though the attribute doesn't exist and the returned value isn't callable. This makes capability detection by hasattr impossible — re-verified on Resolve Studio 21.0.2.4: getattr(mediaPool, 'SetStart'/'Razor'/'AddNode'/'GenerateProxy') all returned None (callable() is False), yet hasattr() for the same names was True and none appeared in dir(). Only dir() lists the real methods.
+- **Workaround / current handling:** Never probe method existence with hasattr/getattr; test membership against dir(obj) instead. Calling the fabricated attribute (obj.MadeUpMethod()) raises TypeError: 'NoneType' object is not callable, rather than returning False silently.
 - **Tags:** bridge, introspection, silent-failure
 
 ### MediaPoolItem.SetClipProperty('Reel Name', ...)
 
 - **Object:** `MediaPoolItem`
 - **Signature:** `(propertyName, propertyValue) -> bool`
-- **Behavior:** Setting the 'Reel Name' clip property returns True but the value is silently dropped on read-back when the project is configured to derive reel names automatically (General Options > 'Assist using reel names from the:' set to source clip file / embedding / filename pattern). The same True-but-unpersisted behavior occurs via SetMetadata('Reel Name', ...). Other clip properties on the same clip (e.g. 'Comments') write and persist normally, so this is field-specific, not a bridge/permission failure. Verified on Resolve 21.0.0; reported as issue #77.
+- **Behavior:** Setting the 'Reel Name' clip property returns True but the value is silently dropped on read-back when the project is configured to derive reel names automatically (General Options > 'Assist using reel names from the:' set to source clip file / embedding / filename pattern). The same True-but-unpersisted behavior occurs via SetMetadata('Reel Name', ...). Other clip properties on the same clip (e.g. 'Comments') write and persist normally, so this is field-specific, not a bridge/permission failure. Verified on Resolve 21.0.0; reported as issue #77. Re-verified live on Studio 21.0.2.4 (Stage 4, #24): on a disposable project's default gate setting, SetClipProperty actually returned False outright rather than True-with-drop this time — the guard doesn't trust either return value and independently confirms via read-back, so it caught the failure regardless of which shape Resolve reports.
 - **Workaround / current handling:** After writing 'Reel Name', read it back with GetClipProperty('Reel Name') and refuse to report success on mismatch; surface the project-setting gate to the caller (server._verify_clip_property_writeback).
 - **Reference:** [issue #77](https://github.com/samuelgursky/davinci-resolve-mcp/issues/77)
 - **Tags:** unreliable-return, silent-failure, metadata, reel-name
+
+### Project.GenerateSpeech
+
+- **Object:** `Project`
+- **Signature:** `({speechGenerationSettings}, timecode) -> MediaPoolItem`
+- **Behavior:** Live-tested on Resolve Studio 21.0.2.4 with a plain {'TextInput': '...'} dict (this is NOT an enum-keyed dict — unlike AutoSyncAudio/CreateSubtitlesFromAudio, there is no resolve.SPEECH_*/VOICE_* constant defined on the live resolve handle at all, confirmed via dir(resolve)). The call returns None in well under a second — too fast to be an actual synthesis attempt — consistent with the AI Speech Generator Extra not being installed on this machine, though the API gives no error string to confirm that diagnosis; a box with the Extra installed is needed to verify the settings-dict shape end to end.
+- **Workaround / current handling:** Treat a None return as 🔬 hardware/package-gated (missing AI Speech Generator Extra) rather than a settings-shape bug; re-probe on a machine with the Extra installed before assuming the plain-string-key shape is complete (e.g. VoiceModel value formats are still unverified).
+- **Reference:** [issue #20](https://github.com/samuelgursky/davinci-resolve-mcp/issues/20)
+- **Tags:** ai, speech, extra-gated, resolve-21, unverified-live, silent-failure
+
+### Folder.RemoveMotionBlur
+
+- **Object:** `MediaPool Folder`
+- **Signature:** `(clipList) -> [{1: origMediaPoolItem, 2: newMediaPoolItem}, ...]`
+- **Behavior:** The batch, folder-level RemoveMotionBlur returns a list of int-keyed dicts per processed clip — {1: orig, 2: new} — not the [orig, new] 2-tuples/lists the obvious call shape suggests. `orig, new = pair` on such a dict silently unpacks its KEYS (1, 2) instead of the values, so orig/new end up as bare ints; calling .GetName() on them threw AttributeError that a broad except then swallowed — folder-level deblur reported success=True with an always-empty `created` list, silently dropping every result. Live-verified on Resolve Studio 21.0.2.4 (issue #20). MediaPoolItem.RemoveMotionBlur (single-clip, non-batch) already returns the new clip directly and is unaffected.
+- **Workaround / current handling:** Detect the dict shape explicitly: (pair[1], pair[2]) if isinstance(pair, dict) else pair. Fixed in src/granular/folder.py and server.py's folder() compound action; the offline test stub (Folder21.RemoveMotionBlur in test_resolve21_actions.py) previously returned the wrong tuple shape too and was updated to the live-verified dict shape so regressions are caught offline.
+- **Reference:** [issue #20](https://github.com/samuelgursky/davinci-resolve-mcp/issues/20)
+- **Tags:** unreliable-return, undocumented-shape, media-pool, silent-failure, resolve-21

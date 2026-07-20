@@ -213,7 +213,44 @@ def find_undocumented_method_wrappers(
     return suspicious
 
 
+def count_documented_surface(docs: Dict[str, Set[str]]) -> Dict[str, object]:
+    """Recount the documented API surface — the single source of truth for the
+    stats tables in README.md and docs/reference/api-coverage.md.
+
+    Pseudo-headings that carry no methods (e.g. the doc's "Overview" and
+    "Prerequisites" prose sections) are excluded from both the class list and
+    the totals, so "API Object Classes" counts real scripting classes only.
+    """
+    per_class = {cls: len(methods) for cls, methods in docs.items() if methods}
+    return {
+        "source": DOCS_PATH.name,
+        "total_methods": sum(per_class.values()),
+        "class_count": len(per_class),
+        "per_class": dict(sorted(per_class.items())),
+    }
+
+
+def run_count(as_json: bool) -> int:
+    if not DOCS_PATH.exists():
+        print(f"FAIL: API docs not found at {DOCS_PATH}", file=sys.stderr)
+        return 1
+    stats = count_documented_surface(parse_documented_methods(DOCS_PATH))
+    if as_json:
+        import json
+        print(json.dumps(stats, indent=2))
+        return 0
+    print(f"Documented API surface ({stats['source']}):")
+    print(f"  total methods : {stats['total_methods']}")
+    print(f"  API classes   : {stats['class_count']}")
+    for cls, n in stats["per_class"].items():
+        print(f"    {cls:28} {n}")
+    return 0
+
+
 def main() -> int:
+    if "--count" in sys.argv or "--stats" in sys.argv:
+        return run_count(as_json="--json" in sys.argv)
+
     if not DOCS_PATH.exists():
         print(f"FAIL: API docs not found at {DOCS_PATH}", file=sys.stderr)
         return 1

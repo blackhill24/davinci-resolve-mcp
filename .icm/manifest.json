@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "aeee6bd1e50bb041",
+      "fingerprint": "8149e36d10f2198d",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -107,7 +107,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "4dd77406c5e721eb",
+      "fingerprint": "0961f204ae5293cd",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -408,6 +408,7 @@
         "resolve-advanced/vendor/drp-format/__tests__/protobuf-wire.test.js",
         "resolve-advanced/vendor/drp-format/__tests__/relink-media.test.js",
         "resolve-advanced/vendor/drp-format/__tests__/set-audio-level.test.js",
+        "resolve-advanced/vendor/drp-format/__tests__/set-clip-pan.test.js",
         "resolve-advanced/vendor/drp-format/__tests__/splice-clips.test.js",
         "resolve-advanced/vendor/drp-format/assemble-timeline.js",
         "resolve-advanced/vendor/drp-format/audio-effect-encoder.js",
@@ -535,7 +536,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "2a61a4c81d72feb4",
+      "fingerprint": "6645f3fc1caf7282",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -605,7 +606,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "63bbcf761bc10191",
+      "fingerprint": "147ea0b41c1998e0",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -635,6 +636,7 @@
         "tests/live_metadata_field_inventory_validation.py",
         "tests/live_metadata_publish_validation.py",
         "tests/live_multicam_setup_validation.py",
+        "tests/live_pan_probe.py",
         "tests/live_path_probe.py",
         "tests/live_project_lifecycle_validation.py",
         "tests/live_render_deliver_validation.py",

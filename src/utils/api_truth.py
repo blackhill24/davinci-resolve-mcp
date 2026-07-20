@@ -371,6 +371,33 @@ API_TRUTH: List[Dict[str, Any]] = [
         "issue": 14,
     },
     {
+        "symbol": "Clip audio pan — .drt (offline) encoding, EffectFiltersBA",
+        "object": "drt SeqContainer / Sm2TiAudioClip",
+        "reality": "The API can't set clip pan (see the Fairlight entry above; the "
+                   "scripting 'Pan' key is the VIDEO transform, not audio pan), but "
+                   "a clip pan edit DOES round-trip through an exported .drt (issue "
+                   "#22, 3.2.1). Reverse-engineered by export-diff on Resolve Studio "
+                   "21.0.2.4 (pan set to 50 by hand in the Edit-page Inspector Audio "
+                   "panel). Same protobuf template as clip volume — outer f1 group "
+                   "-> f9 { f1 = paramId, f3 { f1 { f2 = fixed64 double } } } — but "
+                   "filter kind (outer f1) = 144 not 124, param id (f9's f1) = 96 "
+                   "not 95, only ONE f9 (no four empty channel placeholders), and "
+                   "the double is the RAW pan value (e.g. 50.0), not dB-scaled. "
+                   "One verified sample: pan=50 -> EffectFiltersBA "
+                   "0000000200000017800a140890014a0f08601a0b0a09110000000000004940. "
+                   "Same <FieldsBlob> 2001 flag as volume. Live round-trip verified: "
+                   "authoring pan=-80 via the writer, reimporting into Resolve, and "
+                   "re-exporting decodes back to -80 (Resolve's own re-export adds "
+                   "an extra field7=2 not present in the authored blob — harmless, "
+                   "doesn't affect the decoded value — cause not yet investigated).",
+        "recommended": "Author the <EffectFiltersBA> blob + <FieldsBlob> flag on the "
+                       "target audio clip in the exported .drt via "
+                       "resolve-advanced/vendor/drp-format (setClipPan), then "
+                       "reimport; exposed as the timeline set_clip_pan action.",
+        "tags": ["audio", "fairlight", "drt", "offline", "encoding", "pan"],
+        "issue": 22,
+    },
+    {
         "symbol": "Proxy / optimized-media generation",
         "object": "MediaPoolItem",
         "reality": "Only LinkProxyMedia, UnlinkProxyMedia and "

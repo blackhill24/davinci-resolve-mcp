@@ -123,6 +123,8 @@ module.exports = {
 
   // Author a clip audio VOLUME level into a .drt (Tier-2 ducking, #14 — API can't set volume).
   setAudioLevel: require('./set-audio-level').setAudioLevel,
+  // Author a clip audio PAN into a .drt (#22, 3.2.1 — API can't set pan either).
+  setClipPan: require('./set-audio-level').setClipPan,
   audioEffectEncoder: require('./audio-effect-encoder'),
 
   // Read/replace a Fusion Title's text + style (font/size/justify) inside a CompositionBA blob.

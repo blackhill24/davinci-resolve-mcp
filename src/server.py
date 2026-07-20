@@ -6142,6 +6142,71 @@ def _timeline_slip_clip_impl(proj, tl, p: Dict[str, Any]):
     )
 
 
+def _timeline_set_clip_volume_impl(proj, tl, p: Dict[str, Any]):
+    """3.2.1 (issue #22): the t14 DRT volume-automation writer, generalized into a
+    standalone `timeline` action (it previously only ran inside auto_edit's ducking
+    pipeline). Same export->drp-ops->reimport round trip as the Stage 3.1 actions.
+    """
+    track_type, track_index, clip_index, _item, err = _advanced_edit_resolve_clip(tl, p)
+    if err:
+        return err
+    if track_type != "audio":
+        return _err(f"set_clip_volume only supports audio clips (got {track_type!r})")
+    volume_db = p.get("volume_db", p.get("volumeDb"))
+    if volume_db is None:
+        return _err("set_clip_volume requires volume_db")
+    try:
+        volume_db = float(volume_db)
+    except (TypeError, ValueError):
+        return _err("volume_db must be a number")
+
+    return _advanced_timeline_edit(
+        proj, tl, p,
+        action_name="set_clip_volume",
+        ops=[{"op": "set_audio_level", "args": {
+            "track": track_index, "volumeDb": volume_db, "clipIndex": clip_index}}],
+        warning=(
+            "Exports the current timeline as .drt, writes the clip's audio-volume "
+            "EffectFiltersBA (the scripting API has no clip-volume write path) via offline "
+            "drt surgery, and imports a NEW '(edited)' timeline. No existing timeline is "
+            "modified. Verify the audible result with a render probe."
+        ),
+    )
+
+
+def _timeline_set_clip_pan_impl(proj, tl, p: Dict[str, Any]):
+    """3.2.1 (issue #22): clip audio pan, reverse-engineered the same way as clip
+    volume (issue #14) — export-diff a hand-edited Inspector Pan value against a
+    center baseline (tests/live_pan_probe.py). See audio-effect-encoder.js for the
+    byte-exact ground truth.
+    """
+    track_type, track_index, clip_index, _item, err = _advanced_edit_resolve_clip(tl, p)
+    if err:
+        return err
+    if track_type != "audio":
+        return _err(f"set_clip_pan only supports audio clips (got {track_type!r})")
+    pan_value = p.get("pan_value", p.get("panValue"))
+    if pan_value is None:
+        return _err("set_clip_pan requires pan_value")
+    try:
+        pan_value = float(pan_value)
+    except (TypeError, ValueError):
+        return _err("pan_value must be a number")
+
+    return _advanced_timeline_edit(
+        proj, tl, p,
+        action_name="set_clip_pan",
+        ops=[{"op": "set_clip_pan", "args": {
+            "track": track_index, "panValue": pan_value, "clipIndex": clip_index}}],
+        warning=(
+            "Exports the current timeline as .drt, writes the clip's audio-pan "
+            "EffectFiltersBA (the scripting API's 'Pan' key is the VIDEO transform, not audio "
+            "pan) via offline drt surgery, and imports a NEW '(edited)' timeline. No existing "
+            "timeline is modified. Verify the audible result with a render probe."
+        ),
+    )
+
+
 def _timeline_split_clip_impl(proj, tl, p: Dict[str, Any]):
     at_frame = p.get("at_frame", p.get("frame"))
     if at_frame is None:
@@ -20822,6 +20887,7 @@ _TIMELINE_ACTIONS = [
     "duplicate_clips", "copy_clips", "move_clips", "copy_range", "duplicate_range",
     "overwrite_range", "lift_range", "story_spine_report", "create_variant_from_ranges",
     "trim_clip", "move_clip", "slide_clip", "slip_clip", "split_clip",
+    "set_clip_volume", "set_clip_pan",
     "add_transition", "list_transitions", "replace_edit", "place_on_top_edit", "insert_edit",
     "bulk_set_item_properties", "apply_look_to_items", "thumbnail_contact_sheet",
     "marker_thumbnail_review", "edit_kernel_capabilities", "probe_edit_kernel_item",
@@ -21259,6 +21325,10 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         return _timeline_slip_clip_impl(proj, tl, p)
     elif action == "split_clip":
         return _timeline_split_clip_impl(proj, tl, p)
+    elif action == "set_clip_volume":
+        return _timeline_set_clip_volume_impl(proj, tl, p)
+    elif action == "set_clip_pan":
+        return _timeline_set_clip_pan_impl(proj, tl, p)
     elif action == "add_transition":
         return _timeline_add_transition_impl(proj, tl, p)
     elif action == "list_transitions":

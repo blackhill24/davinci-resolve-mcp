@@ -233,6 +233,28 @@ Deferred to a follow-up pass: clip speed/retime (needs a new drp-format
 mutate primitive), Render in Place (pure live-API, unrelated machinery), and
 native multicam clip creation (needs drt-diff investigation first).
 
+### Stage 3.2 audio UI-gap workarounds (issue #22, in progress)
+
+Same export->drp-ops->reimport convention as Stage 3.1, for the audio clusters
+in `api-limitations.md` the scripting API can't reach.
+
+- `set_clip_volume(clip_id, volume_db)` — generalizes the t14 DRT
+  volume-automation writer (issue #14) into a standalone action.
+- `set_clip_pan(clip_id, pan_value)` — reverse-engineered the same way
+  (export-diff a hand-edited Inspector Pan value); see the "Clip audio pan"
+  api_truth entry for the byte-level encoding.
+
+Both are audio-clip-only (`_advanced_edit_resolve_clip` must resolve an audio
+track) and require Node.js on PATH like the rest of the drt-surgery actions.
+
+Deferred: track/bus-level fader gain (3.2.1's `set_track_level` — Sm2TiTrack
+has no EffectFiltersBA; the fader almost certainly lives in the project-level
+FLStudioModelBA blob the `fairlight` tool already reads for bus routing, which
+needs its own drt-diff-style investigation, not just a variant of this writer).
+EQ/FairlightFX/automation beyond volume (3.2.2), mono/stereo channel format
+(3.2.3), and the subtitle clusters (3.2.4-3.2.6) are separate, not-yet-started
+sub-stages.
+
 ## Development Guardrails
 
 - Use disposable projects and synthetic media for live validation.

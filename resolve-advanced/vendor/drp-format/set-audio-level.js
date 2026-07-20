@@ -23,6 +23,7 @@ const {
 } = require('./seq-surgery');
 const {
   encodeAudioVolumeEffectFiltersBA,
+  encodeAudioPanEffectFiltersBA,
   enableEffectFiltersFlag,
 } = require('./audio-effect-encoder');
 
@@ -47,14 +48,16 @@ function matchAudioClips(itemsInner) {
 
 // Replace the clip's own (first) <FieldsBlob> and its <EffectFiltersBA>. Both are
 // unique within a clip element; other *BA blobs (MarkersBA, RenderCacheBA, …) have
-// distinct tag names so they are untouched.
-function applyToClip(clipXml, volumeDb) {
+// distinct tag names so they are untouched. `encodeEffect` builds the new
+// <EffectFiltersBA> hex payload — the volume and pan writers share this splice,
+// differing only in which encoder they pass.
+function applyToClip(clipXml, encodeEffect) {
   const fb = clipXml.match(/<FieldsBlob>([0-9a-fA-F]*)<\/FieldsBlob>/);
   if (!fb) throw new Error('set-audio-level: target audio clip has no <FieldsBlob>');
   const newFields = enableEffectFiltersFlag(fb[1]);
   let out = clipXml.replace(fb[0], `<FieldsBlob>${newFields}</FieldsBlob>`);
 
-  const effHex = encodeAudioVolumeEffectFiltersBA(volumeDb);
+  const effHex = encodeEffect();
   if (/<EffectFiltersBA\s*\/>/.test(out)) {
     out = out.replace(/<EffectFiltersBA\s*\/>/, `<EffectFiltersBA>${effHex}</EffectFiltersBA>`);
   } else if (/<EffectFiltersBA>[\s\S]*?<\/EffectFiltersBA>/.test(out)) {
@@ -64,6 +67,41 @@ function applyToClip(clipXml, volumeDb) {
   }
   // Hand the encoded blob back so the caller reports the exact bytes written.
   return { xml: out, effHex };
+}
+
+// Shared by setAudioLevel/setClipPan: locate the target clip on an audio track
+// inside a loaded .drt zip and splice in a patched clip element. Returns the
+// pieces the caller needs to finish (write the zip, report accounting).
+async function locateAndPatchClip(zip, { track, clipIndex, timelineUuid }, encodeEffect, label) {
+  const { entry, xml: seqXml, seqId } = await selectTargetSeq(zip, timelineUuid);
+  const { match: vec, tracks } = getTrackVec(seqXml, 'audio');
+  if (track > tracks.length) {
+    throw new Error(`${label}: audio track ${track} does not exist (timeline has ${tracks.length})`);
+  }
+  const items = getItemsInner(tracks[track - 1]);
+  const clips = matchAudioClips(items);
+  if (clipIndex >= clips.length) {
+    throw new Error(
+      `${label}: clip index ${clipIndex} out of range on audio track ${track} ` +
+      `(${clips.length} clip(s))`,
+    );
+  }
+  const { xml: target, at } = clips[clipIndex];
+  const { xml: patched, effHex } = applyToClip(target, encodeEffect);
+  const newItems = items.slice(0, at) + patched + items.slice(at + target.length);
+  tracks[track - 1] = setItemsInner(tracks[track - 1], newItems);
+  const xml = replaceTrackVec(seqXml, 'audio', vec, tracks);
+  zip.file(entry, xml);
+  return { entry, seqId, effHex };
+}
+
+function validateSelector({ track, clipIndex }, label) {
+  if (!Number.isInteger(track) || track < 1) {
+    throw new TypeError(`${label}: track must be a positive integer (A1 = 1)`);
+  }
+  if (!Number.isInteger(clipIndex) || clipIndex < 0) {
+    throw new TypeError(`${label}: clipIndex must be a non-negative integer`);
+  }
 }
 
 /**
@@ -80,38 +118,17 @@ function applyToClip(clipXml, volumeDb) {
  */
 async function setAudioLevel(drtInput, opts = {}) {
   const { track, volumeDb, clipIndex = 0, timelineUuid } = opts;
-  if (!Number.isInteger(track) || track < 1) {
-    throw new TypeError('setAudioLevel: track must be a positive integer (A1 = 1)');
-  }
+  validateSelector({ track, clipIndex }, 'setAudioLevel');
   if (typeof volumeDb !== 'number' || !Number.isFinite(volumeDb)) {
     throw new TypeError('setAudioLevel: volumeDb must be a finite number');
   }
-  if (!Number.isInteger(clipIndex) || clipIndex < 0) {
-    throw new TypeError('setAudioLevel: clipIndex must be a non-negative integer');
-  }
 
   const zip = await loadDrpZip(drtInput);
-  const { entry, xml: seqXml, seqId } = await selectTargetSeq(zip, timelineUuid);
-  const { match: vec, tracks } = getTrackVec(seqXml, 'audio');
-  if (track > tracks.length) {
-    throw new Error(`setAudioLevel: audio track ${track} does not exist (timeline has ${tracks.length})`);
-  }
-
-  const items = getItemsInner(tracks[track - 1]);
-  const clips = matchAudioClips(items);
-  if (clipIndex >= clips.length) {
-    throw new Error(
-      `setAudioLevel: clip index ${clipIndex} out of range on audio track ${track} ` +
-      `(${clips.length} clip(s))`,
-    );
-  }
-  const { xml: target, at } = clips[clipIndex];
-  const { xml: patched, effHex } = applyToClip(target, volumeDb);
-  const newItems = items.slice(0, at) + patched + items.slice(at + target.length);
-  tracks[track - 1] = setItemsInner(tracks[track - 1], newItems);
-
-  const xml = replaceTrackVec(seqXml, 'audio', vec, tracks);
-  zip.file(entry, xml);
+  const { entry, seqId, effHex } = await locateAndPatchClip(
+    zip, { track, clipIndex, timelineUuid },
+    () => encodeAudioVolumeEffectFiltersBA(volumeDb),
+    'setAudioLevel',
+  );
   const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
   return {
     buffer,
@@ -124,4 +141,44 @@ async function setAudioLevel(drtInput, opts = {}) {
   };
 }
 
-module.exports = { setAudioLevel, splitAudioClips };
+/**
+ * Set an audio clip's pan in a `.drt` (issue #22, 3.2.1). Same export->author->
+ * reimport method as {@link setAudioLevel}; see audio-effect-encoder.js for the
+ * ground truth this was reverse-engineered from.
+ *
+ * @param {Buffer|string} drtInput          - `.drt` bytes or path.
+ * @param {object} opts
+ * @param {number} opts.track               - 1-based audio track (A2 = 2).
+ * @param {number} opts.panValue            - pan position (0 = center; matches
+ *   the Inspector Audio panel's Pan field, e.g. -100..100).
+ * @param {number} [opts.clipIndex=0]       - which clip on the track (0-based, in track order).
+ * @param {string} [opts.timelineUuid]      - target SeqContainer DbId (default: first with tracks).
+ * @returns {Promise<{buffer:Buffer, entry:string, timelineUuid:string, track:number,
+ *   clipIndex:number, panValue:number, effectFiltersHex:string}>}
+ */
+async function setClipPan(drtInput, opts = {}) {
+  const { track, panValue, clipIndex = 0, timelineUuid } = opts;
+  validateSelector({ track, clipIndex }, 'setClipPan');
+  if (typeof panValue !== 'number' || !Number.isFinite(panValue)) {
+    throw new TypeError('setClipPan: panValue must be a finite number');
+  }
+
+  const zip = await loadDrpZip(drtInput);
+  const { entry, seqId, effHex } = await locateAndPatchClip(
+    zip, { track, clipIndex, timelineUuid },
+    () => encodeAudioPanEffectFiltersBA(panValue),
+    'setClipPan',
+  );
+  const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  return {
+    buffer,
+    entry,
+    timelineUuid: seqId,
+    track,
+    clipIndex,
+    panValue,
+    effectFiltersHex: effHex,
+  };
+}
+
+module.exports = { setAudioLevel, setClipPan, splitAudioClips };

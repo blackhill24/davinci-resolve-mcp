@@ -29,6 +29,17 @@
  * for VIDEO transform/ResolveFX on DRP export. That does not apply to audio clip
  * volume — verified live: it is still written on .drt export, as encoded here.
  *
+ * PAN — reverse-engineered the same way (issue #22, 3.2.1: live sample, clip Pan
+ * set to 50 by hand in the Edit-page Inspector Audio panel on Resolve Studio 21,
+ * diffed against a unity/center baseline). Byte-exact same template as volume
+ * (outer f1 group -> f9 { f1 = paramId, f3 { f1 { f2 = fixed64 double } } }), but:
+ *   - filter kind (outer f1) = 144, not 124
+ *   - param id (f9's f1) = 96, not 95
+ *   - only ONE f9 present — no four trailing empty f9 channel placeholders
+ *   - the double is the RAW pan value (e.g. 50.0), not a dB-scaled level
+ * The FieldsBlob "has effect filters" flag (f4 = 1) is set identically to volume
+ * — enableEffectFiltersFlag is reused unchanged.
+ *
  * @module drp-format/audio-effect-encoder
  */
 
@@ -46,6 +57,9 @@ const UNCOMPRESSED_MARKER = 0x80;
 // Constants captured from the two live samples (identical across them).
 const AUDIO_FILTER_KIND = 124; // f1 in the outer group
 const AUDIO_PARAM_ID = 95; // f1 inside f9
+// Pan constants, captured from one live sample (pan=50, see module docstring).
+const PAN_FILTER_KIND = 144;
+const PAN_PARAM_ID = 96;
 
 /**
  * Encode a clip audio level (in dB) into an EffectFiltersBA hex blob.
@@ -88,6 +102,41 @@ function decodeAudioVolumeEffectFiltersBA(blob) {
   const at = buf.indexOf(needle);
   if (at < 0 || at + 3 + 8 > buf.length) return null;
   return buf.readDoubleLE(at + 3);
+}
+
+/**
+ * Encode a clip audio pan into an EffectFiltersBA hex blob.
+ * @param {number} panValue - pan position (0 = center; negative left, positive
+ *   right — matches the Inspector Audio panel's Pan field, e.g. -100..100).
+ * @returns {string} lowercase hex string for the <EffectFiltersBA> element body.
+ */
+function encodeAudioPanEffectFiltersBA(panValue) {
+  if (typeof panValue !== 'number' || !Number.isFinite(panValue)) {
+    throw new TypeError('encodeAudioPanEffectFiltersBA: panValue must be a finite number');
+  }
+  const value = buildDoubleField(2, panValue); // f2 fixed64 = the pan value
+  const f3 = buildNestedField(3, buildNestedField(1, value)); // f3 { f1 { f2 } }
+  const f9 = buildNestedField(9, Buffer.concat([buildVarintField(1, PAN_PARAM_ID), f3]));
+  // Unlike volume, only one f9 is present — no empty channel placeholders.
+  const outer = buildNestedField(1, Buffer.concat([
+    buildVarintField(1, PAN_FILTER_KIND),
+    f9,
+  ]));
+  const payload = Buffer.concat([Buffer.from([UNCOMPRESSED_MARKER]), outer]);
+  const header = Buffer.alloc(8);
+  header.writeUInt32BE(EFFECT_VERSION, 0);
+  header.writeUInt32BE(payload.length, 4);
+  return Buffer.concat([header, payload]).toString('hex');
+}
+
+/**
+ * Decode the pan value out of a pan EffectFiltersBA blob.
+ * @param {string|Buffer} blob - hex string or Buffer of the element body.
+ * @returns {number|null} the pan value, or null if the blob is empty/unrecognized.
+ */
+function decodeAudioPanEffectFiltersBA(blob) {
+  // Same double-field template as volume — the needle-search decode is identical.
+  return decodeAudioVolumeEffectFiltersBA(blob);
 }
 
 // Walk the top-level protobuf fields of `buf`, returning true if any has the
@@ -146,7 +195,11 @@ function enableEffectFiltersFlag(blob) {
 module.exports = {
   encodeAudioVolumeEffectFiltersBA,
   decodeAudioVolumeEffectFiltersBA,
+  encodeAudioPanEffectFiltersBA,
+  decodeAudioPanEffectFiltersBA,
   enableEffectFiltersFlag,
   AUDIO_FILTER_KIND,
   AUDIO_PARAM_ID,
+  PAN_FILTER_KIND,
+  PAN_PARAM_ID,
 };

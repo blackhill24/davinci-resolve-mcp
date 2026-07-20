@@ -8,12 +8,12 @@ Complete Resolve scripting API coverage, live-test status, and method-by-method 
 |--------|-------|
 | MCP Tools | **33** compound (default) / **341** granular |
 | Kernel Actions | **136** guarded MCP workflow actions across 9 compound tools |
-| API Methods Covered | **336/336** (100%) |
-| Methods Live Tested | **331/336** (98.5%) |
+| API Methods Covered | **348/348** (100%) |
+| Methods Live Tested | **331/348** (95.1%) |
 | Live Test Pass Rate | **331/331** (100%) |
 | API Object Classes | 13 |
-| Tested Against | DaVinci Resolve 19.1.3 Studio + Resolve 20.3.2 Studio |
-| Compatibility Note | Resolve 19.1.3 remains the compatibility baseline; Resolve 20.x scripting calls are additive, version-guarded, and live-tested on 20.3.2; Resolve 21 beta APIs are intentionally deferred until stable |
+| Tested Against | DaVinci Resolve 21.0.2.4 Studio (Linux) |
+| Compatibility Note | Resolve 21.0 Studio is the sole supported baseline — no backward compatibility. Pre-21 version guards have been removed. The recount (`scripts/audit_api_parity.py --count`) is the single source of truth for the 348-method surface; the 12 Resolve 21 delta methods are exposed and await their dedicated live validation in Stage 2. |
 
 ## API Coverage
 
@@ -65,13 +65,13 @@ guard, so it never goes stale.
 
 | Class | Methods | Tools | Description |
 |-------|---------|-------|-------------|
-| Resolve | 22 | 22 | App control, pages, layout presets, render/burn-in presets, keyframe mode |
+| Resolve | 23 | 23 | App control, pages, layout presets, render/burn-in presets, keyframe mode, session background-task control |
 | ProjectManager | 25 | 25 | Project CRUD, folders, databases, cloud projects, archive/restore |
-| Project | 43 | 43 | Timelines, render pipeline, settings, LUTs, color groups |
-| MediaStorage | 9 | 9 | Volumes, file browsing, media import, mattes |
+| Project | 44 | 44 | Timelines, render pipeline, settings, LUTs, color groups, speech generation |
+| MediaStorage | 7 | 7 | Volumes, file browsing, media import, mattes |
 | MediaPool | 27 | 27 | Folders, clips, timelines, metadata, stereo, sync |
-| Folder | 8 | 8 | Clip listing, export, transcription |
-| MediaPoolItem | 36 | 36 | Metadata, markers, flags, properties, proxy, transcription |
+| Folder | 13 | 13 | Clip listing, export, transcription, audio classification, Intellisearch, slate analysis, motion deblur |
+| MediaPoolItem | 41 | 41 | Metadata, markers, flags, properties, proxy, transcription, audio classification, Intellisearch, slate analysis, motion deblur |
 | Timeline | 58 | 58 | Tracks, markers, items, export, generators, titles, stills, stereo |
 | TimelineItem | 80 | 80 | Properties, markers, Fusion comps, versions, takes, CDL, AI tools |
 | Gallery | 8 | 8 | Albums, stills, power grades |
@@ -81,7 +81,7 @@ guard, so it never goes stale.
 
 ## Test Results
 
-Baseline testing was performed against **DaVinci Resolve 19.1.3 Studio** on macOS with live API calls (no mocks). Resolve 20 additions were revalidated live against **DaVinci Resolve 20.3.2 Studio**.
+The current live baseline is **DaVinci Resolve 21.0.2.4 Studio (Linux)** — the sole supported build. Stage 1 re-validated the live suite on 21.0.2.4 with no regressions after pre-21 guard removal. The earlier method-by-method surface was live-tested against **DaVinci Resolve 19.1.3 Studio** and **20.3.2 Studio** (no mocks); those results carry forward and are re-confirmed by the 21.0.2.4 suite run.
 
 | Phase | Tests | Pass Rate | Scope |
 |-------|-------|-----------|-------|
@@ -91,9 +91,12 @@ Baseline testing was performed against **DaVinci Resolve 19.1.3 Studio** on macO
 | Phase 4 | 10/10 | 100% | AI/ML methods, Fusion clips, stereo, gallery stills |
 | Phase 5 | 6/6 | 100% | Scene cuts, subtitles from audio, graph node cache/tools/enable |
 | Resolve 20 delta | 12/12 | 100% | Resolve 20.0-20.2.2 scripting additions live-tested on 20.3.2 |
-| **Total** | **331/331** | **100%** | **98.5% of current API methods tested live** |
+| Resolve 21.0 re-validation | 21 suites | 100% | Live suite re-run on 21.0.2.4 Studio (Linux) after pre-21 guard removal — no regressions |
+| **Total** | **331/331** | **100%** | **95.1% of the 348-method surface tested live (12 Resolve 21 delta methods pending Stage 2)** |
 
-### Untested Methods (5 of 336)
+### Untested Methods (17 of 348)
+
+The 4 cloud methods and 1 Dolby Vision method below remain content/infrastructure-gated. The 12 Resolve 21 delta methods (session background-task control, speech generation, audio classification ×2, Intellisearch, slate analysis ×2, motion deblur, plus the Resolve/Project/Folder/MediaPoolItem additions) are exposed but await dedicated live validation in **Stage 2 (#20)**.
 
 | Method | Reason | Help Wanted |
 |--------|--------|-------------|

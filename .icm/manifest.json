@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "81405cd1574147b2",
+      "fingerprint": "daf29c3751971e9f",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -60,7 +60,6 @@
         "src/utils/fuse_templates.py",
         "src/utils/fusion_composition_live_probe.py",
         "src/utils/fusion_group_settings.py",
-        "src/utils/layout_presets.py",
         "src/utils/lut_paths.py",
         "src/utils/mcp_stdio.py",
         "src/utils/mcp_transport.py",
@@ -107,7 +106,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "da8d03b0cd297086",
+      "fingerprint": "53c3e4e9300ef705",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -538,7 +537,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "06c0c0b0198c863b",
+      "fingerprint": "19c078e7e70866eb",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -608,7 +607,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "f65a8d2842399322",
+      "fingerprint": "e52bb5f32068dcae",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -692,6 +691,7 @@
         "tests/test_cloud_operations_readback.py",
         "tests/test_cloud_settings.py",
         "tests/test_color_grade_probe.py",
+        "tests/test_compound_disconnected_smoke.py",
         "tests/test_confirm_token.py",
         "tests/test_confirm_token_preferences.py",
         "tests/test_contracts.py",
@@ -712,6 +712,7 @@
         "tests/test_edit_engine.py",
         "tests/test_embeddings.py",
         "tests/test_entities.py",
+        "tests/test_entrypoints_and_audits.py",
         "tests/test_error_envelope.py",
         "tests/test_exhaustive_wave_a.py",
         "tests/test_extension_authoring_probe.py",
@@ -727,6 +728,7 @@
         "tests/test_get_items_selector.py",
         "tests/test_governance_identity.py",
         "tests/test_grade_evidence_base.py",
+        "tests/test_granular_disconnected_smoke.py",
         "tests/test_import.py",
         "tests/test_import_from_drp.py",
         "tests/test_improvements.py",
@@ -741,6 +743,7 @@
         "tests/test_media_pool_append_verification.py",
         "tests/test_media_pool_changes.py",
         "tests/test_media_pool_delete_governance.py",
+        "tests/test_media_pool_folder_ops.py",
         "tests/test_media_pool_ingest_probe.py",
         "tests/test_media_pool_walk.py",
         "tests/test_multicam_setup.py",
@@ -757,6 +760,7 @@
         "tests/test_project_cleanup.py",
         "tests/test_project_lifecycle_probe.py",
         "tests/test_project_lint.py",
+        "tests/test_project_properties.py",
         "tests/test_project_spec.py",
         "tests/test_propose_grade.py",
         "tests/test_provenance.py",
@@ -769,6 +773,7 @@
         "tests/test_resolve_ai_governance.py",
         "tests/test_resolve_ai_ledger.py",
         "tests/test_resolve_busy.py",
+        "tests/test_resolve_connection.py",
         "tests/test_review_annotation_probe.py",
         "tests/test_sampling_modes.py",
         "tests/test_script_plugin.py",

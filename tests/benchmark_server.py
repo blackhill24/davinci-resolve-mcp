@@ -224,8 +224,8 @@ def print_summary(results: Dict[str, Any]) -> None:
     
     if operation_times:
         logger.info("\nOperations ranked by speed (fastest first):")
-        for op, time in sorted(operation_times, key=lambda x: x[1]):
-            logger.info(f"  {op}: {time * 1000:.2f}ms")
+        for op, avg_time in sorted(operation_times, key=lambda x: x[1]):
+            logger.info(f"  {op}: {avg_time * 1000:.2f}ms")
     
     # Resource usage
     if "resource_change" in results and results["resource_change"]:

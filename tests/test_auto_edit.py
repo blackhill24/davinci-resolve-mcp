@@ -318,6 +318,29 @@ class RevisionTest(AutoEditBase):
         self.assertFalse(out["success"])
         self.assertIn("no segments", out["error"])
 
+    def test_multi_drop_uses_displayed_indices(self):
+        plan = self._plan()
+        self.assertEqual(len(plan["segments"]), 3)
+        survivor = plan["segments"][1]["source_start_frame"]
+        # Ascending indices must still remove the segments shown at 0 and 2 —
+        # the drop-only batch is normalized high→low internally.
+        out = auto_edit.apply_revision(
+            self.root, plan["plan_id"],
+            edits=[{"op": "drop", "index": 0}, {"op": "drop", "index": 2}])
+        self.assertTrue(out["success"], out)
+        kept = out["plan"]["segments"]
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0]["source_start_frame"], survivor)
+
+    def test_multi_drop_mixed_with_reorder_must_be_descending(self):
+        plan = self._plan()
+        bad = auto_edit.apply_revision(
+            self.root, plan["plan_id"],
+            edits=[{"op": "reorder", "order": [2, 0, 1]},
+                   {"op": "drop", "index": 0}, {"op": "drop", "index": 2}])
+        self.assertFalse(bad["success"])
+        self.assertIn("descending", bad["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

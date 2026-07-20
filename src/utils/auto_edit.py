@@ -103,6 +103,11 @@ def create_brief(
     title_text: Optional[str] = None,
     options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    # Authoritative validation for the pure API: direct callers (tests, future
+    # non-tool flows) reach create_brief without server.py's fail-fast pass, so
+    # this must stand on its own. The start_brief tool re-runs the same check
+    # earlier as a cheap pre-flight before ffprobe/media import — deliberate
+    # belt-and-braces, not an accident. Keep the two rule sets identical.
     errors = validate_brief_inputs(
         files=files, music=music, target_duration_seconds=target_duration_seconds,
         genre=genre, deliverable=deliverable, title_text=title_text,
@@ -583,9 +588,14 @@ def apply_revision(
 ) -> Dict[str, Any]:
     """Structured overrides on a CutList: reorder / keep / drop / title.
 
-    Edits apply sequentially — each op sees the list as the previous op left
-    it, so drop indices re-evaluate after every edit (drop several segments in
-    descending index order, or one per revision).
+    Drop indices refer to the plan **as displayed** in the checkpoint. A
+    drop-only batch is applied high-index-to-low internally, so listing several
+    drops (in any order) removes exactly the segments shown at those indices,
+    and repeated same-index drops still chain (each hits the new head). When
+    drops are mixed with reorder/keep — where positions move mid-batch and
+    "displayed index" is ambiguous — the drops must be listed in descending
+    index order or the batch is rejected; split such edits into separate
+    revisions instead.
 
     Produces revision+1 as a NEW saved plan (append-rebuild: old revisions
     stay loadable); the caller re-shows the checkpoint for the new revision.
@@ -596,7 +606,26 @@ def apply_revision(
     segments = list(plan.get("segments") or [])
     removed = list(plan.get("removed") or [])
     titles = list(plan.get("titles") or [])
-    for edit in edits or []:
+    # Drop indices are quoted against the plan as displayed. Applying drops
+    # high→low makes displayed indices land on the right segments regardless of
+    # listed order (and leaves repeated-index drops chaining as before). Once a
+    # reorder/keep is interleaved, positions move mid-batch and we cannot safely
+    # reinterpret indices — require descending drops there, or reject.
+    edit_list = list(edits or [])
+    ops = [str(e.get("op") or "") for e in edit_list]
+    if ops.count("drop") > 1:
+        if any(o in ("reorder", "keep") for o in ops):
+            drop_idxs = [e.get("index") for e, o in zip(edit_list, ops) if o == "drop"]
+            if (any(not isinstance(i, int) for i in drop_idxs)
+                    or drop_idxs != sorted(drop_idxs, reverse=True)):
+                return {"success": False,
+                        "error": "multi-drop mixed with reorder/keep must list drop "
+                                 "indices in descending order (or split into separate revisions)"}
+        else:
+            edit_list.sort(key=lambda e: -e["index"]
+                           if str(e.get("op") or "") == "drop" and isinstance(e.get("index"), int)
+                           else float("-inf"))
+    for edit in edit_list:
         op = str(edit.get("op") or "")
         if op == "reorder":
             order = edit.get("order")

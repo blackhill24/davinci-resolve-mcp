@@ -19114,8 +19114,9 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         the markdown checkpoint summary.
       revise_cut(brief_id, notes?, edits?) -> revision+1 — structured overrides
         (reorder/keep/drop/title), new plan_id, old revisions stay loadable.
-        Edits apply sequentially: drop indices re-evaluate after each op, so
-        multi-drop batches should list indices in descending order.
+        Drop indices refer to the plan as displayed: a drop-only batch removes
+        exactly those segments (listed in any order); drops mixed with
+        reorder/keep must be descending or the batch is rejected.
       get_cut_summary(plan_id, format?) -> {summary} — markdown (default) or json.
       approve_cut(plan_id, music_bed_consent?, confirm_token?) — THE one human
         checkpoint. The confirm-token preview embeds the cut summary and the
@@ -19151,6 +19152,9 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             return err
         files = p.get("files") or []
         music = p.get("music")
+        # Fail-fast pre-flight: catch bad inputs before the expensive ffprobe
+        # pass and irreversible media import below. create_brief re-validates as
+        # the authoritative check for direct callers — deliberate layering.
         problems = _auto_edit_mod.validate_brief_inputs(
             files=files, music=music,
             target_duration_seconds=p.get("target_duration_seconds") or p.get("targetDurationSeconds"),

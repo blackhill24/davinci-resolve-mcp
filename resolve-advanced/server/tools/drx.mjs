@@ -256,6 +256,20 @@ const generateFromRequestSchema = z.object({
   outputPath: z.string().optional(),
 });
 
+const buildGraphSchema = z.object({
+  nodes: z
+    .array(z.object({}).passthrough())
+    .min(1)
+    .describe(
+      'Serial node tree, in order. Each: { label?, params: {lift,gamma,gain,offset,contrast,pivot,saturation,...} } ' +
+        '(or grade keys at the top level). Same value space as generate/merge (space:\'ui\' default = Resolve ' +
+        'panel units; space:\'drx\' = raw). One call authors a whole N-node .drx from scratch — node 1 seeds the ' +
+        'graph, nodes 2..N are grafted serially (1->2->...->N).'
+    ),
+  metadata: z.object({}).passthrough().optional().describe('Optional { label, width, height } metadata'),
+  outputPath: z.string().optional().describe('If set, write the .drx here'),
+});
+
 const exportCdlSchema = z
   .object({
     drxPath: z.string().optional(),
@@ -645,7 +659,7 @@ export { computeValueFidelity, countKeyframedNodes, normalizeGradeParams, normal
 export const drxTool = {
   name: 'drx',
   description:
-    "DaVinci Resolve per-clip grade (.drx) codec — offline, no Resolve required. Actions: parse (decode node graph + qualifiers/curves/windows/OFX), generate (params → .drx), generate_from_request, export_cdl (→ ASC CDL/CCC), merge, level_clips, skin_match, shot_match, cdl_io (import ASC CDL→ .drx; export_cdl is the reverse), white_balance_match (neutral-patch WB), grade_transfer (lossless Body copy → apply-ready .drx), relayout (tidy node-graph LAYOUT only — rewrites node x/y to Resolve's clean row, grade content byte-preserved; live recipe: grab still → relayout → reset_all_grades → ApplyGradeFromDRX. The reset is REQUIRED: same-structure applies keep the existing layout, positions in the .drx are ignored), contrast_normalize (black/white-point match), gamut_legal (broadcast-legal/clip QC), scope_read (frame stats + colorist readouts: parade delta, vectorscope skin-line, black-balance, %clip/%crush + deterministic intent signals). parse/export_cdl include a `valueFidelity` marker — decoded values are exact only for the calibrated native control set (OFX/uncalibrated params are raw; keyframed grades flagged), so don't treat decoded values as ground truth. Structural WRITE paths live-verified 2026-07: power windows (incl. polygon/curve vertex shapes), HSL/RGB/luma qualifiers, HDR zones + zone DEFINITIONS (custom Max Range/falloff), ColorSlice, sat/lum-axis + hue-axis HSL curves (single- and multi-band canonical cage), blur/key/motionEffects palettes, LUT attach (lut_apply; .cube must be Resolve-resolvable, e.g. the LUT dir), and OFX plugin params (any pluginId; params are self-describing name/value pairs, enum strings are PER-PLUGIN vocabularies — use the ResolveFX registry/observed values). Still experimental to write: Color Warper on Resolve 19 (R21 wire format). See CALIBRATION-STATUS.md.",
+    "DaVinci Resolve per-clip grade (.drx) codec — offline, no Resolve required. Actions: parse (decode node graph + qualifiers/curves/windows/OFX), generate (params → .drx), build_graph (author a whole N-node serial tree from scratch in one call — node 1 seeds, 2..N graft serially), generate_from_request, export_cdl (→ ASC CDL/CCC), merge, level_clips, skin_match, shot_match, cdl_io (import ASC CDL→ .drx; export_cdl is the reverse), white_balance_match (neutral-patch WB), grade_transfer (lossless Body copy → apply-ready .drx), relayout (tidy node-graph LAYOUT only — rewrites node x/y to Resolve's clean row, grade content byte-preserved; live recipe: grab still → relayout → reset_all_grades → ApplyGradeFromDRX. The reset is REQUIRED: same-structure applies keep the existing layout, positions in the .drx are ignored), contrast_normalize (black/white-point match), gamut_legal (broadcast-legal/clip QC), scope_read (frame stats + colorist readouts: parade delta, vectorscope skin-line, black-balance, %clip/%crush + deterministic intent signals). parse/export_cdl include a `valueFidelity` marker — decoded values are exact only for the calibrated native control set (OFX/uncalibrated params are raw; keyframed grades flagged), so don't treat decoded values as ground truth. Structural WRITE paths live-verified 2026-07: power windows (incl. polygon/curve vertex shapes), HSL/RGB/luma qualifiers, HDR zones + zone DEFINITIONS (custom Max Range/falloff), ColorSlice, sat/lum-axis + hue-axis HSL curves (single- and multi-band canonical cage), blur/key/motionEffects palettes, LUT attach (lut_apply; .cube must be Resolve-resolvable, e.g. the LUT dir), and OFX plugin params (any pluginId; params are self-describing name/value pairs, enum strings are PER-PLUGIN vocabularies — use the ResolveFX registry/observed values). Still experimental to write: Color Warper on Resolve 19 (R21 wire format). See CALIBRATION-STATUS.md.",
   async handler({ action, args }) {
     if (action === 'parse') {
       const p = parseSchema.parse(args);
@@ -690,6 +704,34 @@ export const drxTool = {
         return { outputPath: p.outputPath, bytes: Buffer.byteLength(content), ...warn };
       }
       return typeof out === 'string' ? { content: out, ...warn } : { ...out, ...warn };
+    }
+
+    if (action === 'build_graph') {
+      const p = buildGraphSchema.parse(args);
+      const warnings = [];
+      const [first, ...rest] = p.nodes;
+      // Node 1 seeds the graph via the same path as `generate`; its label rides on metadata.
+      const firstParams = normalizeGradeParams(first.params || first, warnings);
+      // Per-node label wins for the seed node; graph-level metadata.label is the fallback.
+      const seedMeta = { ...(p.metadata || {}) };
+      if (first.label) seedMeta.label = first.label;
+      const seed = await drxGenerator().generateDRX(firstParams, seedMeta);
+      let content = typeof seed === 'string' ? seed : seed?.content || seed?.drxContent;
+      // Nodes 2..N graft serially through the merger (1->2->...->N).
+      if (rest.length) {
+        const merger = drxMerger();
+        const newNodes = rest.map((n) => normalizeNewNode(n, warnings));
+        const out = await merger.mergeFromContent(content, newNodes, p.metadata || {});
+        content = typeof out === 'string' ? out : out?.content || out?.drxContent;
+      }
+      const parsed = await drxParser().parseDRXContent(content);
+      const nodeCount = Array.isArray(parsed?.nodes) ? parsed.nodes.length : null;
+      const warn = warnings.length ? { warnings } : {};
+      if (p.outputPath && content) {
+        await fs.writeFile(p.outputPath, content);
+        return { outputPath: p.outputPath, bytes: Buffer.byteLength(content), nodeCount, ...warn };
+      }
+      return { content, nodeCount, ...warn };
     }
 
     if (action === 'generate_from_request') {

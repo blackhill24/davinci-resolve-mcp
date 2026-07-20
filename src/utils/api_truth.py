@@ -353,11 +353,43 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "cannot read or write primary grade values (lift/gamma/gain/"
                    "offset/contrast/curves/qualifiers/power windows). Grading is "
                    "limited to CDL, whole-grade DRX/LUT application and copying.",
-        "recommended": "Build node trees and dial grades in the Resolve UI or via "
-                       "DRX/CDL/LUT import; per-parameter grade control is not "
-                       "scriptable.",
+        "recommended": "Build node trees and dial grades in the Resolve UI, or "
+                       "author them OFFLINE and apply live: the resolve-advanced "
+                       "`drx` codec now writes node trees + primaries (issue #23, "
+                       "3.3.1), applied via ApplyGradeFromDRX. Per-parameter grade "
+                       "control is still not "
+                       "scriptable through the LIVE API (no live read/write of "
+                       "primaries or node edits).",
         "tags": ["missing-method", "color", "grade", "node"],
         "submit": "missing",
+    },
+    {
+        "symbol": "Color grade authoring — .drx (offline) node tree + primaries",
+        "object": "drx codec / Graph.ApplyGradeFromDRX",
+        "reality": "The live API can't add/connect nodes or write primary grade "
+                   "values (see the entry above), but a full node tree WITH "
+                   "primaries can be authored offline as a .drx and applied live "
+                   "(issue #23, 3.3.1). The resolve-advanced `drx` codec exposes "
+                   "`generate` (single-node primaries), `merge` (graft nodes onto an "
+                   "existing .drx) and `build_graph` (author a whole N-node serial "
+                   "tree 1->2->...->N in one call). Primaries (lift/gamma/gain/"
+                   "offset/contrast/pivot/saturation), power windows, qualifiers, "
+                   "HSL/custom curves and OFX all round-trip in the calibrated set; "
+                   "decoded primary values are ground truth. Proven end to end on "
+                   "Resolve Studio 21.0.2.4: an offline-authored 2-node tree applied "
+                   "via `timeline_item_color safe_apply_drx` takes a clip's graph "
+                   "from 1 node to 2 (tests/live_drx_grade_authoring_probe.py). "
+                   "Read-only caveats remain: ApplyGradeFromDRX REPLACES the whole "
+                   "graph (no surgical single-node live edit, no append), and the "
+                   "live API still can't READ primaries back -- the only readback is "
+                   "export-still-to-.drx then offline parse.",
+        "recommended": "Author the grade offline with resolve-advanced `drx` "
+                       "build_graph/generate/merge (space='ui' panel units by "
+                       "default), then apply live via safe_apply_drx / "
+                       "ApplyGradeFromDRX. Back up a still first -- the apply is a "
+                       "whole-graph replace with no undo inside the API.",
+        "tags": ["color", "grade", "node", "drx", "offline", "authoring"],
+        "issue": 23,
     },
     {
         "symbol": "Fairlight audio levels / pan / EQ / automation / FairlightFX",

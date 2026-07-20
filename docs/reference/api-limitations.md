@@ -102,7 +102,7 @@ equivalent, blocking full automation.
 
 - **Object:** `Graph / TimelineItem`
 - **Behavior:** The Graph object exposes node enable/label/count, LUT get/set, cache mode, ResetAllGrades, ApplyGradeFromDRX and ApplyArriCdlLut; TimelineItem adds SetCDL, CopyGrades and color versions. But you cannot add, delete, or connect nodes, and you cannot read or write primary grade values (lift/gamma/gain/offset/contrast/curves/qualifiers/power windows). Grading is limited to CDL, whole-grade DRX/LUT application and copying.
-- **Workaround / current handling:** Build node trees and dial grades in the Resolve UI or via DRX/CDL/LUT import; per-parameter grade control is not scriptable.
+- **Workaround / current handling:** Build node trees and dial grades in the Resolve UI, or author them OFFLINE and apply live: the resolve-advanced `drx` codec now writes node trees + primaries (issue #23, 3.3.1), applied via ApplyGradeFromDRX. Per-parameter grade control is still not scriptable through the LIVE API (no live read/write of primaries or node edits).
 - **Tags:** missing-method, color, grade, node
 
 ### Fairlight audio levels / pan / EQ / automation / FairlightFX

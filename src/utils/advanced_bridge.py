@@ -94,6 +94,10 @@ def run_node_bridge(
             [node, bridge, *[str(a) for a in argv]],
             capture_output=True,
             text=True,
+            # Node progress logs (e.g. the DRX merger's "1 → 2") are UTF-8; the process
+            # locale may be ascii, so decode explicitly rather than crash on the arrow.
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
             cwd=root,
         )

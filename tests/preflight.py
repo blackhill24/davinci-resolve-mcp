@@ -44,6 +44,7 @@ def collect_status() -> dict:
         "project": None,
         "timeline": None,
         "page": None,
+        "rendering": None,
         "detail": None,
     }
 
@@ -98,6 +99,7 @@ def collect_status() -> dict:
         status["project"] = project.GetName()
         timeline = project.GetCurrentTimeline()
         status["timeline"] = timeline.GetName() if timeline else None
+        status["rendering"] = bool(project.IsRenderingInProgress())
     except Exception as exc:
         status["detail"] = f"project introspection raised: {exc!r}"
     return status
@@ -142,6 +144,10 @@ def gate(require: str = "open") -> dict:
     if state == "open_no_project" and require in ("project", "timeline"):
         print("[preflight] NOT READY — this harness needs a project open; aborting live run.")
         sys.exit(EXIT_NOT_READY)
+    if require == "idle" and status.get("rendering"):
+        print("[preflight] NOT READY — a render is in progress (possibly wedged; see")
+        print("[preflight] memory/resolve-headless-render-hang). Wait or restart Resolve.")
+        sys.exit(EXIT_NOT_READY)
     if require == "timeline" and not status["timeline"]:
         print("[preflight] NOT READY — this harness needs a current timeline; aborting live run.")
         sys.exit(EXIT_NOT_READY)
@@ -153,11 +159,12 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     parser.add_argument(
         "--require",
-        choices=["open", "project", "timeline", "closed"],
+        choices=["open", "idle", "project", "timeline", "closed"],
         default="open",
-        help="Readiness bar: open = Resolve responding (default); project = a project "
-        "must be loaded; timeline = a timeline must also be current; closed = Resolve "
-        "must NOT be running (cold-launch harnesses).",
+        help="Readiness bar: open = Resolve responding (default); idle = open and no "
+        "render in progress (render suites — a wedged render blocks everything); "
+        "project = a project must be loaded; timeline = a timeline must also be "
+        "current; closed = Resolve must NOT be running (cold-launch harnesses).",
     )
     args = parser.parse_args()
 
@@ -172,6 +179,8 @@ def main() -> int:
         code = EXIT_NOT_READY
     elif state == "open_no_project":
         code = EXIT_NOT_READY if args.require in ("project", "timeline") else EXIT_READY
+    elif args.require == "idle" and status["rendering"]:
+        code = EXIT_NOT_READY
     else:  # open_project
         code = EXIT_NOT_READY if args.require == "timeline" and not status["timeline"] else EXIT_READY
 

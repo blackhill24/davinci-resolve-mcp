@@ -90,6 +90,30 @@ Rule of thumb: plan/measure offline, apply mix/track changes live; use
 `fairlight` for bus work the scripting API can't reach. See the `resolve-audio`
 skill (`.claude/skills/audio.md`) and the `/audio_workflow` prompt.
 
+### Stage 3.2 clip-level UI-gap workarounds (issue #22)
+
+The `timeline` compound tool adds `set_clip_volume(clip_id, volume_db)` and
+`set_clip_pan(clip_id, pan_value)` — same export->drp-ops->reimport convention
+as [Stage 3.1](timeline-edit-kernel.md), audio-clip-only. Ground truth in
+`src/utils/api_truth.py` and `resolve-advanced/vendor/drp-format/audio-effect-encoder.js`.
+
+Investigated for 3.2.2 (EQ/FairlightFX/automation beyond volume), findings in
+`api_truth.py`:
+
+- **Track/channel-level EQ (Fairlight mixer strip)** — confirmed NOT
+  `.drt`-representable. The clip's "has effect filters" flag flips but
+  `<EffectFiltersBA>` stays empty; the fader/EQ state lives entirely in the
+  project-level `FLStudioModelBA` blob the `fairlight` tool above already
+  reads for bus routing. No `.drt` workaround is possible here — it would need
+  its own DB-patch investigation, not a `.drt`-surgery variant.
+- **Clip-level FairlightFX** (e.g. the "Fairlight EQ" plugin dragged from the
+  Effects Library onto a clip) — DOES round-trip, but through a different
+  mechanism than volume/pan: the whole FX chain lands in the clip's own
+  `<FieldsBlob>` as a zlib-deflated payload (~2.7KB for a 6-band EQ) prefixed
+  with a `bmd:<PluginName>:<id>` identifier string. Not decoded to individual
+  band parameters yet — would need several more single-variable export-diff
+  samples. Plausible future work, not attempted this pass.
+
 ## Live Probe
 
 Run the live boundary probe with:

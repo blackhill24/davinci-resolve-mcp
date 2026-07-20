@@ -117,7 +117,7 @@ equivalent, blocking full automation.
 
 - **Object:** `TimelineItem / Timeline`
 - **Behavior:** There is no API to set clip or track volume, pan, EQ, audio automation, or to add/configure FairlightFX. SetProperty covers video transform only; the audio surface is read-only (GetSourceAudioChannelMapping, GetAudioMapping, voice isolation). Verified via dir() + SetProperty docs AND by live mutating attempt on 21.0.0: SetProperty('Volume'|'Level'|'Gain'|'AudioVolume', 0) all return False (note 'Pan' is the VIDEO transform key, not audio pan, so it misleadingly succeeds).
-- **Workaround / current handling:** Mix in the Fairlight UI; only voice-isolation state and channel-mapping reads are scriptable.
+- **Workaround / current handling:** Mix in the Fairlight UI; only voice-isolation state and channel-mapping reads are scriptable. Offline .drt-surgery workarounds exist for SOME of these -- see the paired entries below: clip volume (issue #14) and clip pan (issue #22) are solved; track/channel EQ is confirmed to have no .drt workaround; clip-level FairlightFX round-trips but isn't decoded yet.
 - **Tags:** missing-method, audio, fairlight
 
 ### Proxy / optimized-media generation

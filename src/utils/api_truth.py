@@ -339,7 +339,12 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "|'AudioVolume', 0) all return False (note 'Pan' is the VIDEO "
                    "transform key, not audio pan, so it misleadingly succeeds).",
         "recommended": "Mix in the Fairlight UI; only voice-isolation state and "
-                       "channel-mapping reads are scriptable.",
+                       "channel-mapping reads are scriptable. Offline .drt-surgery "
+                       "workarounds exist for SOME of these -- see the paired "
+                       "entries below: clip volume (issue #14) and clip pan (issue "
+                       "#22) are solved; track/channel EQ is confirmed to have no "
+                       ".drt workaround; clip-level FairlightFX round-trips but "
+                       "isn't decoded yet.",
         "tags": ["missing-method", "audio", "fairlight"],
         "submit": "missing",
     },
@@ -395,6 +400,68 @@ API_TRUTH: List[Dict[str, Any]] = [
                        "resolve-advanced/vendor/drp-format (setClipPan), then "
                        "reimport; exposed as the timeline set_clip_pan action.",
         "tags": ["audio", "fairlight", "drt", "offline", "encoding", "pan"],
+        "issue": 22,
+    },
+    {
+        "symbol": "Track-level Fairlight EQ (mixer channel strip) — does NOT round-trip",
+        "object": "drt SeqContainer / Sm2TiTrack",
+        "reality": "Unlike clip volume/pan, a TRACK-level EQ edit (the 6-band "
+                   "parametric EQ on a channel strip in the Fairlight page mixer, "
+                   "not a clip effect) does not carry its parameter data through an "
+                   "exported .drt at all (issue #22, 3.2.2). Verified live on "
+                   "Resolve Studio 21.0.2.4: setting a channel's Band 1 gain to "
+                   "+9.0 dB, exporting, and diffing against a baseline shows the "
+                   "clip's <FieldsBlob> 'has effect filters' flag flip (the same "
+                   "f4=1 bit clip volume/pan use), but <EffectFiltersBA> stays "
+                   "empty (<EffectFiltersBA/>) in BOTH the baseline and the edited "
+                   "export — the +9.0 dB value is nowhere in the file. Sm2TiTrack "
+                   "itself has no EffectFiltersBA element at all (confirmed "
+                   "structurally). The fader/EQ state almost certainly lives "
+                   "entirely in the project-level FLStudioModelBA blob (the "
+                   "`fairlight` tool already reads this for bus routing — see the "
+                   "Audio/Fairlight kernel), which a .drt (a timeline-only export) "
+                   "never touches.",
+        "recommended": "No .drt-based workaround exists for track/channel EQ. If "
+                       "ever pursued, it needs its own investigation of the "
+                       "project-level FLStudioModelBA blob (DB-patch route, project "
+                       "closed + relaunch, like fairlight bus-routing import_template "
+                       "-- not a drt-surgery variant).",
+        "tags": ["audio", "fairlight", "drt", "offline", "eq", "impossible"],
+        "issue": 22,
+    },
+    {
+        "symbol": "Clip-level FairlightFX chain (e.g. Fairlight EQ) — round-trips, encoding not yet decoded",
+        "object": "drt SeqContainer / Sm2TiAudioClip",
+        "reality": "Unlike track EQ, a CLIP-level FairlightFX plugin (dragged from "
+                   "the Effects Library 'Audio' tab onto the clip itself, e.g. "
+                   "'Fairlight EQ') DOES round-trip through an exported .drt — but "
+                   "through a completely different mechanism than clip volume/pan. "
+                   "Verified live (Resolve Studio 21.0.2.4, Fairlight EQ Band 1 "
+                   "gain set to 6.0 dB): <EffectFiltersBA> stays empty "
+                   "(<EffectFiltersBA/>); the entire FX chain instead lands in the "
+                   "clip's own <FieldsBlob>, which grows from 12 bytes to ~396 "
+                   "bytes. Structure: the same 8-byte version+length header as "
+                   "other blobs, then a short protobuf preamble containing the "
+                   "literal string 'FL::ClipFX', then a zlib-deflated (0x78 0x9c "
+                   "header) payload. Decompressed, that payload is ~2.7KB and "
+                   "opens with a plugin identifier string "
+                   "'bmd:Fairlight EQ:<numeric id>' followed by what appears to be "
+                   "a Blackmagic proprietary binary plugin-parameter layout (not "
+                   "protobuf) -- NOT yet decoded to individual band "
+                   "freq/gain/Q/type fields. Decoding it needs the same "
+                   "export-diff method as volume/pan but with several more "
+                   "isolated-variable samples (change ONE band's ONE parameter "
+                   "per sample) to map the byte layout -- out of scope for this "
+                   "pass.",
+        "recommended": "A workaround is plausible in principle (the data IS in the "
+                       ".drt) but needs substantially more reverse-engineering than "
+                       "volume/pan before it can be authored: capture several "
+                       "single-variable export-diff samples of the decompressed "
+                       "'FL::ClipFX' payload, map the per-band field offsets, then "
+                       "write an encoder + decompressor pairing with "
+                       "resolve-advanced/vendor/drp-format. Not implemented.",
+        "tags": ["audio", "fairlight", "drt", "offline", "eq", "fairlightfx",
+                 "investigated-not-implemented"],
         "issue": 22,
     },
     {

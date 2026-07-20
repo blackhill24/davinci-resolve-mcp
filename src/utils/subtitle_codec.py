@@ -230,9 +230,14 @@ def read_cue_style(template_hex: str) -> Dict[str, Any]:
     tree = _parse(dec, 0, len(dec))
     style: Dict[str, Any] = {}
     for leaf in _leaf_bytes(tree):
-        color_m = re.search(rb"(?:\x23\x00(?:[0-9a-fA-F]\x00){6})", leaf)
-        if not color_m:
+        # The real style color sits at the leaf TAIL (…[font][size][len][#rrggbb]).
+        # Take the LAST match, not the first: cue text may contain a #rrggbb-shaped
+        # substring ("Error #FF0000", "Room #123456") that would otherwise shadow
+        # the actual color and cascade into bogus font/size reads.
+        color_matches = list(re.finditer(rb"(?:\x23\x00(?:[0-9a-fA-F]\x00){6})", leaf))
+        if not color_matches:
             continue
+        color_m = color_matches[-1]
         style["color"] = leaf[color_m.start():color_m.end()].decode("utf-16-le")
         strings = [m for m in _U16_STR.finditer(leaf) if m.end() <= color_m.start()]
         if strings:

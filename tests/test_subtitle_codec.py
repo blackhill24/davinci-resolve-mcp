@@ -81,6 +81,22 @@ class StyleTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             sc.author_cue_effblob(CUE1, "HELLO ALPHA CUE", "x", color="red")
 
+    def test_hex_shaped_text_does_not_shadow_the_real_color(self):
+        # Regression (bug_005): cue text with a #rrggbb-shaped substring must not
+        # be read as the style color. The real color sits at the leaf tail.
+        blob = sc.author_cue_effblob(CUE1, "HELLO ALPHA CUE", "Error #FF0000 in Room #123456")
+        style = sc.read_cue_style(blob)
+        self.assertEqual(style.get("color"), "#ffffff")  # template's real color
+        self.assertEqual(style.get("font"), "Open Sans")
+        self.assertAlmostEqual(style.get("size"), 58.0, places=2)
+
+    def test_color_override_survives_hex_shaped_text(self):
+        blob = sc.author_cue_effblob(
+            CUE1, "HELLO ALPHA CUE", "Set #00ff00 now", color="#ffcc00")
+        style = sc.read_cue_style(blob)
+        self.assertEqual(style.get("color"), "#ffcc00")
+        self.assertEqual(style.get("font"), "Open Sans")
+
 
 class SrtParseTest(unittest.TestCase):
     SRT = """1

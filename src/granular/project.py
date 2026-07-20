@@ -513,8 +513,11 @@ def load_cloud_project_tool(
         project_media_path: required.
         sync_mode: 'none', 'proxy_only', or 'proxy_and_orig'.
     """
-    return load_cloud_project(get_resolve(), project_name=project_name,
-                              project_media_path=project_media_path, sync_mode=sync_mode)
+    # NOTE: the module-level @mcp.tool load_cloud_project (legacy signature)
+    # shadows the star-imported util of the same name — bind the util explicitly.
+    from src.utils.cloud_operations import load_cloud_project as _load_cloud_project_util
+    return _load_cloud_project_util(get_resolve(), project_name=project_name,
+                                    project_media_path=project_media_path, sync_mode=sync_mode)
 
 
 @mcp.tool()

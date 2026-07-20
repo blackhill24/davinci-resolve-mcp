@@ -8,8 +8,9 @@ resolve = ResolveProxy()
 def list_timelines() -> List[str]:
     """List all timelines in the current project."""
     logger.info("Received request to list timelines")
-    
-    if resolve is None:
+
+    # `resolve` is a ResolveProxy: never None, but falsy when disconnected.
+    if not resolve:
         logger.error("Not connected to DaVinci Resolve")
         return ["Error: Not connected to DaVinci Resolve"]
     

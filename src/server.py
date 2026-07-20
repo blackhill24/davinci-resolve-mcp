@@ -1389,7 +1389,7 @@ def _issue_confirm_token(*, action: str, params: Optional[Dict[str, Any]], previ
             "issued_at": _time.time(),
         }
     body = _err(
-        f"This action is destructive. Re-call with confirm_token to proceed.",
+        "This action is destructive. Re-call with confirm_token to proceed.",
         code="CONFIRMATION_REQUIRED",
         category="pending_user_decision",
         retryable=False,
@@ -2350,6 +2350,32 @@ def _find_clip_with_parent(folder, clip_id, _parent=None):
         if found_clip:
             return found_clip, found_parent
     return None, None
+
+
+def _find_folder_by_id(folder, folder_id):
+    for sub in (folder.GetSubFolderList() or []):
+        if sub.GetUniqueId() == folder_id:
+            return sub
+        found = _find_folder_by_id(sub, folder_id)
+        if found:
+            return found
+    return None
+
+
+def _resolve_folder_ids(root, folder_ids):
+    """Resolve each id anywhere in the folder tree -> (folders, missing_ids).
+
+    Callers must treat a non-empty missing list as an error before mutating,
+    so an unmatched id can never turn into a silent partial delete/move.
+    """
+    folders, missing = [], []
+    for fid in folder_ids:
+        found = _find_folder_by_id(root, fid)
+        if found:
+            folders.append(found)
+        else:
+            missing.append(fid)
+    return folders, missing
 
 def _navigate_folder(mp, path):
     root = mp.GetRootFolder()
@@ -17010,12 +17036,10 @@ def media_pool(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str
         f = mp.AddSubFolder(parent, p["name"])
         return _ok(name=f.GetName(), id=f.GetUniqueId()) if f else _err("Failed to create subfolder")
     elif action == "delete_folders":
-        folders = []
-        for fid in p["folder_ids"]:
-            # Search for folder by ID (simplified - searches root subfolders)
-            for sub in (root.GetSubFolderList() or []):
-                if sub.GetUniqueId() == fid:
-                    folders.append(sub)
+        folders, missing = _resolve_folder_ids(root, p["folder_ids"])
+        if missing:
+            return _err(f"Folder id(s) not found: {', '.join(missing)}",
+                        state={"found": len(folders), "missing": missing})
         if not folders:
             return _err("No folders found")
         if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
@@ -17034,11 +17058,12 @@ def media_pool(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str
         target = _navigate_folder(mp, p["target_path"])
         if not target:
             return _err(f"Target folder not found: {p['target_path']}")
-        folders = []
-        for fid in p["folder_ids"]:
-            for sub in (root.GetSubFolderList() or []):
-                if sub.GetUniqueId() == fid:
-                    folders.append(sub)
+        folders, missing = _resolve_folder_ids(root, p["folder_ids"])
+        if missing:
+            return _err(f"Folder id(s) not found: {', '.join(missing)}",
+                        state={"found": len(folders), "missing": missing})
+        if not folders:
+            return _err("No folders found")
         return {"success": bool(mp.MoveFolders(folders, target))}
     elif action == "rename_folder":
         return _mp_rename_folder_live(mp, p)
@@ -17360,7 +17385,7 @@ def media_pool(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str
         return _copy_clip_annotations(root, p)
     elif action == "media_pool_boundary_report":
         return _media_pool_boundary_report(mp, p)
-    return _unknown(action, ["get_root_folder","get_current_folder","set_current_folder","add_subfolder","delete_folders","move_folders","refresh","create_timeline","create_timeline_from_clips","import_timeline","delete_timelines","append_to_timeline","import_media","delete_clips","move_clips","relink","unlink","export_metadata","get_unique_id","create_stereo_clip","auto_sync_audio","get_selected","set_selected","get_clip_mattes","get_timeline_mattes","delete_clip_mattes","import_folder",*_MEDIA_POOL_KERNEL_ACTIONS])
+    return _unknown(action, ["get_root_folder","get_current_folder","set_current_folder","add_subfolder","delete_folders","move_folders","rename_folder","refresh","create_timeline","create_timeline_from_clips","import_timeline","delete_timelines","append_to_timeline","import_media","delete_clips","move_clips","relink","unlink","export_metadata","get_unique_id","create_stereo_clip","auto_sync_audio","get_selected","set_selected","get_clip_mattes","get_timeline_mattes","delete_clip_mattes","import_folder",*_MEDIA_POOL_KERNEL_ACTIONS])
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -27672,5 +27697,5 @@ if __name__ == "__main__":
         logger.error(f"Unknown --transport {transport!r}; use stdio|sse|streamable-http")
         sys.exit(2)
 
-    logger.info(f"Starting DaVinci Resolve MCP Server (32 compound tools)")
+    logger.info("Starting DaVinci Resolve MCP Server (35 compound tools)")
     run_fastmcp_stdio(mcp)

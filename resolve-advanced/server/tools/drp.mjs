@@ -5,7 +5,7 @@
  *
  * Author: create_empty_project, assemble_timeline, add_media_clip
  * Place: place_fusion_title, place_generator, place_transition
- * Edit: move_clip, delete_clip, trim_clip, trim_clip_head, split_clip, ripple_timeline
+ * Edit: move_clip, delete_clip, trim_clip, trim_clip_head, retime_clip, slip_clip, split_clip, ripple_timeline
  * Media: relink_media, repoint_media
  * Grade: inject_grades, extract_node_graphs, diff
  */
@@ -94,6 +94,23 @@ const S = {
   delete_clip: z.object({ ...io, fromTrack: z.number().int().positive(), ripple: z.boolean().optional(), ...sel }),
   trim_clip: z.object({ ...io, track: z.number().int().positive(), newDuration: z.number().int().positive(), ripple: z.boolean().optional(), ...sel }),
   trim_clip_head: z.object({ ...io, track: z.number().int().positive(), frames: z.number().int().positive(), ripple: z.boolean().optional(), ...sel }),
+  retime_clip: z.object({
+    ...io,
+    track: z.number().int().positive(),
+    speed: z.number().positive().optional().describe('constant speed (0.5 = half, 2 = double; 1 resets to identity)'),
+    keyframes: z.array(z.object({ recordSec: z.number(), sourceSec: z.number() })).optional()
+      .describe('variable-speed ramp points (ordered, implicit (0,0) start excluded); requires newDuration'),
+    newDuration: z.number().int().positive().optional().describe('explicit new record duration in frames'),
+    sourceDurationSec: z.number().positive().optional(),
+    ripple: z.boolean().optional(),
+    ...sel,
+  }),
+  slip_clip: z.object({
+    ...io,
+    track: z.number().int().positive(),
+    frames: z.number().int().describe('non-zero slip amount; positive = later source content, negative = earlier'),
+    ...sel,
+  }),
   split_clip: z.object({ ...io, track: z.number().int().positive(), at: z.number().int(), timelineUuid: sel.timelineUuid, trackType: sel.trackType }),
   ripple_timeline: z.object({ ...io, at: z.number().int(), delta: z.number().int(), timelineUuid: sel.timelineUuid }),
   relink_media: z.object({ ...io, mappings: z.array(z.object({ from: z.string(), to: z.string() })) }),
@@ -122,7 +139,7 @@ async function writeOp(fnName, drpPath, opts, outputPath) {
 export const drpTool = {
   name: 'drp',
   description:
-    'DaVinci Resolve project (.drp) authoring + editing — offline, no Resolve required. Actions: create_empty_project, assemble_timeline, add_media_clip, place_fusion_title, place_generator, place_transition, set_audio_level, set_clip_pan, move_clip, delete_clip, trim_clip, trim_clip_head, split_clip, ripple_timeline, relink_media, repoint_media, inject_grades, extract_node_graphs, extract_group_grades, diff, extract_lut_refs.',
+    'DaVinci Resolve project (.drp) authoring + editing — offline, no Resolve required. Actions: create_empty_project, assemble_timeline, add_media_clip, place_fusion_title, place_generator, place_transition, set_audio_level, set_clip_pan, move_clip, delete_clip, trim_clip, trim_clip_head, retime_clip, slip_clip, split_clip, ripple_timeline, relink_media, repoint_media, inject_grades, extract_node_graphs, extract_group_grades, diff, extract_lut_refs.',
   async handler({ action, args }) {
     const gen = drp();
 
@@ -189,6 +206,16 @@ export const drpTool = {
       const p = S.trim_clip_head.parse(args);
       const { drpPath, outputPath, ...opts } = p;
       return writeOp('trimClipHead', drpPath, opts, outputPath);
+    }
+    if (action === 'retime_clip') {
+      const p = S.retime_clip.parse(args);
+      const { drpPath, outputPath, ...opts } = p;
+      return writeOp('retimeClip', drpPath, opts, outputPath);
+    }
+    if (action === 'slip_clip') {
+      const p = S.slip_clip.parse(args);
+      const { drpPath, outputPath, ...opts } = p;
+      return writeOp('slipClip', drpPath, opts, outputPath);
     }
     if (action === 'split_clip') {
       const p = S.split_clip.parse(args);

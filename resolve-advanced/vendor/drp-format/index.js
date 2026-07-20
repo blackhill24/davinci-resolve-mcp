@@ -150,6 +150,10 @@ module.exports = {
   splitClip: require('./splice-clips').splitClip,
   rippleTimeline: require('./splice-clips').rippleTimeline,
 
+  // Clip speed / retime (MediaTimemapBA swap) + single-op slip (both directions) — #30 3.1.5.
+  retimeClip: require('./retime-clip').retimeClip,
+  slipClip: require('./retime-clip').slipClip,
+
   // Create a fresh, importable Resolve project (one empty timeline) from a bundled template.
   createEmptyProject: require('./author-project').createEmptyProject,
 

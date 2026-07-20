@@ -88,7 +88,7 @@ equivalent, blocking full automation.
 
 - **Object:** `TimelineItem`
 - **Behavior:** TimelineItem exposes GetStart, GetEnd, GetDuration, GetLeftOffset, GetRightOffset and GetSourceStart/EndFrame, but NO matching setters. A clip cannot be trimmed, slipped, slid, rolled, moved to another time/track, or have its duration changed once it is on the timeline. Verified via dir() on Resolve 21.0.0 (getters only).
-- **Workaround / current handling:** Do edit-point adjustments in the Resolve UI, or use timeline(action='trim_clip'|'move_clip'|'slide_clip'|'slip_clip') — offline drt surgery via resolve-advanced (drp-format), landing on a NEW timeline (Stage 3.1, issue #21). slip_clip only supports advancing the source in-point (frames > 0) — retreating it needs a vendor primitive that doesn't exist yet.
+- **Workaround / current handling:** Do edit-point adjustments in the Resolve UI, or use timeline(action='trim_clip'|'move_clip'|'slide_clip'|'slip_clip') — offline drt surgery via resolve-advanced (drp-format), landing on a NEW timeline (Stage 3.1, issue #21). slip_clip supports both directions since issue #30 (3.1.5): a single vendor slip primitive shifts the source in-point by +/- frames, bounds-checked at the source head.
 - **Tags:** missing-method, timeline, edit, trim
 
 ### Razor / blade / split a timeline item
@@ -102,8 +102,8 @@ equivalent, blocking full automation.
 
 - **Object:** `TimelineItem`
 - **Behavior:** SetProperty exposes only retime *quality* (RetimeProcess, MotionEstimation) and transform/crop/composite/opacity keys — not the speed value itself. There is no way to set a clip to a given % speed, reverse it, or author a speed ramp. Verified against the documented SetProperty key list AND by live mutating attempt on 21.0.0: SetProperty('Speed'|'PlaybackSpeed'|'RetimeSpeed'|'ClipSpeed', 50) all return False, while SetProperty('RetimeProcess', 1) returns True.
-- **Workaround / current handling:** Set clip speed/retime in the Resolve UI; no scripted equivalent exists.
-- **Tags:** missing-method, timeline, retime, speed
+- **Workaround / current handling:** Workaround shipped (issue #30, 3.1.5): timeline(action='set_clip_speed') — offline drt surgery that swaps the clip's MediaTimemapBA blob (constant speed, reset to 1x, or a variable-speed ramp via record/source keyframes) and rescales the record Duration, landing on a NEW timeline. fit_to_fill_edit derives the speed from a target duration. The codec (vendor retime-clip.js) round-trips live-captured 50% and dynamic-ramp blobs byte-for-byte. Linked audio is not retimed automatically.
+- **Tags:** missing-method, timeline, retime, speed, workaround
 
 ### Color node graph editing and primary grade values
 
@@ -131,14 +131,14 @@ equivalent, blocking full automation.
 
 - **Object:** `MediaPool / Timeline`
 - **Behavior:** MediaPool.AppendToTimeline (with optional recordFrame positioning) is the only programmatic placement. The standard edit modes — insert (ripple), overwrite, replace, fit-to-fill, place-on-top — have no API. Verified via dir() (21.0.0).
-- **Workaround / current handling:** Position clips with AppendToTimeline clipInfo recordFrame, or perform insert/overwrite/replace edits in the Resolve UI.
+- **Workaround / current handling:** Position clips with AppendToTimeline clipInfo recordFrame, or use the composed workarounds: timeline(action='insert_edit'|'replace_edit'|'place_on_top_edit') (Stage 3.1, issue #21) and timeline(action='fit_to_fill_edit') (issue #30, 3.1.5 — retimes the clip so its source segment fills a target duration via the MediaTimemapBA codec).
 - **Tags:** missing-method, timeline, edit
 
 ### Render in Place / bake a timeline clip to new media
 
 - **Object:** `Timeline / TimelineItem / MediaPool`
 - **Behavior:** There is no scripting method for the Edit-page clip context-menu action 'Render in Place', which bakes a clip (including its Fusion composition and effects) into a NEW rendered media file and drops that file back on the timeline at the same position, replacing the source clip. No Render*/Bake*/Freeze* method exists on Timeline, TimelineItem or MediaPool in the Resolve scripting API reference (BMD docs) or a dir() audit. NOTE the frequently-confused-but-distinct sibling: the render *cache* (a temporary, non-destructive cache of a clip's Color/Fusion output that reduces playback load WITHOUT creating a new media file) IS scriptable — TimelineItem.SetColorOutputCache / SetFusionOutputCache ('Render Cache Color/Fusion Output' menu actions) and Graph.SetNodeCacheMode. Render in Place is the permanent, media-producing bake; the render cache is the transient one.
-- **Workaround / current handling:** If the goal is only to reduce playback/render load, use the render cache — exposed as timeline_item get_color_cache/set_color_cache/get_fusion_cache/set_fusion_cache and the Color-page graph node cache_mode (no new media, fully reversible). If you genuinely need a baked media file, render the clip's in/out range from the Deliver page (proj.AddRenderJob with MarkIn/MarkOut) and relink/append the result yourself, or run Render in Place from the Resolve UI. There is no one-call API equivalent. See issue #86.
+- **Workaround / current handling:** If the goal is only to reduce playback/render load, use the render cache — exposed as timeline_item get_color_cache/set_color_cache/get_fusion_cache/set_fusion_cache and the Color-page graph node cache_mode (no new media, fully reversible). For a baked media file, the composed workaround shipped in issue #30 (3.1.6): timeline(action='render_in_place') — single-clip render of the clip's record range (MarkIn/MarkOut) into a real media dir, import, and same-position replace. Caveat vs the UI action: the queue bakes the COMPOSITE of visible video tracks over the range, not the isolated clip (the result warns when other tracks overlap). See issue #86.
 - **Reference:** [issue #86](https://github.com/samuelgursky/davinci-resolve-mcp/issues/86)
 - **Tags:** missing-method, timeline, render, cache, render-in-place, bake
 
@@ -153,8 +153,8 @@ equivalent, blocking full automation.
 
 - **Object:** `TimelineItem / Timeline / Project`
 - **Behavior:** There is no API method to set or query subtitle font family, font size, text color, background color, outline, shadow, position, alignment, or to apply/query subtitle style presets. TimelineItem.GetProperty() on subtitle items returns only transform/composite keys. Timeline.GetSetting() and Project.GetSetting() return None for all probed subtitle-style keys (e.g. 'subtitleFontName', 'subtitleFontSize', 'subtitleTextColor', 'subtitleBackgroundColor', 'subtitlePosition', 'subtitleAlignment', 'subtitlePreset', 'subtitleStyle'). Verified via dir(), GetProperty(), and GetSetting() on Resolve 21.0.0.48.
-- **Workaround / current handling:** No workaround exists — subtitle styling is UI-only. Burn-in overlays via Fusion titles are a visual alternative but do not produce proper subtitle tracks.
-- **Tags:** missing-method, subtitle, style, preset
+- **Workaround / current handling:** Per-cue styling IS writable offline (issue #30, 3.2.6): the cue's EffectFiltersBA BMD leaf carries, after the text, [u32-LE len][FontName UTF-16LE][float32-LE size][u32-LE len]['#rrggbb' UTF-16LE] — font swaps ride the validated length cascade, size is a fixed float overwrite, color a string swap (src/utils/subtitle_codec.py read_cue_style/author_cue_effblob; exposed as the style option of timeline import_srt). Track-level presets and the remaining attributes (background, outline, shadow, alignment) stay UI-only pending further RE.
+- **Tags:** missing-method, subtitle, style, preset, workaround
 
 ### Speech recognition engine selection
 

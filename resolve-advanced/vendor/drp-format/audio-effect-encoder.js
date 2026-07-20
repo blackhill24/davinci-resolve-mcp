@@ -169,8 +169,16 @@ function enableEffectFiltersFlag(blob) {
   const buf = Buffer.isBuffer(blob) ? blob : Buffer.from(String(blob).trim(), 'hex');
   if (buf.length < 9) throw new Error('enableEffectFiltersFlag: FieldsBlob too short');
   const version = buf.readUInt32BE(0);
-  const marker = buf[8];
-  const proto = buf.subarray(9);
+  let marker = buf[8];
+  let proto = buf.subarray(9);
+  if (marker === 0x81) {
+    // Resolve 21 also exports FieldsBlob zstd-compressed (0x81 + zstd frame) —
+    // seen live on 21.0.2.4 (#30 sweep; the 0x80 raw form still occurs too).
+    // Decompress (fzstd, sync) and re-emit as 0x80 + raw protobuf, which
+    // Resolve accepts on import for either original form.
+    proto = Buffer.from(require('fzstd').decompress(proto));
+    marker = 0x80;
+  }
   if (proto[0] !== 0x0a) {
     throw new Error('enableEffectFiltersFlag: unexpected FieldsBlob shape (no outer f1 group)');
   }

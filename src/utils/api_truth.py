@@ -364,9 +364,10 @@ API_TRUTH: List[Dict[str, Any]] = [
         "recommended": "Do edit-point adjustments in the Resolve UI, or use "
                        "timeline(action='trim_clip'|'move_clip'|'slide_clip'|'slip_clip') "
                        "— offline drt surgery via resolve-advanced (drp-format), landing "
-                       "on a NEW timeline (Stage 3.1, issue #21). slip_clip only supports "
-                       "advancing the source in-point (frames > 0) — retreating it needs "
-                       "a vendor primitive that doesn't exist yet.",
+                       "on a NEW timeline (Stage 3.1, issue #21). slip_clip supports both "
+                       "directions since issue #30 (3.1.5): a single vendor slip primitive "
+                       "shifts the source in-point by +/- frames, bounds-checked at the "
+                       "source head.",
         "tags": ["missing-method", "timeline", "edit", "trim"],
         "submit": "missing",
     },
@@ -394,9 +395,16 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "mutating attempt on 21.0.0: SetProperty('Speed'|'PlaybackSpeed'"
                    "|'RetimeSpeed'|'ClipSpeed', 50) all return False, while "
                    "SetProperty('RetimeProcess', 1) returns True.",
-        "recommended": "Set clip speed/retime in the Resolve UI; no scripted "
-                       "equivalent exists.",
-        "tags": ["missing-method", "timeline", "retime", "speed"],
+        "recommended": "Workaround shipped (issue #30, 3.1.5): "
+                       "timeline(action='set_clip_speed') — offline drt surgery that "
+                       "swaps the clip's MediaTimemapBA blob (constant speed, reset to "
+                       "1x, or a variable-speed ramp via record/source keyframes) and "
+                       "rescales the record Duration, landing on a NEW timeline. "
+                       "fit_to_fill_edit derives the speed from a target duration. The "
+                       "codec (vendor retime-clip.js) round-trips live-captured 50% and "
+                       "dynamic-ramp blobs byte-for-byte. Linked audio is not retimed "
+                       "automatically.",
+        "tags": ["missing-method", "timeline", "retime", "speed", "workaround"],
         "submit": "missing",
     },
     {
@@ -615,8 +623,12 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "positioning) is the only programmatic placement. The standard "
                    "edit modes — insert (ripple), overwrite, replace, fit-to-fill, "
                    "place-on-top — have no API. Verified via dir() (21.0.0).",
-        "recommended": "Position clips with AppendToTimeline clipInfo recordFrame, "
-                       "or perform insert/overwrite/replace edits in the Resolve UI.",
+        "recommended": "Position clips with AppendToTimeline clipInfo recordFrame, or "
+                       "use the composed workarounds: timeline(action='insert_edit'|"
+                       "'replace_edit'|'place_on_top_edit') (Stage 3.1, issue #21) and "
+                       "timeline(action='fit_to_fill_edit') (issue #30, 3.1.5 — retimes "
+                       "the clip so its source segment fills a target duration via the "
+                       "MediaTimemapBA codec).",
         "tags": ["missing-method", "timeline", "edit"],
         "submit": "missing",
     },
@@ -642,12 +654,14 @@ API_TRUTH: List[Dict[str, Any]] = [
                        "the render cache — exposed as timeline_item "
                        "get_color_cache/set_color_cache/get_fusion_cache/"
                        "set_fusion_cache and the Color-page graph node cache_mode "
-                       "(no new media, fully reversible). If you genuinely need a "
-                       "baked media file, render the clip's in/out range from the "
-                       "Deliver page (proj.AddRenderJob with MarkIn/MarkOut) and "
-                       "relink/append the result yourself, or run Render in Place "
-                       "from the Resolve UI. There is no one-call API equivalent. "
-                       "See issue #86.",
+                       "(no new media, fully reversible). For a baked media file, "
+                       "the composed workaround shipped in issue #30 (3.1.6): "
+                       "timeline(action='render_in_place') — single-clip render of "
+                       "the clip's record range (MarkIn/MarkOut) into a real media "
+                       "dir, import, and same-position replace. Caveat vs the UI "
+                       "action: the queue bakes the COMPOSITE of visible video "
+                       "tracks over the range, not the isolated clip (the result "
+                       "warns when other tracks overlap). See issue #86.",
         "tags": ["missing-method", "timeline", "render", "cache", "render-in-place", "bake"],
         "submit": "missing",
         "issue": 86,
@@ -715,19 +729,17 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "colour). .drt export->reimport round-trips cues, and a "
                    "text edit was proven end-to-end (decode zstd, swap UTF-16LE "
                    "text, recompress).",
-        "recommended": "Workaround representable via .drt file surgery "
-                       "(export->edit SubtitleTrackVec->ImportTimelineFromFile) "
-                       "but NOT yet implemented as a tool. Timing edits are "
-                       "trivial (plain-integer <Start>/<Duration>). Text edits "
-                       "must recompress the EffectFiltersBA zstd frame with BMD's "
-                       "exact framing — zstd level 3, write_content_size=True, "
-                       "write_checksum=False (python `zstandard`); the zstd CLI's "
-                       "windowed+checksum frame is rejected and the cue silently "
-                       "resets to the default 'Subtitle' name. Same-length text "
-                       "works today; variable-length needs a protobuf-aware "
-                       "re-serializer for the nested length cascade.",
+        "recommended": "Workaround shipped (issue #30): the oracle-validated codec "
+                       "lives in src/utils/subtitle_codec.py (BMD-exact zstd framing "
+                       "— level 3, write_content_size=True, write_checksum=False — "
+                       "plus the protobuf-aware re-serializer for the nested length "
+                       "cascade, so arbitrary-length text works). Timing edits are "
+                       "plain-integer <Start>/<Duration>. Consumed by "
+                       "timeline(action='import_srt'), which authors whole cue sets "
+                       "into the exported .drt's SubtitleTrackVec and reimports a NEW "
+                       "timeline. Requires the `zstandard` package.",
         "tags": ["missing-method", "subtitle", "text", "timing", "drt",
-                 "offline", "investigated-not-implemented"],
+                 "offline", "workaround"],
     },
     {
         "symbol": "Subtitle track styling and presets",
@@ -744,10 +756,16 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "'subtitlePosition', 'subtitleAlignment', "
                    "'subtitlePreset', 'subtitleStyle'). Verified via dir(), "
                    "GetProperty(), and GetSetting() on Resolve 21.0.0.48.",
-        "recommended": "No workaround exists — subtitle styling is UI-only. "
-                       "Burn-in overlays via Fusion titles are a visual "
-                       "alternative but do not produce proper subtitle tracks.",
-        "tags": ["missing-method", "subtitle", "style", "preset"],
+        "recommended": "Per-cue styling IS writable offline (issue #30, 3.2.6): the "
+                       "cue's EffectFiltersBA BMD leaf carries, after the text, "
+                       "[u32-LE len][FontName UTF-16LE][float32-LE size][u32-LE len]"
+                       "['#rrggbb' UTF-16LE] — font swaps ride the validated length "
+                       "cascade, size is a fixed float overwrite, color a string swap "
+                       "(src/utils/subtitle_codec.py read_cue_style/author_cue_effblob; "
+                       "exposed as the style option of timeline import_srt). Track-level "
+                       "presets and the remaining attributes (background, outline, "
+                       "shadow, alignment) stay UI-only pending further RE.",
+        "tags": ["missing-method", "subtitle", "style", "preset", "workaround"],
         "submit": "missing",
     },
     {
@@ -783,15 +801,20 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "cue1 with cue2's text reproduces cue2's real blob byte-for-byte) "
                    "and confirmed end-to-end: a 3-cue SRT (incl. unicode: café, "
                    "em-dash, 日本語) round-tripped with exact text + frame timing.",
-        "recommended": "Workaround PROVEN but NOT yet wired as a tool (per 3.2.5 "
-                       "scope decision): parse SRT -> author .drt SubtitleTrackVec "
-                       "(one Sm2TiGenerator per cue; frames from timeline fps + "
-                       "start frame) -> ImportTimelineFromFile. This also unlocks "
-                       "external ASR engines (whisper-cli etc.) feeding proper "
-                       "subtitle tracks. zstd framing must be level 3, "
-                       "content-size, no checksum or Resolve rejects the blob.",
+        "recommended": "Workaround shipped (issue #30 productization decision): "
+                       "timeline(action='import_srt') parses the SRT, authors the "
+                       "exported .drt's SubtitleTrackVec (one Sm2TiGenerator per "
+                       "cue; frames from timeline fps + start frame; optional "
+                       "per-cue style {font,size,color}) via "
+                       "src/utils/subtitle_codec.py and reimports a NEW "
+                       "'(subtitled)' timeline. Cue template: the timeline's own "
+                       "subtitle track if present, else template_drt, else the "
+                       "EMBEDDED synthetic template (proven live on 21.0.2.4 to "
+                       "survive reimport — no seeding needed). Requires the "
+                       "`zstandard` package. This unlocks external ASR engines "
+                       "(whisper-cli etc.) feeding proper subtitle tracks.",
         "tags": ["missing-method", "subtitle", "srt", "import", "drt",
-                 "offline", "asr", "investigated-not-implemented"],
+                 "offline", "asr", "workaround"],
     },
     {
         "symbol": "Media Pool folder rename",

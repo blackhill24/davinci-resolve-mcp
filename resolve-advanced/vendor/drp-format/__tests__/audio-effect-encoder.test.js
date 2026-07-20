@@ -64,3 +64,18 @@ test('enableEffectFiltersFlag inserts f4=1 byte-exact and is idempotent', () => 
   assert.equal(enableEffectFiltersFlag(FB_UNITY), FB_FLAGGED);
   assert.equal(enableEffectFiltersFlag(FB_FLAGGED), FB_FLAGGED); // already flagged
 });
+
+test('enableEffectFiltersFlag handles the zstd-compressed (0x81) FieldsBlob form', () => {
+  // Resolve 21 also exports FieldsBlob as 0x81 + zstd frame (seen live on
+  // 21.0.2.4, #30 sweep). Build one by compressing FB_UNITY's raw protobuf;
+  // the flagged result must decompress to exactly the raw-form output.
+  const zlib = require('node:zlib');
+  const raw = Buffer.from(FB_UNITY, 'hex').subarray(9); // proto after hdr+0x80
+  const frame = zlib.zstdCompressSync(raw);
+  const payload = Buffer.concat([Buffer.from([0x81]), frame]);
+  const hdr = Buffer.alloc(8);
+  hdr.writeUInt32BE(2, 0);
+  hdr.writeUInt32BE(payload.length, 4);
+  const compressedBlob = Buffer.concat([hdr, payload]).toString('hex');
+  assert.equal(enableEffectFiltersFlag(compressedBlob), FB_FLAGGED);
+});

@@ -35,10 +35,16 @@ def _synth_drt(path: str) -> None:
     Mirrors the vendor place-transition fixture (c0 [0,100), c1 [100,200)) as a
     JSZip-readable zip with a single SeqContainer — enough for a real op to bite.
     """
+    # Identity retime map (compact form): [02][end,0,end,0,end], end = 4 s.
+    end = __import__("struct").pack(">d", 4.0).hex()
+    zero = __import__("struct").pack(">d", 0.0).hex()
+    timemap = f"02{end}{zero}{end}{zero}{end}"
+
     def clip(i: int) -> str:
         return (
             f'<Element><Sm2TiVideoClip DbId="c{i}"><FieldsBlob/><Name>c{i}</Name>'
-            f"<Start>{i * 100}</Start><Duration>100</Duration><In/></Sm2TiVideoClip></Element>"
+            f"<Start>{i * 100}</Start><Duration>100</Duration><In>20</In>"
+            f"<MediaTimemapBA>{timemap}</MediaTimemapBA></Sm2TiVideoClip></Element>"
         )
 
     track = (
@@ -155,6 +161,39 @@ class DrpOpIntegrationTest(unittest.TestCase):
         with zipfile.ZipFile(out["output_path"]) as z:
             seq_xml = z.read("SeqContainer/s1.xml").decode("utf-8")
         self.assertIn("Sm2TiTransition", seq_xml)
+
+    def test_retime_clip_swaps_timemap_and_scales_duration(self):
+        # 3.1.5 (#30): 0.5x retime swaps the identity map for an Sm2TimeMap
+        # keyed-dict and doubles the record Duration.
+        out = ab.run_drp_op(
+            "retime_clip", self.src, scratch_dir=os.path.join(self.tmp, "retime"),
+            track=1, clipIndex=0, speed=0.5)
+        self.assertTrue(out.get("success"), out)
+        result = out.get("result") or {}
+        self.assertEqual(result.get("oldDuration"), 100)
+        self.assertEqual(result.get("newDuration"), 200)
+        with zipfile.ZipFile(out["output_path"]) as z:
+            seq_xml = z.read("SeqContainer/s1.xml").decode("utf-8")
+        # The retimed blob is an Sm2TimeMap keyed-dict; its DbType string shows
+        # up UTF-16-BE-encoded in the hex MediaTimemapBA payload.
+        self.assertIn("Sm2TimeMap".encode("utf-16-be").hex(), seq_xml)
+        self.assertIn("<Duration>200</Duration>", seq_xml)
+
+    def test_slip_clip_retreats_the_in_point(self):
+        # 3.1.5 (#30): the single-op slip retreat (frames < 0) trim_clip_head
+        # could never do — In goes 20 -> 5, Start/Duration untouched.
+        out = ab.run_drp_op(
+            "slip_clip", self.src, scratch_dir=os.path.join(self.tmp, "slip"),
+            track=1, clipIndex=0, frames=-15)
+        self.assertTrue(out.get("success"), out)
+        result = out.get("result") or {}
+        self.assertEqual(result.get("oldIn"), 20)
+        self.assertEqual(result.get("newIn"), 5)
+        with zipfile.ZipFile(out["output_path"]) as z:
+            seq_xml = z.read("SeqContainer/s1.xml").decode("utf-8")
+        self.assertIn("<In>5|", seq_xml)
+        self.assertIn("<Start>0</Start>", seq_xml)
+        self.assertIn("<Duration>100</Duration>", seq_xml)
 
     def test_op_chain_stops_and_reports_the_failing_step(self):
         ops = [

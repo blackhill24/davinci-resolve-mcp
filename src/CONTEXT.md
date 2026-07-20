@@ -17,6 +17,7 @@ Python MCP that drives a **running** DaVinci Resolve via its scripting API.
 | Reverse-engineer a drt/drp encoding | `utils/drt_diff.py` (raw export-diff for ground-truth), `tests/live_auto_edit_ducking_probe.py` | Node `vendor/drp-format/diff.js` (semantic) | issue #14 |
 | Invoke resolve-advanced (Node) ops | `utils/advanced_bridge.py` (drt/drp surgery in scratch; honest refuse w/o node) | `granular/` | `resolve-advanced/scripts/drp-bridge.mjs` |
 | Safe temp/export paths | `utils/lut_paths.py`, `utils/safe path helpers` | — | — |
+| Subtitle cue authoring / SRT import | `utils/subtitle_codec.py` (oracle-validated blob codec + styling), `server.py` (`import_srt`) | `granular/` | probes in `tests/` (#30) |
 
 ## Key files (only where the name doesn't say enough)
 

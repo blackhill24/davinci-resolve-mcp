@@ -188,8 +188,15 @@ def main() -> int:
                       and int(b_now.GetDuration()) == int(item_b.GetDuration())
                       and source_after == (source_start_before or 0) + 10,
                       f"source_before={source_start_before} source_after={source_after}")
-        refused = s.timeline("slip_clip", {"clip_id": id_b, "frames": -5})
-        check("slip_clip: frames<=0 honestly refused", "error" in refused, str(refused))
+        # Retreat (negative frames) is supported since #30/3.1.5 — the earlier
+        # +10 slip guarantees head room, so -5 must land at source +5.
+        gate = s.timeline("slip_clip", {"clip_id": id_b, "frames": -5})
+        retreat = s.timeline("slip_clip", {"clip_id": id_b, "frames": -5,
+                                            "confirm_token": gate.get("confirm_token")})
+        check("slip_clip: retreat (frames<0)", bool(retreat.get("success")),
+              str(retreat.get("error") or ""))
+        refused = s.timeline("slip_clip", {"clip_id": id_b, "frames": 0})
+        check("slip_clip: frames=0 honestly refused", "error" in refused, str(refused))
 
         # ---- split_clip (razor) ----
         at = int(item_c.GetStart()) + int(item_c.GetDuration()) // 2

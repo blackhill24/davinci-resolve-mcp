@@ -27,6 +27,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import zipfile
 import zlib
 from typing import Dict, Any, Optional, List, Tuple
 
@@ -6205,18 +6206,11 @@ def _timeline_slip_clip_impl(proj, tl, p: Dict[str, Any]):
         frames = int(frames)
     except (TypeError, ValueError):
         return _err("frames must be an integer")
-    if frames <= 0:
-        return _err(
-            "slip_clip only supports frames > 0 (advancing the source in-point later in time). "
-            "drp-format has no head-EXTEND primitive to retreat the in-point, so shifting source "
-            "content earlier isn't possible without new vendor work — deferred alongside the "
-            "Stage 3.1 clip speed/retime follow-up."
-        )
+    if frames == 0:
+        return _err("slip_clip requires a non-zero frames (positive = later source content, "
+                    "negative = earlier)")
     duration = _frame_int(item.GetDuration())
-    start = _frame_int(item.GetStart())
-    if duration is None or start is None:
-        return _err("could not read the clip's current start/duration")
-    if frames >= duration:
+    if duration is not None and frames >= duration:
         return _err(f"frames ({frames}) must be less than the clip's duration ({duration})")
 
     def _build_ops(drt_src):
@@ -6224,17 +6218,12 @@ def _timeline_slip_clip_impl(proj, tl, p: Dict[str, Any]):
             drt_src, track_type, track_index, clip_index)
         if lookup_err:
             return None, lookup_err
-        # clipDbId (not clipIndex) for every step: move_clip re-appends the clip
-        # at the end of the track's item list, which would silently retarget a
-        # clipIndex-based selector at the wrong clip on the later steps.
-        sel = {"clipDbId": clip_db_id, "trackType": track_type}
+        # Single vendor slip primitive (issue #30, 3.1.5): shifts <In> in either
+        # direction with Start/Duration untouched. Retreat is bounds-checked
+        # against the source head inside the op.
         return [
-            {"op": "trim_clip_head", "args": {"track": track_index, "frames": frames,
-                                               "ripple": False, **sel}},
-            {"op": "move_clip", "args": {"fromTrack": track_index, "toTrack": track_index,
-                                          "toStart": start, **sel}},
-            {"op": "trim_clip", "args": {"track": track_index, "newDuration": duration,
-                                          "ripple": False, **sel}},
+            {"op": "slip_clip", "args": {"track": track_index, "frames": frames,
+                                          "clipDbId": clip_db_id, "trackType": track_type}},
         ], None
 
     return _advanced_timeline_edit(
@@ -6242,11 +6231,310 @@ def _timeline_slip_clip_impl(proj, tl, p: Dict[str, Any]):
         action_name="slip_clip",
         ops=_build_ops,
         warning=(
-            "Exports the current timeline as .drt, slips the target clip's source content later "
-            "by `frames` via offline drt surgery (timeline position and duration unchanged), and "
-            "imports a NEW '(edited)' timeline. No existing timeline is modified."
+            "Exports the current timeline as .drt, slips the target clip's source content by "
+            "`frames` (positive = later, negative = earlier) via offline drt surgery (timeline "
+            "position and duration unchanged), and imports a NEW '(edited)' timeline. No existing "
+            "timeline is modified."
         ),
     )
+
+
+def _timeline_set_clip_speed_impl(proj, tl, p: Dict[str, Any]):
+    """3.1.5 (issue #30): clip speed / retime. The scripting API has no retime
+    write path (SetClipProperty('Speed') is the MediaPool source property, not
+    the timeline retime), so this swaps the clip's MediaTimemapBA blob via drt
+    surgery — constant speed or an explicit variable-speed ramp (keyframes)."""
+    track_type, track_index, clip_index, _item, err = _advanced_edit_resolve_clip(tl, p)
+    if err:
+        return err
+    speed = p.get("speed")
+    keyframes = p.get("keyframes")
+    ripple = bool(p.get("ripple", False))
+    new_duration = p.get("new_duration", p.get("newDuration"))
+    if (speed is None) == (not keyframes):
+        return _err("set_clip_speed requires exactly one of speed | keyframes")
+    if speed is not None:
+        try:
+            speed = float(speed)
+        except (TypeError, ValueError):
+            return _err("speed must be a number")
+        if speed <= 0:
+            return _err("speed must be > 0 (0.5 = half speed, 2 = double; use 1 to reset)")
+    kf_args = None
+    if keyframes:
+        if not isinstance(keyframes, list):
+            return _err("keyframes must be a list of {record_sec, source_sec} points")
+        kf_args = []
+        for kf in keyframes:
+            rec = kf.get("record_sec", kf.get("recordSec"))
+            src = kf.get("source_sec", kf.get("sourceSec"))
+            if rec is None or src is None:
+                return _err("each keyframe needs record_sec and source_sec")
+            kf_args.append({"recordSec": float(rec), "sourceSec": float(src)})
+        if new_duration is None:
+            return _err("keyframes (variable ramp) requires new_duration (record frames)")
+    if new_duration is not None:
+        try:
+            new_duration = int(new_duration)
+        except (TypeError, ValueError):
+            return _err("new_duration must be an integer")
+        if new_duration < 1:
+            return _err("new_duration must be a positive integer")
+
+    def _build_ops(drt_src):
+        clip_db_id, lookup_err = _advanced_edit_lookup_clip_db_id(
+            drt_src, track_type, track_index, clip_index)
+        if lookup_err:
+            return None, lookup_err
+        args: Dict[str, Any] = {"track": track_index, "clipDbId": clip_db_id,
+                                "trackType": track_type, "ripple": ripple}
+        if kf_args:
+            args["keyframes"] = kf_args
+        else:
+            args["speed"] = speed
+        if new_duration is not None:
+            args["newDuration"] = new_duration
+        return [{"op": "retime_clip", "args": args}], None
+
+    return _advanced_timeline_edit(
+        proj, tl, p,
+        action_name="set_clip_speed",
+        ops=_build_ops,
+        warning=(
+            "Exports the current timeline as .drt, retimes the target clip (MediaTimemapBA "
+            "swap + Duration rescale) via offline drt surgery, and imports a NEW '(edited)' "
+            "timeline. No existing timeline is modified. Audio stays unretimed unless the "
+            "linked audio clip is retimed too."
+        ),
+    )
+
+
+def _timeline_fit_to_fill_edit_impl(proj, tl, p: Dict[str, Any]):
+    """3.1.3 tail (issue #30): fit-to-fill — retime a clip so its current source
+    segment fills exactly target_duration timeline frames (vendor derives the
+    constant speed from the duration ratio)."""
+    track_type, track_index, clip_index, _item, err = _advanced_edit_resolve_clip(tl, p)
+    if err:
+        return err
+    target = p.get("target_duration", p.get("targetDuration"))
+    if target is None:
+        return _err("fit_to_fill_edit requires target_duration (frames)")
+    try:
+        target = int(target)
+    except (TypeError, ValueError):
+        return _err("target_duration must be an integer")
+    if target < 1:
+        return _err("target_duration must be a positive integer")
+    ripple = bool(p.get("ripple", False))
+
+    def _build_ops(drt_src):
+        clip_db_id, lookup_err = _advanced_edit_lookup_clip_db_id(
+            drt_src, track_type, track_index, clip_index)
+        if lookup_err:
+            return None, lookup_err
+        return [{"op": "retime_clip", "args": {
+            "track": track_index, "clipDbId": clip_db_id, "trackType": track_type,
+            "newDuration": target, "ripple": ripple}}], None
+
+    return _advanced_timeline_edit(
+        proj, tl, p,
+        action_name="fit_to_fill_edit",
+        ops=_build_ops,
+        warning=(
+            "Exports the current timeline as .drt, retimes the target clip so its source "
+            "segment fills exactly target_duration frames (fit-to-fill) via offline drt "
+            "surgery, and imports a NEW '(edited)' timeline. No existing timeline is modified."
+        ),
+    )
+
+
+def _timeline_import_srt_impl(proj, tl, p: Dict[str, Any]):
+    """3.2.5 productization + 3.2.6 styling (issue #30): import an SRT as a real
+    subtitle track. No scripting method exists (File > Import > Subtitle is
+    UI-only; FCPXML <caption> is ignored), so this authors the cues into the
+    exported .drt's SubtitleTrackVec via the oracle-validated codec
+    (src/utils/subtitle_codec.py) and imports the result as a NEW timeline.
+
+    Per-cue template resolution: the current timeline's own subtitle track ->
+    `template_drt` -> the EMBEDDED synthetic template (proven live to survive
+    reimport, live_import_srt_tool_probe Q1) — so no pre-existing cue is
+    required."""
+    from src.utils import subtitle_codec as _subtitle_codec
+
+    srt_path = p.get("path") or p.get("srt_path")
+    if not srt_path:
+        return _err("import_srt requires path (the .srt file)")
+    srt_path = os.path.abspath(os.path.expanduser(str(srt_path)))
+    if not os.path.isfile(srt_path):
+        return _err(f"SRT file not found: {srt_path}")
+    if not _subtitle_codec.zstd_available():
+        return _err(
+            "import_srt requires the `zstandard` package for the subtitle-cue blob codec "
+            "(BMD-exact zstd framing) — install it into the server's environment "
+            "(pip install zstandard).")
+    try:
+        cues = _subtitle_codec.parse_srt(
+            open(srt_path, encoding="utf-8-sig").read())
+    except Exception as exc:
+        return _err(f"could not parse SRT: {exc}")
+    if not cues:
+        return _err("SRT parsed to zero cues — nothing to import")
+
+    style = p.get("style") or {}
+    if not isinstance(style, dict):
+        return _err("style must be an object like {font?, size?, color?}")
+    unknown = set(style) - {"font", "size", "color"}
+    if unknown:
+        return _err(f"unknown style key(s): {sorted(unknown)} (supported: font, size, color)")
+    template_drt = p.get("template_drt", p.get("templateDrt"))
+
+    if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+        return _issue_confirm_token(
+            action="timeline.import_srt", params=p,
+            preview={
+                "operation": "timeline.import_srt",
+                "warning": (
+                    "Exports the current timeline as .drt, authors the SRT's cues into its "
+                    "SubtitleTrackVec (existing subtitle cues on that track are REPLACED in "
+                    "the authored copy), and imports a NEW '(subtitled)' timeline. No "
+                    "existing timeline is modified."),
+                "source_timeline": tl.GetName(),
+                "srt": srt_path, "cues": len(cues), "style": style or None,
+            },
+        )
+    blocked = _consume_confirm_token(action="timeline.import_srt", params=p)
+    if blocked:
+        return blocked
+
+    source_name = tl.GetName()
+    try:
+        fps = float(tl.GetSetting("timelineFrameRate") or 0) or float(
+            proj.GetSetting("timelineFrameRate") or 0)
+    except Exception:
+        fps = 0.0
+    if not fps:
+        return _err("could not read the timeline frame rate")
+    start_frame = int(tl.GetStartFrame() or 0)
+
+    scratch = tempfile.mkdtemp(prefix="timeline_import_srt_")
+    export_path = os.path.join(
+        scratch,
+        f"{re.sub(r'[^A-Za-z0-9._-]+', '_', source_name).strip('_') or 'timeline'}.drt")
+    exported = _export_timeline_checked(tl, {
+        "path": export_path, "format": "drt",
+        "require_temp_path": False, "background": False, "async_job": False,
+    })
+    if not exported.get("success"):
+        return _err("drt export failed — cannot import_srt") | {"export": exported}
+    drt_src = exported.get("primary_file") or export_path
+
+    def _read_seq(drt_file):
+        with zipfile.ZipFile(drt_file) as z:
+            names = z.namelist()
+            seq_names = [n for n in names if re.search(r"(^|/)SeqContainer(/|\d*\.xml)", n)
+                         and n.endswith(".xml")]
+            if not seq_names:
+                return None, None, None
+            return names, seq_names[0], z.read(seq_names[0]).decode("utf-8")
+
+    try:
+        names, seq_name, seq_xml = _read_seq(drt_src)
+        if seq_xml is None:
+            return _err("exported .drt has no SeqContainer — unexpected container layout")
+
+        template = _subtitle_codec.find_template_cue(seq_xml)
+        template_from = "current_timeline" if template is not None else None
+        if template is None and template_drt:
+            template_drt = os.path.abspath(os.path.expanduser(str(template_drt)))
+            if not os.path.isfile(template_drt):
+                return _err(f"template_drt not found: {template_drt}")
+            _tn, _tsn, t_xml = _read_seq(template_drt)
+            if t_xml is None:
+                return _err("template_drt has no SeqContainer")
+            template = _subtitle_codec.find_template_cue(t_xml)
+            if template is not None:
+                template_from = "template_drt"
+                try:
+                    seq_xml = _subtitle_codec.transplant_subtitle_track(seq_xml, t_xml)
+                except ValueError as exc:
+                    return _err(f"could not transplant the template subtitle track: {exc}")
+        if template is None:
+            # Fall back to the EMBEDDED synthetic template — proven live to
+            # survive reimport (live_import_srt_tool_probe.py Q1, 21.0.2.4).
+            template = _subtitle_codec.builtin_template()
+            template_from = "embedded"
+            seq_xml = _subtitle_codec.ensure_subtitle_track(seq_xml)
+            if "<SubtitleTrackVec>" not in seq_xml:
+                return _err("exported .drt has no <SubtitleTrackVec/> slot to seed — "
+                            "unexpected container layout")
+
+        try:
+            new_xml, cue_count = _subtitle_codec.author_subtitle_track(
+                seq_xml, cues, fps=fps, start_frame=start_frame,
+                template=template, style=style)
+        except ValueError as exc:
+            return _err(f"subtitle authoring failed: {exc}")
+
+        authored = os.path.join(scratch, "from_srt.drt")
+        with zipfile.ZipFile(drt_src) as zin, \
+                zipfile.ZipFile(authored, "w", zipfile.ZIP_DEFLATED) as zout:
+            for n in names:
+                if n == seq_name:
+                    zout.writestr(n, new_xml)
+                else:
+                    zout.writestr(n, zin.read(n))
+    except zipfile.BadZipFile:
+        return _err("exported .drt is not a readable zip container")
+
+    mp = proj.GetMediaPool()
+    if not mp:
+        return _err("No media pool")
+    new_name = _unique_timeline_name(proj, f"{source_name} (subtitled)")
+    imported = _import_timeline_checked(proj, mp, {
+        "path": authored, "timeline_name": new_name,
+        "require_temp_path": False,
+    })
+    if not imported.get("success"):
+        return _err(imported.get("error") or "reimport of the subtitled .drt failed") | {
+            "import": imported}
+
+    final_name = imported.get("name") or new_name
+    imp_tl = None
+    for i in range(1, int(proj.GetTimelineCount() or 0) + 1):
+        cand = proj.GetTimelineByIndex(i)
+        if cand and str(cand.GetUniqueId()) == str(imported.get("id")):
+            imp_tl = cand
+            break
+    subtitle_tracks = None
+    if imp_tl is not None:
+        try:
+            if imp_tl.SetName(new_name):
+                final_name = new_name
+        except Exception:
+            pass
+        try:
+            subtitle_tracks = int(imp_tl.GetTrackCount("subtitle") or 0)
+        except Exception:
+            pass
+    try:
+        proj.SetCurrentTimeline(tl)
+    except Exception:
+        pass
+
+    out = _ok(
+        new_timeline=final_name,
+        new_timeline_id=imported.get("id"),
+        original_timeline=source_name,
+        cues_imported=cue_count,
+        subtitle_tracks=subtitle_tracks,
+        fps=fps,
+        style_applied=style or None,
+        template_source=template_from,
+    )
+    if subtitle_tracks == 0:
+        out["warning"] = ("reimported timeline reports 0 subtitle tracks — the authored "
+                          "cues did not survive; check the blob template")
+    return out
 
 
 def _timeline_set_clip_volume_impl(proj, tl, p: Dict[str, Any]):
@@ -6505,6 +6793,169 @@ def _timeline_replace_edit_impl(proj, tl, p: Dict[str, Any]):
         track_type=track_type, track_index=track_index,
         record_frame=start, duration=duration,
     )
+
+
+def _timeline_render_in_place_impl(proj, tl, p: Dict[str, Any]):
+    """3.1.6 (issue #30): Render in Place — the API has no RenderInPlace, so this
+    composes it live: render the clip's record range to a movie (single-clip render
+    mode + MarkIn/MarkOut), import the result, and replace the original clip at the
+    same position/duration (delete + append, like replace_edit). Mutates the
+    CURRENT timeline in place.
+
+    Caveat vs the UI feature: the render queue bakes the COMPOSITE of all visible
+    video tracks over the range, not the isolated clip — for a clip with others
+    above/below it, disable those tracks first (the result carries a warning)."""
+    track_type, track_index, _clip_index, item, err = _advanced_edit_resolve_clip(tl, p)
+    if err:
+        return err
+    if track_type != "video":
+        return _err(f"render_in_place only supports video clips (got {track_type!r})")
+
+    target_dir = p.get("target_dir") or p.get("targetDir")
+    if not target_dir:
+        return _err("render_in_place requires target_dir (a REAL media directory — the render "
+                    "queue refuses the system temp dir)")
+    target_dir = os.path.abspath(os.path.expanduser(target_dir))
+    if not os.path.isdir(target_dir):
+        return _err(f"target_dir does not exist: {target_dir}")
+    if not os.access(target_dir, os.W_OK):
+        return _err(f"target_dir is not writable: {target_dir}")
+    if _render_temp_path_ok(target_dir):
+        return _err("target_dir is under the system temp directory — Resolve's render queue "
+                    "refuses it (AddRenderJob returns falsy); use a real media dir (e.g. ~/Videos)")
+
+    fmt, codec = p.get("format"), p.get("codec")
+    if bool(fmt) != bool(codec):
+        return _err("pass BOTH format and codec, or neither")
+    export_audio = bool(p.get("export_audio", False))
+    timeout_s = float(p.get("timeout_s", 300))
+
+    start = _frame_int(item.GetStart())
+    end = _frame_int(item.GetEnd())
+    duration = _timeline_item_duration(item, start, end)
+    if start is None or end is None or duration is None:
+        return _err("could not read the target clip's timeline position/duration")
+    clip_name = str(item.GetName() or "clip")
+
+    # Composite caveat detection: any other video track with items overlapping the range.
+    overlapping_others = []
+    try:
+        for ti in range(1, int(_timeline_track_count(tl, "video") or 0) + 1):
+            if ti == track_index:
+                continue
+            for other in tl.GetItemListInTrack("video", ti) or []:
+                os_, oe = _frame_int(other.GetStart()), _frame_int(other.GetEnd())
+                if os_ is not None and oe is not None and os_ < end and oe > start:
+                    overlapping_others.append(ti)
+                    break
+    except Exception:
+        pass
+
+    if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+        return _issue_confirm_token(
+            action="timeline.render_in_place", params=p,
+            preview={
+                "operation": "timeline.render_in_place",
+                "warning": "Renders the clip's record range to target_dir, imports the result, "
+                           "and REPLACES the clip on the CURRENT timeline (delete + append). "
+                           "Cannot be selectively undone (roll back via timeline_versioning). "
+                           "The render is the composite of all visible video tracks over the range.",
+                "clip": clip_name, "track_index": track_index,
+                "record_range": [start, end], "target_dir": target_dir,
+                "overlapping_video_tracks": overlapping_others,
+            },
+        )
+    blocked = _consume_confirm_token(action="timeline.render_in_place", params=p)
+    if blocked:
+        return blocked
+
+    prev_mode = proj.GetCurrentRenderMode()
+    job_id = None
+    try:
+        proj.SetCurrentRenderMode(1)  # 1 = single clip (one continuous movie)
+        format_ok = None
+        if fmt and codec:
+            format_ok = bool(proj.SetCurrentRenderFormatAndCodec(_render_format_id(proj, fmt), codec))
+        custom_name = f"{os.path.splitext(clip_name)[0]}_RIP_{int(time.time())}"
+        settings = {
+            "TargetDir": target_dir, "CustomName": custom_name,
+            "ExportVideo": True, "ExportAudio": export_audio,
+            "MarkIn": int(start), "MarkOut": int(end) - 1,
+        }
+        settings_ok = bool(proj.SetRenderSettings(settings))
+
+        existing_before = set(os.listdir(target_dir))
+        job_id = proj.AddRenderJob()
+        if not job_id:
+            return _err("AddRenderJob failed (falsy job id) — check target_dir and render settings",
+                        state={"format_ok": format_ok, "settings_ok": settings_ok})
+        if not bool(proj.StartRendering([job_id], False)):
+            return _err("StartRendering failed", state={"job_id": job_id})
+
+        deadline = time.time() + timeout_s
+        status: Dict[str, Any] = {}
+        while time.time() < deadline:
+            status = _ser(proj.GetRenderJobStatus(job_id)) or {}
+            if status.get("JobStatus") in ("Complete", "Failed", "Cancelled"):
+                break
+            time.sleep(1.5)
+        job_status = status.get("JobStatus")
+        if job_status != "Complete":
+            return _err(f"render did not complete (status={job_status})",
+                        state={"job_status": job_status, "detail": status})
+
+        new_files = [f for f in os.listdir(target_dir) if f not in existing_before]
+        match = next((f for f in new_files if custom_name in f), new_files[0] if new_files else None)
+        if not match:
+            return _err("render completed but no new file appeared in target_dir",
+                        state={"job_status": job_status})
+        rendered_path = os.path.join(target_dir, match)
+
+        mp = proj.GetMediaPool()
+        if not mp:
+            return _err("No media pool")
+        imported = mp.ImportMedia([rendered_path])
+        if not imported:
+            return _err(f"rendered file import failed: {rendered_path}")
+        rendered_item = imported[0]
+
+        if not bool(tl.DeleteClips([item], False)):
+            return _err("rendered + imported, but failed to delete the original clip — "
+                        "replace it manually", state={"rendered_file": rendered_path})
+        appended = mp.AppendToTimeline([{
+            "mediaPoolItem": rendered_item,
+            "startFrame": 0, "endFrame": int(duration),
+            "trackIndex": track_index, "recordFrame": int(start),
+        }])
+        if not appended or len(appended) < 1:
+            return _err(
+                "delete succeeded but AppendToTimeline of the rendered clip failed — the "
+                "timeline now has a gap; append the rendered file manually.",
+                state={"rendered_file": rendered_path})
+        new_id = _safe_timeline_item_id(appended[0])
+        out = _ok(
+            replaced_clip_id=p.get("clip_id") or p.get("timeline_item_id"),
+            new_clip_id=new_id, rendered_file=rendered_path,
+            record_frame=start, duration=duration, track_index=track_index,
+            job_status=job_status, format_ok=format_ok, settings_ok=settings_ok,
+            export_audio=export_audio,
+        )
+        if overlapping_others:
+            out["warning"] = (
+                f"video track(s) {sorted(set(overlapping_others))} had items overlapping the "
+                "rendered range — the baked clip is the COMPOSITE of those tracks, not the "
+                "isolated clip. Disable other tracks and re-run for a clean bake.")
+        return out
+    finally:
+        try:
+            if job_id:
+                proj.DeleteRenderJob(job_id)
+        except Exception:
+            pass
+        try:
+            proj.SetCurrentRenderMode(prev_mode)
+        except Exception:
+            pass
 
 
 def _timeline_place_on_top_edit_impl(proj, tl, p: Dict[str, Any]):
@@ -21140,8 +21591,10 @@ _TIMELINE_ACTIONS = [
     "duplicate_clips", "copy_clips", "move_clips", "copy_range", "duplicate_range",
     "overwrite_range", "lift_range", "story_spine_report", "create_variant_from_ranges",
     "trim_clip", "move_clip", "slide_clip", "slip_clip", "split_clip",
+    "set_clip_speed", "fit_to_fill_edit", "import_srt",
     "set_clip_volume", "set_clip_pan",
     "add_transition", "list_transitions", "replace_edit", "place_on_top_edit", "insert_edit",
+    "render_in_place",
     "bulk_set_item_properties", "apply_look_to_items", "thumbnail_contact_sheet",
     "marker_thumbnail_review", "edit_kernel_capabilities", "probe_edit_kernel_item",
     "title_property_scan", "set_title_text", "bulk_set_title_text", "create_compound_clip",
@@ -21309,9 +21762,24 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
       slide_clip(clip_id, to_start) -> {new_timeline, original_timeline}
         DRT-SURGERY. Repositions a clip on its OWN track (same mechanics as move_clip).
       slip_clip(clip_id, frames) -> {new_timeline, original_timeline}
-        DRT-SURGERY. Shifts the clip's SOURCE content later by frames (position/duration on the
-        timeline unchanged). frames must be > 0 — retreating the in-point needs a vendor primitive
-        that doesn't exist yet (deferred with the clip-speed/retime follow-up).
+        DRT-SURGERY. Shifts the clip's SOURCE content by frames in either direction (positive =
+        later, negative = earlier; position/duration on the timeline unchanged). Retreat is
+        bounds-checked against the source head.
+      set_clip_speed(clip_id, speed?|keyframes?, new_duration?, ripple?) -> {new_timeline, original_timeline}
+        DRT-SURGERY. Retimes the clip: constant speed (0.5 = half, 2 = double, 1 resets) or a
+        variable-speed ramp via keyframes=[{record_sec, source_sec}] (+ new_duration in frames).
+        Duration rescales by the speed ratio unless new_duration overrides; ripple shifts later
+        clips on the track by the delta. Linked audio is NOT retimed automatically.
+      fit_to_fill_edit(clip_id, target_duration, ripple?) -> {new_timeline, original_timeline}
+        DRT-SURGERY. Retimes the clip so its current source segment fills exactly target_duration
+        timeline frames (classic fit-to-fill; speed derived from the duration ratio).
+      import_srt(path, style?, template_drt?) -> {new_timeline, cues_imported, subtitle_tracks}
+        DRT-SURGERY. Imports an SRT as a real subtitle track (no API method exists; UI-only)
+        by authoring the exported .drt's SubtitleTrackVec with the oracle-validated cue codec
+        and importing a NEW '(subtitled)' timeline. Cue template: the timeline's own subtitle
+        track if present, else template_drt, else a built-in template (no seeding needed).
+        style={font?, size?, color? ('#rrggbb')} applies per-cue styling (3.2.6). Requires the
+        `zstandard` package. Replaces existing cues on the authored copy's subtitle track.
       split_clip(clip_id?|track_type+track_index, at_frame) -> {new_timeline, original_timeline}
         DRT-SURGERY (razor). Splits the clip spanning at_frame into two source-continuous clips.
       add_transition(track_index, at_frame, duration_frames?, track_type?) -> {new_timeline, original_timeline}
@@ -21327,6 +21795,12 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         DRT-SURGERY + LIVE API. Ripples every clip (video+audio, all tracks, keeps sync) at/after
         record_frame later by the new clip's duration on a NEW timeline, then appends the new
         clip into the opened gap.
+      render_in_place(clip_id, target_dir, format?+codec?, export_audio?, timeout_s?) -> {new_clip_id, rendered_file}
+        LIVE API, in-place. Renders the clip's record range (single-clip mode + MarkIn/MarkOut)
+        into target_dir (REAL media dir — the queue refuses system temp), imports the result, and
+        replaces the clip at the same position/duration. Bakes the COMPOSITE of visible video
+        tracks over the range (warns if others overlap); export_audio defaults False (headless
+        Fairlight stall dodge).
       story_spine_report() -> {beats, track_summaries, source_ranges, audio_spine}
       create_variant_from_ranges(name, ranges, markers?, cdl?, dry_run?) -> {success, id, items}
         # example: action_help(name='<action_name>')
@@ -21651,6 +22125,12 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         return _timeline_slip_clip_impl(proj, tl, p)
     elif action == "split_clip":
         return _timeline_split_clip_impl(proj, tl, p)
+    elif action == "set_clip_speed":
+        return _timeline_set_clip_speed_impl(proj, tl, p)
+    elif action == "fit_to_fill_edit":
+        return _timeline_fit_to_fill_edit_impl(proj, tl, p)
+    elif action == "import_srt":
+        return _timeline_import_srt_impl(proj, tl, p)
     elif action == "set_clip_volume":
         return _timeline_set_clip_volume_impl(proj, tl, p)
     elif action == "set_clip_pan":
@@ -21665,6 +22145,8 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         return _timeline_place_on_top_edit_impl(proj, tl, p)
     elif action == "insert_edit":
         return _timeline_insert_edit_impl(proj, tl, p)
+    elif action == "render_in_place":
+        return _timeline_render_in_place_impl(proj, tl, p)
     elif action == "story_spine_report":
         return _timeline_story_spine_report(tl, p)
     elif action == "create_variant_from_ranges":

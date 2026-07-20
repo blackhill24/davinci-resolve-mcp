@@ -2371,6 +2371,82 @@ def _navigate_folder(mp, path):
     return current
 
 
+def _mp_rename_folder_live(mp, p):
+    """Best-effort LIVE media-pool folder rename (the API has no RenameSubFolder).
+
+    Strategy: create a sibling with the new name, MoveClips + MoveFolders the old
+    folder's contents into it, then delete the (now-empty) old folder. Clips and
+    subfolders are PRESERVED. What is LOST: the folder's ColorTag, its UniqueId
+    (so smart-bin/reference links to it break), and manual clip ordering.
+
+    The lossless path is offline instead: close Resolve and use the advanced
+    server's project_db rename_folder (a direct Sm2MpFolder.Name UPDATE).
+
+    Params: path (folder to rename, e.g. "Master/Old"), new_name, plus the
+    standard confirm_token gate (structural mutation).
+    """
+    path = p.get("path")
+    new_name = p.get("new_name") or p.get("newName")
+    if not path:
+        return _err("path is required (folder to rename, e.g. 'Master/Old')")
+    if not new_name:
+        return _err("new_name is required")
+
+    folder = _navigate_folder(mp, path)
+    if not folder:
+        return _err(f"Folder not found: {path}")
+    if folder.GetName() == new_name:
+        return _err("new_name matches the current name")
+
+    # Parent = path minus the last segment (root when renaming a top-level folder).
+    parent_path = "/".join(path.strip("/").split("/")[:-1])
+    parent = _navigate_folder(mp, parent_path)
+    if not parent:
+        return _err(f"Parent folder not found: {parent_path or 'Master'}")
+    if any(sib.GetName() == new_name for sib in (parent.GetSubFolderList() or [])):
+        return _err(f"A sibling folder named '{new_name}' already exists")
+
+    clips = folder.GetClipList() or []
+    subfolders = folder.GetSubFolderList() or []
+
+    if p.get("dry_run"):
+        return _ok(would_rename=folder.GetName(), to=new_name, clips=len(clips),
+                   subfolders=len(subfolders),
+                   caveats=["loses ColorTag", "loses folder UniqueId (references break)",
+                            "loses manual clip ordering"])
+
+    if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+        return _issue_confirm_token(
+            action="media_pool.rename_folder", params=p,
+            preview={"operation": "media_pool.rename_folder",
+                     "warning": "Live rename is delete-recreate: preserves clips + "
+                                "subfolders but LOSES the folder's color tag, its "
+                                "UniqueId (reference/smart-bin links break) and manual "
+                                "clip ordering. For a lossless rename, close Resolve and "
+                                "use the advanced project_db rename_folder instead.",
+                     "folder": folder.GetName(), "new_name": new_name,
+                     "clips": len(clips), "subfolders": len(subfolders)},
+        )
+    blocked = _consume_confirm_token(action="media_pool.rename_folder", params=p)
+    if blocked:
+        return blocked
+
+    new_folder = mp.AddSubFolder(parent, new_name)
+    if not new_folder:
+        return _err(f"Failed to create replacement folder '{new_name}'")
+    moved_clips = bool(mp.MoveClips(clips, new_folder)) if clips else True
+    moved_subs = bool(mp.MoveFolders(subfolders, new_folder)) if subfolders else True
+    if not (moved_clips and moved_subs):
+        return _err("Failed to move contents into the renamed folder; old folder left intact",
+                    state={"moved_clips": moved_clips, "moved_subfolders": moved_subs})
+    deleted = bool(mp.DeleteFolders([folder]))
+    return _ok(renamed=new_name, id=new_folder.GetUniqueId(),
+               clips_moved=len(clips), subfolders_moved=len(subfolders),
+               old_folder_deleted=deleted,
+               caveats=["ColorTag not preserved", "folder UniqueId changed (references break)",
+                        "manual clip ordering not preserved"])
+
+
 def _project_summary(proj, *, include_clips=False, clip_limit=50):
     """Live structural readout of a project: page, timelines, media-pool inventory.
 
@@ -16696,6 +16772,11 @@ def media_pool(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str
       delete_folders(folder_ids) -> {success}
         DESTRUCTIVE. Deletes folders + every clip they contain.
       move_folders(folder_ids, target_path) -> {success}
+      rename_folder(path, new_name, dry_run?, confirm_token?) -> {success, ...}
+        — LIVE workaround for the missing RenameSubFolder: delete-recreate that
+          PRESERVES clips + subfolders but LOSES ColorTag, the folder UniqueId
+          (references break) and manual clip order. Lossless alternative: close
+          Resolve and use the advanced server's project_db rename_folder.
       refresh() -> {success}
       create_timeline(name, if_exists?) -> {success, name, id}
         — if_exists: version (default), reuse, or fail
@@ -16819,6 +16900,8 @@ def media_pool(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str
                 if sub.GetUniqueId() == fid:
                     folders.append(sub)
         return {"success": bool(mp.MoveFolders(folders, target))}
+    elif action == "rename_folder":
+        return _mp_rename_folder_live(mp, p)
     elif action == "refresh":
         return {"success": bool(mp.RefreshFolders())}
     elif action == "create_timeline":

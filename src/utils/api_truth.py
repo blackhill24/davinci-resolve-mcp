@@ -735,10 +735,20 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "created, deleted, and moved, but their names cannot be "
                    "changed through the API. Verified via dir() on Resolve "
                    "21.0.0.",
-        "recommended": "Delete and recreate the folder with the desired name, "
-                       "or rename in the Resolve UI.",
+        "recommended": "Two workarounds shipped (issue #23, 3.3.3). LOSSLESS "
+                       "(preferred): close Resolve and rename offline via the "
+                       "advanced server's project_db rename_folder — a direct "
+                       "Sm2MpFolder.Name UPDATE (backup + schema guard). LIVE "
+                       "fallback: media_pool rename_folder does a delete-recreate "
+                       "that PRESERVES clips + subfolders but LOSES the ColorTag, "
+                       "the folder UniqueId (references break) and manual clip "
+                       "ordering — confirm-gated, with a dry_run preview. Both "
+                       "live-verified on 21.0.2.4 "
+                       "(tests/live_folder_rename_probe.py, "
+                       "test/project-db-rename-roundtrip.test.mjs).",
         "tags": ["missing-method", "media-pool", "folder"],
         "submit": "missing",
+        "issue": 23,
     },
     {
         "symbol": "hasattr() / getattr() on Resolve API objects (attribute fabrication)",

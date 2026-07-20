@@ -9,11 +9,11 @@ Complete Resolve scripting API coverage, live-test status, and method-by-method 
 | MCP Tools | **35** compound (default) / **343** granular |
 | Kernel Actions | **136** guarded MCP workflow actions across 9 compound tools |
 | API Methods Covered | **348/348** (100%) |
-| Methods Live Tested | **331/348** (95.1%) |
-| Live Test Pass Rate | **331/331** (100%) |
+| Methods Live Tested | **342/348** (98.3%) |
+| Live Test Pass Rate | **342/342** (100%) |
 | API Object Classes | 13 |
 | Tested Against | DaVinci Resolve 21.0.2.4 Studio (Linux) |
-| Compatibility Note | Resolve 21.0 Studio is the sole supported baseline — no backward compatibility. Pre-21 version guards have been removed. The recount (`scripts/audit_api_parity.py --count`) is the single source of truth for the 348-method surface; the 12 Resolve 21 delta methods are exposed and await their dedicated live validation in Stage 2. |
+| Compatibility Note | Resolve 21.0 Studio is the sole supported baseline — no backward compatibility. Pre-21 version guards have been removed. The recount (`scripts/audit_api_parity.py --count`) is the single source of truth for the 348-method surface; Stage 2 (#20) live-validated 11 of the 12 Resolve 21 delta methods — `Project.GenerateSpeech` remains 🔬 gated behind the AI Speech Generator Extra (not installed on the validation box; see api_truth). |
 
 ## API Coverage
 
@@ -92,11 +92,12 @@ The current live baseline is **DaVinci Resolve 21.0.2.4 Studio (Linux)** — the
 | Phase 5 | 6/6 | 100% | Scene cuts, subtitles from audio, graph node cache/tools/enable |
 | Resolve 20 delta | 12/12 | 100% | Resolve 20.0-20.2.2 scripting additions live-tested on 20.3.2 |
 | Resolve 21.0 re-validation | 21 suites | 100% | Live suite re-run on 21.0.2.4 Studio (Linux) after pre-21 guard removal — no regressions |
-| **Total** | **331/331** | **100%** | **95.1% of the 348-method surface tested live (12 Resolve 21 delta methods pending Stage 2)** |
+| Resolve 21 delta (Stage 2) | 11/11 | 100% | Session background-task control, audio classification ×2, Intellisearch, slate analysis ×2, motion deblur (Folder + MediaPoolItem), speaker-detection passthrough, Super Scale 2x Enhanced 4-arg form, QuickExport enable_upload — live-tested on 21.0.2.4; `GenerateSpeech` gated (see below) |
+| **Total** | **342/342** | **100%** | **98.3% of the 348-method surface tested live (`GenerateSpeech` gated behind an uninstalled AI Extra)** |
 
-### Untested Methods (17 of 348)
+### Untested Methods (6 of 348)
 
-The 4 cloud methods and 1 Dolby Vision method below remain content/infrastructure-gated. The 12 Resolve 21 delta methods (session background-task control, speech generation, audio classification ×2, Intellisearch, slate analysis ×2, motion deblur, plus the Resolve/Project/Folder/MediaPoolItem additions) are exposed but await dedicated live validation in **Stage 2 (#20)**.
+The 4 cloud methods and 1 Dolby Vision method below remain content/infrastructure-gated. `Project.GenerateSpeech` (Resolve 21 delta) returned no media item in live testing (Stage 2, #20) in well under a second — too fast to be an actual synthesis attempt, consistent with the AI Speech Generator Extra not being installed on the validation box; see `api_truth` for the full finding. All other Resolve 21 delta methods are live-tested (see Test Results above).
 
 | Method | Reason | Help Wanted |
 |--------|--------|-------------|
@@ -105,6 +106,7 @@ The 4 cloud methods and 1 Dolby Vision method below remain content/infrastructur
 | `PM.ImportCloudProject` | Requires DaVinci Resolve cloud infrastructure | Yes |
 | `PM.RestoreCloudProject` | Requires DaVinci Resolve cloud infrastructure | Yes |
 | `TL.AnalyzeDolbyVision` | Requires HDR/Dolby Vision content | Yes |
+| `Project.GenerateSpeech` | Requires the AI Speech Generator Extra (not installed on validation box) | Yes |
 
 ---
 
@@ -144,6 +146,7 @@ Every method in the DaVinci Resolve Scripting API and its test status. Methods a
 | 20 | `GetKeyframeMode()` | ✅ | Returns keyframe mode |
 | 21 | `SetKeyframeMode(keyframeMode)` | ⚠️ | API accepts; mode must match valid enum |
 | 22 | `GetFairlightPresets()` | ✅ | Resolve 20.3.2 live test returns preset map |
+| 23 | `DisableBackgroundTasksForCurrentResolveSession()` | ✅ | Resolve 21.0.2.4 live test (Stage 2, #20): disables background tasks for the session |
 
 ### ProjectManager
 
@@ -222,6 +225,7 @@ Every method in the DaVinci Resolve Scripting API and its test status. Methods a
 | 41 | `AddColorGroup(groupName)` | ✅ | Returns ColorGroup object |
 | 42 | `DeleteColorGroup(colorGroup)` | ✅ | Deletes color group |
 | 43 | `ApplyFairlightPresetToCurrentTimeline(presetName)` | ⚠️ | Resolve 20.3.2 live test accepts call; returns `False` without a named preset |
+| 44 | `GenerateSpeech({speechGenerationSettings}, timecode)` | 🔬 | Requires the AI Speech Generator Extra (not installed on validation box). Resolve 21.0.2.4 live test (Stage 2, #20): returned no media item in well under a second, consistent with the Extra being absent rather than a settings-shape bug — no `resolve.SPEECH_*`/`VOICE_*` enum constants exist on the live `resolve` handle, so the plain `{"TextInput": ...}` dict shape is not the enum-keyed silent-failure pattern seen elsewhere; see `api_truth` |
 
 ### MediaStorage
 
@@ -279,6 +283,11 @@ Every method in the DaVinci Resolve Scripting API and its test status. Methods a
 | 6 | `Export(filePath)` | ✅ | Exports DRB file |
 | 7 | `TranscribeAudio()` | ✅ | Starts audio transcription |
 | 8 | `ClearTranscription()` | ✅ | Clears transcription |
+| 9 | `PerformAudioClassification()` | ✅ | Resolve 21.0.2.4 live test (Stage 2, #20): classifies audio for all clips in folder |
+| 10 | `ClearAudioClassification()` | ✅ | Resolve 21.0.2.4 live test (Stage 2, #20) |
+| 11 | `AnalyzeForIntellisearch(identifyFaces, isBetterMode)` | ✅ | Requires the AI IntelliSearch Extra. Resolve 21.0.2.4 live test (Stage 2, #20) |
+| 12 | `AnalyzeForSlate(markerColor)` | ⚠️ | Requires the AI Slate ID Extra. Resolve 21.0.2.4 live test (Stage 2, #20) accepts call; returns `False` without an actual slate/clapperboard in frame (content-dependent) |
+| 13 | `RemoveMotionBlur({deblurOption})` | ✅ | Resolve 21.0.2.4 live test (Stage 2, #20): creates a new deblurred MediaPoolItem per clip. Fixed a pair-unpacking bug found during this validation — see `api_truth` |
 
 ### MediaPoolItem
 
@@ -320,6 +329,11 @@ Every method in the DaVinci Resolve Scripting API and its test status. Methods a
 | 34 | `LinkFullResolutionMedia(filePath)` | ⚠️ | Resolve 20.3.2 live test accepts call; full-res relink returns `False` without a matching proxy/full-res fixture |
 | 35 | `ReplaceClipPreserveSubClip(filePath)` | ✅ | Resolve 20.3.2 live test replaces clip while preserving subclip metadata |
 | 36 | `MonitorGrowingFile()` | ✅ | Resolve 20.3.2 live test enables growing-file monitoring |
+| 37 | `PerformAudioClassification()` | ✅ | Resolve 21.0.2.4 live test (Stage 2, #20) |
+| 38 | `ClearAudioClassification()` | ✅ | Resolve 21.0.2.4 live test (Stage 2, #20) |
+| 39 | `AnalyzeForIntellisearch(identifyFaces, isBetterMode)` | ✅ | Requires the AI IntelliSearch Extra. Resolve 21.0.2.4 live test (Stage 2, #20) |
+| 40 | `AnalyzeForSlate(markerColor)` | ⚠️ | Requires the AI Slate ID Extra. Resolve 21.0.2.4 live test (Stage 2, #20) accepts call; returns `False` without an actual slate/clapperboard in frame (content-dependent) |
+| 41 | `RemoveMotionBlur({deblurOption})` | ✅ | Resolve 21.0.2.4 live test (Stage 2, #20): creates a new deblurred MediaPoolItem, returned directly (not batched) |
 
 ### Timeline
 

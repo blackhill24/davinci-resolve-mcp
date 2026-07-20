@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "5b6e70a32d060815",
+      "fingerprint": "f69ecc2f86963756",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -534,7 +534,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "2eb05b4f5b3c41ce",
+      "fingerprint": "57194ecfec8097a5",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -604,7 +604,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "41e64df26193eb1f",
+      "fingerprint": "93c986411da8da4c",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -635,6 +635,8 @@
         "tests/live_path_probe.py",
         "tests/live_project_lifecycle_validation.py",
         "tests/live_render_deliver_validation.py",
+        "tests/live_resolve21_stage2_render_validation.py",
+        "tests/live_resolve21_stage2_validation.py",
         "tests/live_review_annotation_validation.py",
         "tests/live_script_smoke.py",
         "tests/live_sync_event_validation.py",

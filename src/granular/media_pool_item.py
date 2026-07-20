@@ -1,6 +1,7 @@
 """MediaPoolItem operations and metadata helpers."""
 
 from src.granular.common import *  # noqa: F401,F403
+from src.utils.cloud_operations import cloud_sync_status_label
 from src.utils.media_analysis import mark_registry_stale_for_clip as _mark_analysis_registry_stale
 
 resolve = ResolveProxy()
@@ -653,6 +654,9 @@ def get_clip_property(clip_id: str, property_name: str = "") -> Dict[str, Any]:
     Args:
         clip_id: Unique ID of the clip.
         property_name: Property name, or empty for all properties.
+
+    Returns cloud_sync_status (a friendly label for the "Cloud Sync" enum)
+    when property_name is '' or 'Cloud Sync'.
     """
     _, mp, err = _get_mp()
     if err:
@@ -664,7 +668,12 @@ def get_clip_property(clip_id: str, property_name: str = "") -> Dict[str, Any]:
         result = clip.GetClipProperty(property_name)
     else:
         result = clip.GetClipProperty()
-    return {"clip_id": clip_id, "property": result if result else {}}
+    out = {"clip_id": clip_id, "property": result if result else {}}
+    if property_name == "" and isinstance(result, dict) and "Cloud Sync" in result:
+        out["cloud_sync_status"] = cloud_sync_status_label(result.get("Cloud Sync"))
+    elif property_name == "Cloud Sync":
+        out["cloud_sync_status"] = cloud_sync_status_label(result)
+    return out
 
 
 @mcp.tool()

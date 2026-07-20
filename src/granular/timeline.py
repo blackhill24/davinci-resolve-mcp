@@ -386,9 +386,6 @@ def timeline_get_voice_isolation_state(track_index: int) -> Dict[str, Any]:
     _, tl, err = _get_timeline()
     if err:
         return err
-    missing = _requires_method(tl, "GetVoiceIsolationState", "20.1")
-    if missing:
-        return missing
     state = tl.GetVoiceIsolationState(track_index)
     return {"state": state if state else {"isEnabled": False, "amount": 0}}
 
@@ -404,9 +401,6 @@ def timeline_set_voice_isolation_state(track_index: int, state: Dict[str, Any]) 
     _, tl, err = _get_timeline()
     if err:
         return err
-    missing = _requires_method(tl, "SetVoiceIsolationState", "20.1")
-    if missing:
-        return missing
     result = tl.SetVoiceIsolationState(track_index, state)
     return {"success": bool(result)}
 

@@ -521,9 +521,6 @@ def get_fairlight_presets() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    missing = _requires_method(resolve, "GetFairlightPresets", "20.2.2")
-    if missing:
-        return missing
     presets = resolve.GetFairlightPresets()
     return {"presets": presets if presets else []}
 

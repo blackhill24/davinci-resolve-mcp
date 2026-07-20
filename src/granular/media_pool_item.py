@@ -648,9 +648,6 @@ def set_media_pool_clip_name(clip_id: str, new_name: str) -> Dict[str, Any]:
     clip = _find_clip_by_id(mp.GetRootFolder(), clip_id)
     if not clip:
         return {"error": f"Clip {clip_id} not found"}
-    missing = _requires_method(clip, "SetName", "20.2")
-    if missing:
-        return missing
     result = clip.SetName(new_name)
     return {"success": bool(result), "name": new_name}
 
@@ -687,9 +684,6 @@ def link_clip_full_resolution_media(clip_id: str, full_res_media_path: str) -> D
     clip = _find_clip_by_id(mp.GetRootFolder(), clip_id)
     if not clip:
         return {"error": f"Clip {clip_id} not found"}
-    missing = _requires_method(clip, "LinkFullResolutionMedia", "20.0")
-    if missing:
-        return missing
     result = clip.LinkFullResolutionMedia(full_res_media_path)
     return {"success": bool(result)}
 
@@ -750,9 +744,6 @@ def replace_media_pool_clip_preserve_sub_clip(clip_id: str, file_path: str) -> D
     clip = _find_clip_by_id(mp.GetRootFolder(), clip_id)
     if not clip:
         return {"error": f"Clip {clip_id} not found"}
-    missing = _requires_method(clip, "ReplaceClipPreserveSubClip", "20.0")
-    if missing:
-        return missing
     result = clip.ReplaceClipPreserveSubClip(file_path)
     response: Dict[str, Any] = {"success": bool(result)}
     if result:
@@ -773,9 +764,6 @@ def monitor_clip_growing_file(clip_id: str) -> Dict[str, Any]:
     clip = _find_clip_by_id(mp.GetRootFolder(), clip_id)
     if not clip:
         return {"error": f"Clip {clip_id} not found"}
-    missing = _requires_method(clip, "MonitorGrowingFile", "20.0")
-    if missing:
-        return missing
     result = clip.MonitorGrowingFile()
     return {"success": bool(result)}
 

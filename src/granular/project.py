@@ -162,9 +162,6 @@ def create_project(name: str, media_location_path: str = None) -> str:
         return f"Error: Project '{name}' already exists"
     
     if media_location_path:
-        version = resolve.GetVersion() or [0]
-        if version[0] < 20 or (version[0] == 20 and len(version) > 2 and (version[1], version[2]) < (2, 2)):
-            return "Error: ProjectManager.CreateProject media_location_path requires DaVinci Resolve 20.2.2+"
         result = project_manager.CreateProject(name, media_location_path)
     else:
         result = project_manager.CreateProject(name)
@@ -1488,9 +1485,6 @@ def apply_fairlight_preset_to_current_timeline(preset_name: str) -> Dict[str, An
     project = resolve.GetProjectManager().GetCurrentProject()
     if not project:
         return {"error": "No project currently open"}
-    missing = _requires_method(project, "ApplyFairlightPresetToCurrentTimeline", "20.2.2")
-    if missing:
-        return missing
     result = project.ApplyFairlightPresetToCurrentTimeline(preset_name)
     return {"success": bool(result), "preset_name": preset_name}
 

@@ -1281,9 +1281,6 @@ def ti_set_name(name: str, item_index: int = 0, track_type: str = "video", track
     item, err = _get_timeline_item(track_type, track_index, item_index)
     if err:
         return err
-    missing = _requires_method(item, "SetName", "20.2")
-    if missing:
-        return missing
     result = item.SetName(name)
     return {"success": bool(result), "name": name}
 
@@ -1964,9 +1961,6 @@ def ti_get_voice_isolation_state(item_index: int = 0, track_type: str = "audio",
     item, err = _get_timeline_item(track_type, track_index, item_index)
     if err:
         return err
-    missing = _requires_method(item, "GetVoiceIsolationState", "20.1")
-    if missing:
-        return missing
     state = item.GetVoiceIsolationState()
     return {"state": state if state else {"isEnabled": False, "amount": 0}}
 
@@ -1984,9 +1978,6 @@ def ti_set_voice_isolation_state(state: Dict[str, Any], item_index: int = 0, tra
     item, err = _get_timeline_item(track_type, track_index, item_index)
     if err:
         return err
-    missing = _requires_method(item, "SetVoiceIsolationState", "20.1")
-    if missing:
-        return missing
     result = item.SetVoiceIsolationState(state)
     return {"success": bool(result)}
 
@@ -2003,9 +1994,6 @@ def ti_reset_all_node_colors(item_index: int = 0, track_type: str = "video", tra
     item, err = _get_timeline_item(track_type, track_index, item_index)
     if err:
         return err
-    missing = _requires_method(item, "ResetAllNodeColors", "20.2")
-    if missing:
-        return missing
     result = item.ResetAllNodeColors()
     return {"success": bool(result)}
 

@@ -11710,9 +11710,6 @@ def _link_proxy_checked(root, p: Dict[str, Any]):
     path_err = _path_error(proxy_path, must_be_file=True)
     if path_err:
         return _err(path_err)
-    missing = _requires_method(clip, "LinkProxyMedia", "17.0")
-    if missing:
-        return missing
     check_compatibility = bool(
         p.get("check_compatibility")
         or p.get("require_compatible")
@@ -11833,9 +11830,6 @@ def _link_full_resolution_checked(root, p: Dict[str, Any]):
     clip = _find_clip(root, p.get("clip_id", ""))
     if not clip:
         return _err(f"Clip not found: {p.get('clip_id')}")
-    missing = _requires_method(clip, "LinkFullResolutionMedia", "20.0")
-    if missing:
-        return missing
     path = p.get("path") or p.get("full_res_media_path") or p.get("fullResMediaPath")
     path_err = _path_error(path, must_be_file=True)
     if path_err:
@@ -12998,9 +12992,6 @@ def resolve_control(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         r.Quit()
         return _ok()
     elif action == "get_fairlight_presets":
-        missing = _requires_method(r, "GetFairlightPresets", "20.2.2")
-        if missing:
-            return missing
         return {"presets": _ser(r.GetFairlightPresets())}
     elif action == "set_high_priority":
         return {"success": bool(r.SetHighPriority())}
@@ -14278,9 +14269,6 @@ def _safe_project_create(pm, resolve_obj, p: Dict[str, Any]) -> Dict[str, Any]:
         )
         if path_err:
             return path_err
-        version = resolve_obj.GetVersion() or [0]
-        if version[0] < 20 or (version[0] == 20 and len(version) > 2 and (version[1], version[2]) < (2, 2)):
-            return _err("ProjectManager.CreateProject media_location_path requires DaVinci Resolve 20.2.2+")
     if p.get("dry_run"):
         return _ok(would_create=True, name=name, media_location_path=media_location_path)
     project = pm.CreateProject(name, media_location_path) if media_location_path else pm.CreateProject(name)
@@ -14920,10 +14908,6 @@ def project_manager(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         if not p.get("name"):
             return _err("create requires name")
         media_location_path = p.get("media_location_path") or p.get("mediaLocationPath")
-        if media_location_path:
-            version = r.GetVersion() or [0]
-            if version[0] < 20 or (version[0] == 20 and len(version) > 2 and (version[1], version[2]) < (2, 2)):
-                return _err("ProjectManager.CreateProject media_location_path requires DaVinci Resolve 20.2.2+")
         proj = pm.CreateProject(p["name"], media_location_path) if media_location_path else pm.CreateProject(p["name"])
         return _ok(name=proj.GetName()) if proj else _err(f"Failed to create '{p['name']}'")
     elif action == "load":
@@ -15173,9 +15157,6 @@ def project_settings(action: str, params: Optional[Dict[str, Any]] = None) -> Di
                 return {"success": bool(proj.DeleteColorGroup(g))}
         return _err(f"Color group '{p['name']}' not found")
     elif action == "apply_fairlight_preset":
-        missing = _requires_method(proj, "ApplyFairlightPresetToCurrentTimeline", "20.2.2")
-        if missing:
-            return missing
         return {"success": bool(proj.ApplyFairlightPresetToCurrentTimeline(p["preset_name"]))}
     elif action == "generate_speech":
         missing = _requires_method(proj, "GenerateSpeech", "21.0")
@@ -15713,9 +15694,6 @@ def render(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, An
     elif action == "get_resolutions":
         return {"resolutions": _ser(proj.GetRenderResolutions(_render_format_id(proj, p["format"]), p["codec"]))}
     elif action == "get_settings":
-        missing = _requires_method(proj, "GetRenderSettings", "unknown")
-        if missing:
-            return missing
         return {"settings": _ser(proj.GetRenderSettings())}
     elif action == "set_settings":
         if "settings" not in p or not isinstance(p["settings"], dict):
@@ -16664,27 +16642,15 @@ def media_pool_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
     elif action == "replace_clip":
         return {"success": bool(clip.ReplaceClip(p["path"]))}
     elif action == "set_name":
-        missing = _requires_method(clip, "SetName", "20.2")
-        if missing:
-            return missing
         return {"success": bool(clip.SetName(p["name"]))}
     elif action == "link_full_resolution_media":
-        missing = _requires_method(clip, "LinkFullResolutionMedia", "20.0")
-        if missing:
-            return missing
         full_res_path = p.get("path") or p.get("full_res_media_path") or p.get("fullResMediaPath")
         if not full_res_path:
             return _err("Provide path or full_res_media_path")
         return {"success": bool(clip.LinkFullResolutionMedia(full_res_path))}
     elif action == "monitor_growing_file":
-        missing = _requires_method(clip, "MonitorGrowingFile", "20.0")
-        if missing:
-            return missing
         return {"success": bool(clip.MonitorGrowingFile())}
     elif action == "replace_clip_preserve_sub_clip":
-        missing = _requires_method(clip, "ReplaceClipPreserveSubClip", "20.0")
-        if missing:
-            return missing
         replacement_path = p.get("path") or p.get("file_path") or p.get("filePath")
         if not replacement_path:
             return _err("Provide path or file_path")
@@ -16878,27 +16844,15 @@ def media_pool_item_markers(action: str, params: Optional[Dict[str, Any]] = None
     elif action == "clear_flags":
         return {"success": bool(clip.ClearFlags(p["color"]))}
     elif action == "set_name":
-        missing = _requires_method(clip, "SetName", "20.2")
-        if missing:
-            return missing
         return {"success": bool(clip.SetName(p["name"]))}
     elif action == "link_full_resolution_media":
-        missing = _requires_method(clip, "LinkFullResolutionMedia", "20.0")
-        if missing:
-            return missing
         full_res_path = p.get("path") or p.get("full_res_media_path") or p.get("fullResMediaPath")
         if not full_res_path:
             return _err("Provide path or full_res_media_path")
         return {"success": bool(clip.LinkFullResolutionMedia(full_res_path))}
     elif action == "monitor_growing_file":
-        missing = _requires_method(clip, "MonitorGrowingFile", "20.0")
-        if missing:
-            return missing
         return {"success": bool(clip.MonitorGrowingFile())}
     elif action == "replace_clip_preserve_sub_clip":
-        missing = _requires_method(clip, "ReplaceClipPreserveSubClip", "20.0")
-        if missing:
-            return missing
         replacement_path = p.get("path") or p.get("file_path") or p.get("filePath")
         if not replacement_path:
             return _err("Provide path or file_path")
@@ -20607,15 +20561,9 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
             return _err(err)
         return {"items": _ser(tl.GetItemListInTrack(track_type, track_index))}
     elif action == "get_voice_isolation_state":
-        missing = _requires_method(tl, "GetVoiceIsolationState", "20.1")
-        if missing:
-            return missing
         state = tl.GetVoiceIsolationState(p["track_index"])
         return _ser(state) if state else {"isEnabled": False, "amount": 0}
     elif action == "set_voice_isolation_state":
-        missing = _requires_method(tl, "SetVoiceIsolationState", "20.1")
-        if missing:
-            return missing
         state, ignored_state = _filter_to_keys(p["state"], _VOICE_ISOLATION_STATE_KEYS)
         result = {"success": bool(tl.SetVoiceIsolationState(p["track_index"], state))}
         if ignored_state:
@@ -21099,20 +21047,11 @@ def timeline_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[
     elif action == "load_burnin_preset":
         return {"success": bool(item.LoadBurnInPreset(p["name"]))}
     elif action == "set_name":
-        missing = _requires_method(item, "SetName", "20.2")
-        if missing:
-            return missing
         return {"success": bool(item.SetName(p["name"]))}
     elif action == "get_voice_isolation_state":
-        missing = _requires_method(item, "GetVoiceIsolationState", "20.1")
-        if missing:
-            return missing
         state = item.GetVoiceIsolationState()
         return {"state": _ser(state) if state else {"isEnabled": False, "amount": 0}}
     elif action == "set_voice_isolation_state":
-        missing = _requires_method(item, "SetVoiceIsolationState", "20.1")
-        if missing:
-            return missing
         state, ignored_state = _filter_to_keys(p["state"], _VOICE_ISOLATION_STATE_KEYS)
         result = {"success": bool(item.SetVoiceIsolationState(state))}
         if ignored_state:
@@ -22785,9 +22724,6 @@ def timeline_item_color(action: str, params: Optional[Dict[str, Any]] = None) ->
     elif action == "set_fusion_cache":
         return {"success": bool(item.SetFusionOutputCache(p["enabled"]))}
     elif action == "reset_all_node_colors":
-        missing = _requires_method(item, "ResetAllNodeColors", "20.2")
-        if missing:
-            return missing
         return {"success": bool(item.ResetAllNodeColors())}
     elif action == "stabilize":
         return {"success": bool(item.Stabilize())}

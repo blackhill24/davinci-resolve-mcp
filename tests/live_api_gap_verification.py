@@ -48,9 +48,10 @@ def record(gap, attempted, outcome, conclusion, control=None):
 def has(obj, *names):
     """Return the subset of names that genuinely exist on obj.
 
-    NOTE: hasattr()/getattr() are UNUSABLE here — the Resolve Python bridge
-    fabricates a callable for ANY attribute name, so hasattr is always True.
-    dir() lists only the real methods, so we membership-test against that.
+    NOTE: hasattr()/getattr() are UNUSABLE here — getattr() on the Resolve
+    Python bridge returns None (no AttributeError) for ANY attribute name, so
+    hasattr is always True even though nothing was actually found. dir() lists
+    only the real methods, so we membership-test against that.
     """
     existing = set(dir(obj))
     return [n for n in names if n in existing]

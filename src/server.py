@@ -25708,7 +25708,13 @@ def fusion_comp(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
             return _err(f"Tool '{p['tool_name']}' not found")
         flow = _fusion_flow_view(comp)
         if flow is None:
-            return _err("FlowView unavailable on this comp")
+            return _err(
+                "FlowView unavailable on this comp",
+                code="FLOWVIEW_UNAVAILABLE", category="wrong_page",
+                remediation="comp.CurrentFrame is only populated while the Fusion "
+                             "page is active; call resolve.OpenPage('fusion') (or "
+                             "switch pages in the UI) before get_position/set_position.",
+            )
         pos = _parse_pos(flow.GetPosTable(tool))
         if pos is None:
             return _err(f"Could not read position for tool '{p['tool_name']}'")
@@ -25722,7 +25728,13 @@ def fusion_comp(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
             return _err(f"Tool '{p['tool_name']}' not found")
         flow = _fusion_flow_view(comp)
         if flow is None:
-            return _err("FlowView unavailable on this comp")
+            return _err(
+                "FlowView unavailable on this comp",
+                code="FLOWVIEW_UNAVAILABLE", category="wrong_page",
+                remediation="comp.CurrentFrame is only populated while the Fusion "
+                             "page is active; call resolve.OpenPage('fusion') (or "
+                             "switch pages in the UI) before get_position/set_position.",
+            )
         x, y = float(p["x"]), float(p["y"])
         comp.Lock()
         try:
@@ -25796,7 +25808,13 @@ def fusion_comp(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
     elif action == "auto_arrange":
         flow = _fusion_flow_view(comp)
         if flow is None:
-            return _err("FlowView unavailable on this comp")
+            return _err(
+                "FlowView unavailable on this comp",
+                code="FLOWVIEW_UNAVAILABLE", category="wrong_page",
+                remediation="comp.CurrentFrame is only populated while the Fusion "
+                             "page is active; call resolve.OpenPage('fusion') (or "
+                             "switch pages in the UI) before get_position/set_position.",
+            )
         names = p.get("tool_names")
         if names:
             tools = [(n, comp.FindTool(n)) for n in names]

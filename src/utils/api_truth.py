@@ -591,9 +591,39 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "based) and Power Bins (cross-project) cannot be created or "
                    "configured. Verified via MediaPool dir() (21.0.0).",
         "recommended": "Create Smart/Power Bins in the Resolve UI; only regular "
-                       "bins are scriptable.",
+                       "bins are scriptable. Offline-authoring verdict (issue #23, "
+                       "3.3.2): see the paired DB-representation entry below.",
         "tags": ["missing-method", "media-pool", "bins"],
         "submit": "missing",
+    },
+    {
+        "symbol": "Smart Bins / Power Bins — offline project-DB representation",
+        "object": "Project.db Sm2MpSmartFolder / (Power Bins: none)",
+        "reality": "Investigated the offline DB representation for 3.3.2 (issue "
+                   "#23) on Resolve Studio 21.0.2.4 disk databases. SMART BINS are "
+                   "stored per-project in the `Sm2MpSmartFolder` table: columns "
+                   "Name, MpFolder, ParentFolder, ManuallyOrdered and — crucially — "
+                   "a `SearchFilter` BLOB (the rule set) plus a `FieldsBlob`. So a "
+                   "smart bin travels inside a .drp and is structurally reachable "
+                   "by the offline project_db layer. BUT authoring one is blocked: "
+                   "the SearchFilter rule encoding is an opaque BLOB not yet "
+                   "reverse-engineered, and a smart folder with an empty/absent "
+                   "SearchFilter matches nothing (useless). Cracking it needs a "
+                   "UI-authored oracle to export-diff (same method as the 3.2 "
+                   "audio/subtitle blobs) — that requires manual Resolve UI "
+                   "interaction, so it is deferred, not shipped. POWER BINS are "
+                   "cross-project by design and appear in NO Project.db (nor any "
+                   "on-disk SQLite database under the Resolve Project Library — "
+                   "confirmed by a full table scan). The advanced server operates "
+                   "on a single closed Project.db, so it structurally cannot author "
+                   "Power Bins offline; that is a hard impossibility for this layer.",
+        "recommended": "No offline tool shipped. Smart Bins: reachable in principle "
+                       "via project_db (Sm2MpSmartFolder) but blocked on RE of the "
+                       "SearchFilter rule BLOB — grab a UI-authored smart bin and "
+                       "export-diff the DB to crack it before writing a tool. Power "
+                       "Bins: create in the Resolve UI; no offline path exists.",
+        "tags": ["media-pool", "bins", "smart-bin", "power-bin", "project-db", "offline"],
+        "issue": 23,
     },
     {
         "symbol": "Per-subtitle text content and timing editing",

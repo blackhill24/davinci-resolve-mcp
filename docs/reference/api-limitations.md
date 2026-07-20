@@ -138,7 +138,7 @@ equivalent, blocking full automation.
 
 - **Object:** `MediaPool`
 - **Behavior:** Only AddSubFolder (a regular bin) exists. Smart Bins (rule-based) and Power Bins (cross-project) cannot be created or configured. Verified via MediaPool dir() (21.0.0).
-- **Workaround / current handling:** Create Smart/Power Bins in the Resolve UI; only regular bins are scriptable.
+- **Workaround / current handling:** Create Smart/Power Bins in the Resolve UI; only regular bins are scriptable. Offline-authoring verdict (issue #23, 3.3.2): see the paired DB-representation entry below.
 - **Tags:** missing-method, media-pool, bins
 
 ### Subtitle track styling and presets

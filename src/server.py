@@ -2,7 +2,7 @@
 """
 DaVinci Resolve MCP Server (Compound Tools)
 
-35 compound tools covering 100% of the DaVinci Resolve Scripting API (336 methods)
+36 compound tools covering 100% of the DaVinci Resolve Scripting API (336 methods)
 plus Fusion Fuse, DCTL, and Resolve-page Script authoring tools.
 Each tool groups related operations via an 'action' parameter.
 
@@ -119,6 +119,7 @@ from src.utils import analysis_runs as _analysis_runs
 from src.utils import brain_edits as _brain_edits
 from src.utils import edit_engine as _edit_engine_mod
 from src.utils import auto_edit as _auto_edit_mod
+from src.utils import orchestrate as _orchestrate_mod
 from src.utils import advanced_bridge as _advanced_bridge
 from src.utils import music_analysis as _music_analysis_mod
 from src.utils import media_pool_changes as _media_pool_changes
@@ -21686,6 +21687,136 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
     ])
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# TOOL: orchestrate — resumable ingest-to-deliver post conductor (Phase 1: state
+# machine + persistence only; run_stage/gates/rollback land in later phases)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _orchestrate_project_context(p: Dict[str, Any], *, need_resolve: bool = False):
+    """(resolve, proj, project_root, err) — same contract as auto_edit's.
+
+    Unlike auto_edit, orchestrate defaults to need_resolve=False: a job's
+    record lives under an analysis root and start_job/job_status/list_jobs
+    must work with Resolve closed (that's the whole point of resumability).
+    """
+    analysis_root = p.get("analysis_root") or p.get("analysisRoot")
+    if analysis_root and not os.path.isdir(str(analysis_root)):
+        return None, None, None, _err(
+            f"analysis_root is not a directory: {str(analysis_root)!r}")
+    explicit_root = str(analysis_root) if analysis_root else None
+    if not need_resolve and explicit_root:
+        return None, None, explicit_root, None
+    vctx = _destructive_versioning_provider()
+    if vctx is not None:
+        r, proj, project_root, _name = vctx
+        return r, proj, explicit_root or project_root, None
+    if explicit_root:
+        return None, None, explicit_root, None
+    return None, None, None, _err(
+        "No project context — open a Resolve project, or pass analysis_root."
+    )
+
+
+def _orchestrate_default_analysis_base_root(project_root: str) -> str:
+    return os.path.dirname(os.path.normpath(project_root))
+
+
+@mcp.tool()
+async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Resumable ingest-to-deliver post-production conductor.
+
+    Sequences the domain tools (media_pool, media_analysis, auto_edit,
+    timeline, timeline_item_color, render, ...) across a durable, resumable
+    job record — the sole reason this exists as a tool rather than host
+    prose is surviving context death mid-job. Phase 1 (current): the job
+    state machine, its two-file persistence (record = truth under
+    {analysis_root}/memory/jobs/, global index = rebuildable cache under
+    {analysis_base_root}/_jobs/), and a crash-recovery lease. Stage
+    execution (run_stage), gates, and rollback land in later phases — for
+    now every stage after intake stays pending until those ship.
+
+    Actions:
+      start_job(files, music?, target_duration_seconds?, genre?, deliverable?,
+        title_text?, options?, stages?, include_fusion?, holder_id?,
+        analysis_root?) -> {job_id, job, holder_id} — validates files (exist
+        on disk), infers the stage manifest from the brief (override with
+        `stages`), marks intake done, persists, and acquires the initial
+        lease. Does NOT auto-run analysis or any other stage.
+      job_status(job_id, analysis_root?) -> {job, cursor, manifest,
+        lease_expired} — read-only; never touches the lease.
+      list_jobs(analysis_root? | analysis_base_root?, limit?, rebuild?,
+        job_state?) -> {jobs} — reads the global index (auto-rebuilds if
+        missing); rebuild=true forces a fresh scan of every project root
+        under analysis_base_root.
+    """
+    p = params or {}
+
+    def _job_id_param() -> str:
+        return str(p.get("job_id") or p.get("jobId") or "")
+
+    if action == "start_job":
+        r, proj, project_root, err = _orchestrate_project_context(p, need_resolve=False)
+        if err:
+            return err
+        files = p.get("files") or []
+        music = p.get("music")
+        problems = _orchestrate_mod.validate_job_inputs(
+            files=files,
+            genre=p.get("genre") or "talking_head",
+            deliverable=p.get("deliverable") or _orchestrate_mod.DEFAULT_DELIVERABLE,
+            target_duration_seconds=p.get("target_duration_seconds") or p.get("targetDurationSeconds"),
+            title_text=p.get("title_text") or p.get("titleText"),
+            stages=p.get("stages"),
+        )
+        for path in list(files) + ([music] if music else []):
+            if not isinstance(path, str) or not os.path.isfile(path):
+                problems.append(f"file not found: {path!r}")
+        if problems:
+            return _err("invalid job brief: " + "; ".join(problems))
+        created = _orchestrate_mod.create_job(
+            project_root,
+            files=files,
+            music=music,
+            target_duration_seconds=p.get("target_duration_seconds") or p.get("targetDurationSeconds"),
+            genre=p.get("genre") or "talking_head",
+            deliverable=p.get("deliverable") or _orchestrate_mod.DEFAULT_DELIVERABLE,
+            title_text=p.get("title_text") or p.get("titleText"),
+            options=p.get("options"),
+            stages=p.get("stages"),
+            include_fusion=bool(p.get("include_fusion") or p.get("includeFusion")),
+            holder_id=p.get("holder_id") or p.get("holderId"),
+        )
+        if not created.get("success"):
+            return _err("; ".join(created.get("problems") or [created.get("error") or "start_job failed"]))
+        return created
+
+    if action == "job_status":
+        _r, _proj, project_root, err = _orchestrate_project_context(p, need_resolve=False)
+        if err:
+            return err
+        result = _orchestrate_mod.job_status(project_root, _job_id_param())
+        if not result.get("success"):
+            return _err(result.get("error") or "job_status failed")
+        return result
+
+    if action == "list_jobs":
+        analysis_base_root = p.get("analysis_base_root") or p.get("analysisBaseRoot")
+        if not analysis_base_root:
+            _r, _proj, project_root, err = _orchestrate_project_context(p, need_resolve=False)
+            if err:
+                return err
+            analysis_base_root = _orchestrate_default_analysis_base_root(project_root)
+        return _orchestrate_mod.list_jobs(
+            str(analysis_base_root),
+            limit=int(p.get("limit") or 20),
+            rebuild=bool(p.get("rebuild")),
+            job_state=p.get("job_state") or p.get("jobState"),
+        )
+
+    return _unknown(action, ["start_job", "job_status", "list_jobs"])
+
+
 _TIMELINE_ACTIONS = [
     "list", "get_current", "set_current", "get_name", "set_name", "get_start_frame",
     "get_end_frame", "get_start_timecode", "set_start_timecode", "get_track_count",
@@ -28292,5 +28423,5 @@ if __name__ == "__main__":
         logger.error(f"Unknown --transport {transport!r}; use stdio|sse|streamable-http")
         sys.exit(2)
 
-    logger.info("Starting DaVinci Resolve MCP Server (35 compound tools)")
+    logger.info("Starting DaVinci Resolve MCP Server (36 compound tools)")
     run_fastmcp_stdio(mcp)

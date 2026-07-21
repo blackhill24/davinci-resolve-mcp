@@ -2,12 +2,12 @@
   "version": 2,
   "layers": 3,
   "root_nav": "CLAUDE.md",
-  "synced": "2026-07-20",
-  "_root_structure": "01f545d69a3b321e",
+  "synced": "2026-07-21",
+  "_root_structure": "75479c43f99da814",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "bc5dcdc3624361bb",
+      "fingerprint": "23078f49bdc22f34",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -70,6 +70,7 @@
         "src/utils/multicam.py",
         "src/utils/music_analysis.py",
         "src/utils/object_inspection.py",
+        "src/utils/orchestrate.py",
         "src/utils/page_lock.py",
         "src/utils/platform.py",
         "src/utils/proc.py",
@@ -107,7 +108,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "8a4a2d317418a175",
+      "fingerprint": "7544b53e4e7cce53",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -540,7 +541,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "778bb67702f559fc",
+      "fingerprint": "9eb03e0fff6d9261",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -610,7 +611,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "b5d2e8de56262c3c",
+      "fingerprint": "dee10e657157fd6e",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -759,6 +760,8 @@
         "tests/test_music_analysis.py",
         "tests/test_object_inspection.py",
         "tests/test_open_control_panel.py",
+        "tests/test_orchestrate.py",
+        "tests/test_orchestrate_tool.py",
         "tests/test_p1_param_validation.py",
         "tests/test_p1_whitelist_and_delete.py",
         "tests/test_page_lock.py",

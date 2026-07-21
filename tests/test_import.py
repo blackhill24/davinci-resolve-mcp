@@ -97,8 +97,9 @@ def test_utils_syntax():
 
 
 def test_compound_tool_count():
-    # 35 = 33 baseline + edit_engine (Phase E) + auto_edit (auto-edit Phase 2).
-    assert _count_mcp_tools(PROJECT_ROOT / "src" / "server.py") == 35
+    # 36 = 33 baseline + edit_engine (Phase E) + auto_edit (auto-edit Phase 2)
+    # + orchestrate (post-conductor Phase 1).
+    assert _count_mcp_tools(PROJECT_ROOT / "src" / "server.py") == 36
 
 
 def test_prompt_registrations():

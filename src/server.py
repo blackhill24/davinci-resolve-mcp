@@ -22187,7 +22187,17 @@ async def _orchestrate_run_grade(job, job_id, project_root, proj, p: Dict[str, A
     """Applies a grade via timeline_item_color IF the brief (or the call)
     specifies one; otherwise a no-op done — G2's vision checkpoint still
     fires regardless (a look assessment of "no grade applied" is honest
-    too)."""
+    too).
+
+    ``options.grade.compute`` is the offline-compute-then-apply path
+    (epic #37): ``{action, clips, outDir, ...}`` forwarded verbatim to the
+    advanced server's ``drx`` tool via ``advanced_bridge.run_drx_compute``
+    — Resolve stays open the whole call, no quit/relaunch dance (that's
+    only needed for tools that require Resolve CLOSED, which drx doesn't).
+    Single-target apply only: the first computed grade is applied via the
+    same safe_apply_drx path a manually-supplied drx_path would use —
+    per-clip individualized application across multiple timeline items
+    (matching each grade to its own clip) is future work."""
     grade_opts = dict(((job.get("brief") or {}).get("options") or {}).get("grade") or {})
     grade_opts.update(p.get("grade") or {})
     if not grade_opts:
@@ -22195,6 +22205,32 @@ async def _orchestrate_run_grade(job, job_id, project_root, proj, p: Dict[str, A
         fp = _orchestrate_capture_fingerprint(proj)
         _orchestrate_mod.advance_stage(project_root, job_id, "grade", "done", fingerprint=fp)
         return {"success": True, "stage": "grade", "note": "no grade specified — nothing to apply"}
+
+    compute_spec = grade_opts.pop("compute", None)
+    compute_report = None
+    if compute_spec:
+        # Mark running before the compute call — it happens outside
+        # _orchestrate_execute_reversible_stage's own "running" transition,
+        # and a compute failure needs a legal pending->failed path (advance_stage
+        # only allows failed from running, never straight from pending).
+        _orchestrate_mod.advance_stage(project_root, job_id, "grade", "running")
+        compute_action = str(compute_spec.get("action") or "")
+        compute_args = {k: v for k, v in compute_spec.items() if k != "action"}
+        computed = _advanced_bridge.run_drx_compute(compute_action, compute_args)
+        if not computed.get("success"):
+            _orchestrate_mod.advance_stage(
+                project_root, job_id, "grade", "failed",
+                notes=[f"offline compute failed: {computed.get('error')}"])
+            return {"success": False, "stage": "grade",
+                    "error": f"offline compute failed: {computed.get('error')}", "compute": computed}
+        grades = ((computed.get("result") or {}).get("grades")) or []
+        if not grades:
+            _orchestrate_mod.advance_stage(
+                project_root, job_id, "grade", "failed", notes=["offline compute produced no grades"])
+            return {"success": False, "stage": "grade",
+                    "error": "offline compute produced no grades", "compute": computed}
+        grade_opts["drx_path"] = grades[0]["drxPath"]
+        compute_report = computed.get("result")
 
     async def _mutate():
         call_params = dict(grade_opts)
@@ -22204,7 +22240,10 @@ async def _orchestrate_run_grade(job, job_id, project_root, proj, p: Dict[str, A
             grade_action = "safe_apply_drx"
         else:
             grade_action = "safe_set_cdl"
-        return timeline_item_color(grade_action, call_params)
+        result = timeline_item_color(grade_action, call_params)
+        if compute_report is not None and isinstance(result, dict):
+            result = dict(result, compute_report=compute_report)
+        return result
 
     return await _orchestrate_execute_reversible_stage(project_root, job_id, "grade", proj, _mutate)
 

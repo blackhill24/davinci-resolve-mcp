@@ -117,6 +117,30 @@ def run_node_bridge(
     return payload
 
 
+def run_drx_compute(
+    action: str,
+    args: Dict[str, Any],
+    *,
+    timeout: float = 60.0,
+) -> Dict[str, Any]:
+    """Compute a per-clip grade offline (``level_clips``, ``skin_match``,
+    ``shot_match``, ...) — Resolve stays open the whole time; this never
+    touches the live API, it just reads extracted frames and writes
+    ``.drx`` files. ``args`` is passed through verbatim (``clips``,
+    ``outDir``, and the action's own params) — the caller (host or another
+    tool) owns frame extraction; this doesn't reimplement it.
+
+    Returns the drx tool's raw result (``grades: [{id, drxPath, ...}]``,
+    ``warnings``, ``skipped``) under ``result`` on success, honest refusal
+    when Node is unavailable.
+    """
+    return run_node_bridge(
+        "scripts/drp-bridge.mjs",
+        ["drx", str(action), json.dumps(args)],
+        timeout=timeout,
+    )
+
+
 def run_panel_bridge(
     surface: str,
     op: str,

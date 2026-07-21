@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "756925b69662ad38",
+      "fingerprint": "25425e46376c62dd",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -541,7 +541,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "73640531e7f9c82b",
+      "fingerprint": "740eef45095cc3ee",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -612,7 +612,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "ec96d2ecb67f0190",
+      "fingerprint": "6a46359786a135fe",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -675,6 +675,7 @@
         "tests/test_action_help.py",
         "tests/test_action_list_drift.py",
         "tests/test_advanced_bridge.py",
+        "tests/test_advanced_bridge_drx_compute.py",
         "tests/test_advanced_bridge_ops.py",
         "tests/test_agent_rules_drift.py",
         "tests/test_ai_console_dispatch.py",
@@ -836,7 +837,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "5d0cfff045a31617",
+      "fingerprint": "f316e5af6e530b20",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

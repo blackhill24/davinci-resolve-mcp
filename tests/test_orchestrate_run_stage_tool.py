@@ -253,6 +253,52 @@ class RunStageGradeTests(OrchestrateRunStageBase):
         self.assertEqual(job["stages"]["grade"]["status"], "failed")
         self.assertEqual(len(job["stages"]["grade"]["snapshot_ids"]), 1)
 
+    def test_compute_then_apply_success(self):
+        job_id = self._start_job()
+        self._to_grade(job_id)
+        computed = {"success": True, "result": {"grades": [{"id": "a", "drxPath": "/tmp/a.drx"}],
+                                                 "warnings": []}}
+        applied = {"success": True}
+        with mock.patch.object(s._advanced_bridge, "run_drx_compute", return_value=computed) as mocked_compute, \
+             mock.patch.object(s, "timeline_item_color", return_value=applied) as mocked_apply:
+            out = self._run_stage({"job_id": job_id, "stage": "grade", "grade": {
+                "compute": {"action": "level_clips",
+                            "clips": [{"id": "a", "png": "/tmp/a.png", "group": "cam1"}],
+                            "outDir": "/tmp/grades"},
+            }})
+        self.assertTrue(out.get("success"), out)
+        mocked_compute.assert_called_once_with(
+            "level_clips",
+            {"clips": [{"id": "a", "png": "/tmp/a.png", "group": "cam1"}], "outDir": "/tmp/grades"})
+        self.assertEqual(mocked_apply.call_args[0][0], "safe_apply_drx")
+        self.assertEqual(mocked_apply.call_args[0][1]["path"], "/tmp/a.drx")
+        job = orchestrate.load_job(self.root, job_id)
+        self.assertEqual(job["stages"]["grade"]["status"], "done")
+
+    def test_compute_failure_fails_stage_without_touching_resolve(self):
+        job_id = self._start_job()
+        self._to_grade(job_id)
+        computed = {"success": False, "error": "Node.js not found on PATH"}
+        with mock.patch.object(s._advanced_bridge, "run_drx_compute", return_value=computed), \
+             mock.patch.object(s, "timeline_item_color") as mocked_apply:
+            out = self._run_stage({"job_id": job_id, "stage": "grade", "grade": {
+                "compute": {"action": "level_clips", "clips": [], "outDir": "/tmp/grades"},
+            }})
+        self.assertFalse(out.get("success"))
+        mocked_apply.assert_not_called()
+        job = orchestrate.load_job(self.root, job_id)
+        self.assertEqual(job["stages"]["grade"]["status"], "failed")
+
+    def test_compute_no_grades_fails_stage(self):
+        job_id = self._start_job()
+        self._to_grade(job_id)
+        computed = {"success": True, "result": {"grades": [], "skipped": ["a"]}}
+        with mock.patch.object(s._advanced_bridge, "run_drx_compute", return_value=computed):
+            out = self._run_stage({"job_id": job_id, "stage": "grade", "grade": {
+                "compute": {"action": "skin_match", "clips": [], "outDir": "/tmp/grades"},
+            }})
+        self.assertFalse(out.get("success"))
+
 
 class RunStageAudioReviewTests(OrchestrateRunStageBase):
     def _approve_g2(self, job_id, fp):

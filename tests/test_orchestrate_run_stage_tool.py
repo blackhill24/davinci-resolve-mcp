@@ -394,6 +394,52 @@ class RunStageDeliverTests(OrchestrateRunStageBase):
         self.assertEqual(job["stages"]["deliver"]["status"], "done")
         self.assertEqual(job["stages"]["deliver"]["foreign_keys"]["output_path"], out_file)
 
+    def test_deliver_qc_runs_when_specified(self):
+        job_id = self._start_job()
+        fp = _fp()
+        self._to_deliver(job_id, gate_fp=fp)
+        orchestrate.record_gate_approval(
+            self.root, job_id, "G3", {"fingerprint": fp, "mode": "standard", "adopted": False, "forced": False})
+        with tempfile.TemporaryDirectory() as target_dir:
+            out_file = os.path.join(target_dir, "orchestrate_" + job_id + ".mov")
+            with open(out_file, "wb"):
+                pass
+            qc_result = {"success": True, "result": {"pass": True, "fields": []}}
+            with mock.patch.object(s, "_orchestrate_capture_fingerprint", return_value=fp), \
+                 mock.patch.object(s, "_prepare_render_job", return_value={"success": True, "job_id": "render-1"}), \
+                 mock.patch.object(s, "_run_maybe_background",
+                                    return_value={"success": True, "job_id": "render-1", "output_path": out_file}), \
+                 mock.patch.object(s._advanced_bridge, "run_advanced_tool", return_value=qc_result) as mocked_qc:
+                out = self._run_stage({"job_id": job_id, "stage": "deliver",
+                                        "render": {"target_dir": target_dir},
+                                        "deliver_qc": {"spec": {"video": {"codec": "h264"}}}})
+        self.assertTrue(out.get("success"), out)
+        self.assertIn("qc", out)
+        self.assertIn("deliverable_qc", out["qc"])
+        mocked_qc.assert_called_once_with(
+            "deliverable", "deliverable_qc", {"file": out_file, "spec": {"video": {"codec": "h264"}}})
+
+    def test_no_qc_when_unspecified(self):
+        job_id = self._start_job()
+        fp = _fp()
+        self._to_deliver(job_id, gate_fp=fp)
+        orchestrate.record_gate_approval(
+            self.root, job_id, "G3", {"fingerprint": fp, "mode": "standard", "adopted": False, "forced": False})
+        with tempfile.TemporaryDirectory() as target_dir:
+            out_file = os.path.join(target_dir, "orchestrate_" + job_id + ".mov")
+            with open(out_file, "wb"):
+                pass
+            with mock.patch.object(s, "_orchestrate_capture_fingerprint", return_value=fp), \
+                 mock.patch.object(s, "_prepare_render_job", return_value={"success": True, "job_id": "render-1"}), \
+                 mock.patch.object(s, "_run_maybe_background",
+                                    return_value={"success": True, "job_id": "render-1", "output_path": out_file}), \
+                 mock.patch.object(s._advanced_bridge, "run_advanced_tool") as mocked_qc:
+                out = self._run_stage({"job_id": job_id, "stage": "deliver",
+                                        "render": {"target_dir": target_dir}})
+        self.assertTrue(out.get("success"), out)
+        self.assertNotIn("qc", out)
+        mocked_qc.assert_not_called()
+
     def test_prepare_failure_marks_failed_resumable(self):
         job_id = self._start_job()
         fp = _fp()

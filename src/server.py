@@ -22346,9 +22346,33 @@ async def _orchestrate_run_deliver(job, job_id, project_root, proj, p: Dict[str,
                                         notes=["failed-resumable-via-Resolve", str(render_result)])
         return {"success": False, "stage": "deliver", "render": render_result}
     _orchestrate_mod.set_stage_foreign_keys(project_root, job_id, "deliver", output_path=render_result["output_path"])
+
+    # Optional offline QC against the rendered output (epic #37 phase A
+    # extension) — deliverable/loudness compliance checks, pure ffprobe/
+    # ffmpeg reads, no Resolve interaction, run in-band right after render.
+    # Report-only per the advanced tool's own posture (gate: review — never
+    # auto-pass-clear): findings never fail this stage, they're surfaced for
+    # the host to act on.
+    qc_opts = dict(((job.get("brief") or {}).get("options") or {}).get("deliver_qc") or {})
+    qc_opts.update(p.get("deliver_qc") or {})
+    qc_report = None
+    if qc_opts:
+        qc_report = {}
+        if qc_opts.get("spec"):
+            qc_report["deliverable_qc"] = _advanced_bridge.run_advanced_tool(
+                "deliverable", "deliverable_qc",
+                {"file": render_result["output_path"], "spec": qc_opts["spec"]})
+        if qc_opts.get("loudness_target"):
+            qc_report["loudness_qc"] = _advanced_bridge.run_advanced_tool(
+                "deliverable", "loudness_qc",
+                {"file": render_result["output_path"], "target": qc_opts["loudness_target"]})
+
     fp = _orchestrate_capture_fingerprint(proj)
     _orchestrate_mod.advance_stage(project_root, job_id, "deliver", "done", fingerprint=fp)
-    return {"success": True, "stage": "deliver", "render": render_result}
+    result = {"success": True, "stage": "deliver", "render": render_result}
+    if qc_report is not None:
+        result["qc"] = qc_report
+    return result
 
 
 def _orchestrate_resolve_fingerprint(p: Dict[str, Any], proj):

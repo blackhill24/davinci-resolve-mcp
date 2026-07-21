@@ -141,6 +141,31 @@ def run_drx_compute(
     )
 
 
+def run_advanced_tool(
+    tool: str,
+    action: str,
+    args: Dict[str, Any],
+    *,
+    timeout: float = 60.0,
+) -> Dict[str, Any]:
+    """One-shot call into any of the 18 advanced-server tools, for pure file/
+    DB-read offline compute that isn't shaped like a drp-format op (no single
+    drpPath-in/outputPath-out contract) — e.g. ``deliverable.deliverable_qc``,
+    ``conform.analyze_media``, ``color_trace.plan``.
+
+    Several tools mix pure-file actions with a live-DB path that needs
+    Resolve CLOSED (``conform.fix_reverse_clip``, ``offline_ref``'s LIVE DB
+    link/unlink, ``project_db.relayout_node_graphs``, ``fairlight``'s DB
+    path) — this bridge doesn't know which is which; the CALLER must check
+    the target action's own description before calling one of those in-band.
+    """
+    return run_node_bridge(
+        "scripts/advanced-bridge.mjs",
+        [str(tool), str(action), json.dumps(args)],
+        timeout=timeout,
+    )
+
+
 def run_panel_bridge(
     surface: str,
     op: str,

@@ -47,8 +47,25 @@ manifest explicitly.
 | `conform` | `timeline.detect_gaps_overlaps` / `detect_missing_media` | Read-only QC; refuses on findings unless `accept_gaps`/`accept_missing`. Relink is left to the host driving `timeline` directly. |
 | `grade` | `timeline_item_color.safe_apply_drx` / `safe_set_cdl`; `options.grade.compute` offline-computes first via `advanced_bridge.run_drx_compute` (epic #37 phase A) | No-op done unless the brief (or the call) supplies `options.grade` — G2's vision checkpoint still fires regardless. `compute` (`{action, clips, outDir, ...}`) calls the advanced server's `drx` tool in-band — Resolve stays open, no quit/relaunch — then applies the first computed grade via the same `safe_apply_drx` path; per-clip individualized application across multiple timeline items is future work (#39). |
 | `audio` | `timeline.safe_set_audio_properties` | No-op done unless `options.audio` is supplied. |
-| `deliver` | `render` (`prepare_render_job` → `StartRendering` → poll → verify) | **Special-cased**: requires G3 approved first, no pre-stage snapshot, no auto-rollback on failure — a failure marks `failed-resumable-via-Resolve` and leans on Resolve's own render-queue resume rather than restarting. |
+| `deliver` | `render` (`prepare_render_job` → `StartRendering` → poll → verify); `options.deliver_qc` runs `deliverable.deliverable_qc`/`loudness_qc` against the output afterward (epic #37) | **Special-cased**: requires G3 approved first, no pre-stage snapshot, no auto-rollback on failure — a failure marks `failed-resumable-via-Resolve` and leans on Resolve's own render-queue resume rather than restarting. QC is report-only (`gate: review`, same posture as the advanced tool itself) — findings never fail the stage. |
 | `review` | `timeline_markers.export_review_report` | — |
+
+## Offline compute (epic #37)
+
+`src/utils/advanced_bridge.py` bridges into the advanced (Node) server for
+pure file/DB-read compute that stays **in-band** — Resolve keeps running
+the whole call, no quit/relaunch needed. `run_drx_compute(action, args)`
+targets grade compute specifically; `run_advanced_tool(tool, action, args)`
+generalizes to any of the advanced server's 18 tools via
+`scripts/advanced-bridge.mjs` (which generalizes the narrower, mutating
+`drp-bridge.mjs` — drp/drt/drx only — to the full tool set). Only a narrow
+per-ACTION slice of the advanced server actually requires Resolve closed
+(`conform.fix_reverse_clip`, `offline_ref`'s LIVE DB link/unlink,
+`project_db.relayout_node_graphs`, `fairlight`'s DB path) — most tools,
+including everything wired into `orchestrate` so far (`drx` grade compute,
+`deliverable` QC), are pure-file and safe in-band. The Resolve-closed
+slice doesn't map cleanly onto any current stage and isn't wired — tracked
+separately if a concrete use case emerges (issue #39).
 
 ## Fingerprints, drift, and gates
 
@@ -120,7 +137,12 @@ Offline: `tests/test_orchestrate.py`, `tests/test_orchestrate_tool.py`,
 (state machine, persistence, lease, fingerprints, drift-refuse, snapshot
 bookkeeping/GC, the gate matrix, and every `run_stage` delegation path with
 the domain-tool calls mocked — this suite verifies orchestrate's own logic,
-not the domain tools' internals). Live: `tests/live_orchestrate_probe.py`
+not the domain tools' internals); `tests/test_advanced_bridge_drx_compute.py`,
+`tests/test_advanced_bridge_generic.py` (the offline-compute bridge,
+including real end-to-end calls — synthetic ffmpeg frames through a real
+drx compute, a real ffprobe-backed `deliverable_qc` — when Node + the
+relevant optional deps are present; graceful skip otherwise). Live:
+`tests/live_orchestrate_probe.py`
 (requires Resolve Studio; gated by `tests/preflight.py`).
 
 **Live-verified on Resolve Studio 21.0.2.4** (18/20 checks): a talking-head

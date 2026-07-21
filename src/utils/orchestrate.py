@@ -661,6 +661,32 @@ def gate_is_valid(gate: Optional[Dict[str, Any]], current_fingerprint: Optional[
     return fingerprints_equal(gate.get("fingerprint"), current_fingerprint)
 
 
+def _gate_precondition_ok(job: Dict[str, Any], gate: str, stage: str) -> bool:
+    """Each gate checkpoints a different POINT in its stage's lifecycle —
+    "done" is the right precondition for exactly one of them:
+
+    - G1 (post-plan, PRE-build): the edit stage is mid-flight (a plan
+      exists) when this fires — requiring "done" would be a chicken-and-egg
+      deadlock, since the stage can't finish building without G1 first.
+    - G3 (pre-render): same shape — deliver can't be "done" without having
+      rendered, and it can't render without G3 first. The real precondition
+      is that everything BEFORE deliver is done (the pipeline has actually
+      reached it).
+    - G2 (post-grade): grade fully executes, then G2 checkpoints the
+      result before anything downstream proceeds — "done" is correct as-is.
+    """
+    stages = job.get("stages") or {}
+    if gate == "G1":
+        return bool((stages.get(stage) or {}).get("foreign_keys", {}).get("plan_id"))
+    if gate == "G3":
+        manifest = job.get("manifest") or []
+        if stage not in manifest:
+            return False
+        idx = manifest.index(stage)
+        return all((stages.get(s) or {}).get("status") == "done" for s in manifest[:idx])
+    return (stages.get(stage) or {}).get("status") == "done"
+
+
 def evaluate_gate_request(
     job: Dict[str, Any],
     gate: str,
@@ -684,9 +710,9 @@ def evaluate_gate_request(
     st = stages.get(stage)
     if st is None:
         return {"success": False, "error": f"stage {stage!r} (gated by {gate}) is not in this job's manifest"}
-    if st.get("status") != "done":
+    if not _gate_precondition_ok(job, gate, stage):
         return {"success": False,
-                "error": f"{gate} gates {stage!r}, which is not done yet (status={st.get('status')!r})"}
+                "error": f"{gate} precondition not met for {stage!r} (status={st.get('status')!r})"}
 
     if not force:
         drift = check_resume(job, current_fingerprint)

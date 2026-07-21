@@ -120,7 +120,7 @@ for Resolve scripting; 3.13/3.14 are accepted and verified on Resolve Studio
 Per-domain routers pair the live tools with their offline (advanced-server)
 counterparts. Every domain is available on demand in ANY MCP client as a slash
 prompt (`/color_grade_workflow`, `/timeline_edit_workflow`, `/conform_workflow`,
-`/delivery_workflow`, `/auto_edit_workflow`, `/analyze_media`) and, in Claude Code, as a `.claude/skills/`
+`/delivery_workflow`, `/auto_edit_workflow`, `/orchestrate_workflow`, `/analyze_media`) and, in Claude Code, as a `.claude/skills/`
 skill. Full per-action depth lives in `docs/kernels/`.
 
 - **Color / Grade** (`/color_grade_workflow`, skill `resolve-color`) — grading, correcting, shot matching, developing looks, or applying/modifying LUTs, CDLs, DRX grades, or copied grades. Live: timeline_item_color. Offline: drx. Depth: docs/kernels/color-grade-kernel.md + docs/guides/color-decision-guide.md.
@@ -132,4 +132,5 @@ skill. Full per-action depth lives in `docs/kernels/`.
 - **Media Pool / Ingest** (`/media_pool_workflow`, skill `resolve-media-pool`) — importing media, building multicam timelines, organizing/relinking clips, normalizing metadata, or verifying/inventorying a card before ingest. Live: media_pool. Offline: media. Depth: docs/kernels/media-pool-ingest-kernel.md + docs/guides/multicam-setup-guide.md.
 - **Auto Edit (brief → render)** (`/auto_edit_workflow`, skill `resolve-auto-edit`) — the user names source files, optional music, and the kind of video they want and expects a finished cut — autonomous talking-head/interview editing with one approval checkpoint. Live: auto_edit. Offline: cut_ir/auto_edit decision layer. Depth: docs/kernels/auto-edit-kernel.md + docs/guides/editorial-decision-guide.md.
 - **Media Analysis** (`/analyze_media`, skill `resolve-media-analysis`) — reading or analyzing source media (technical, visual, or transcription) to inform Resolve actions. Live: media_analysis. Offline: media. Depth: docs/kernels/README.md + docs/guides/media-analysis-guide.md.
+- **Orchestrate (ingest → deliver)** (`/orchestrate_workflow`, skill `resolve-orchestrate`) — a task spans multiple domains (edit AND grade AND deliver) and needs to survive a context reset across sessions — a full ingest-to-delivery post job. Live: orchestrate. Offline: none yet — offline compute-then-apply is a deferred follow-on epic. Depth: docs/kernels/orchestration-kernel.md.
 <!-- END GENERATED: domain-routing -->

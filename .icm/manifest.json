@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "5b4f3e222c0758c8",
+      "fingerprint": "756925b69662ad38",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -541,7 +541,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "4638b6b145205a68",
+      "fingerprint": "73640531e7f9c82b",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -592,6 +592,7 @@
         "docs/kernels/extension-authoring-kernel.md",
         "docs/kernels/fusion-composition-kernel.md",
         "docs/kernels/media-pool-ingest-kernel.md",
+        "docs/kernels/orchestration-kernel.md",
         "docs/kernels/project-lifecycle-kernel.md",
         "docs/kernels/render-deliver-kernel.md",
         "docs/kernels/review-annotation-kernel.md",
@@ -611,7 +612,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "fc886ed49501347c",
+      "fingerprint": "ec96d2ecb67f0190",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -649,6 +650,7 @@
         "tests/live_metadata_publish_validation.py",
         "tests/live_multicam_drt_probe.py",
         "tests/live_multicam_setup_validation.py",
+        "tests/live_orchestrate_probe.py",
         "tests/live_pan_probe.py",
         "tests/live_path_probe.py",
         "tests/live_project_lifecycle_validation.py",
@@ -834,7 +836,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "93859c440e713509",
+      "fingerprint": "5d0cfff045a31617",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

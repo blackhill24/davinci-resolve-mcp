@@ -5,7 +5,7 @@ Resolve Scripting API. They are tracked separately from API method coverage:
 API coverage answers "can MCP reach every Blackmagic method?", while kernel
 coverage answers "which higher-level, guarded agent workflows are available?".
 
-Current kernel coverage: **155 actions** across **10 compound MCP tools**.
+Current kernel coverage: **166 actions** across **11 compound MCP tools**.
 
 | Kernel | MCP Tool | Actions |
 |--------|----------|---------|
@@ -21,6 +21,7 @@ Current kernel coverage: **155 actions** across **10 compound MCP tools**.
 | Project lifecycle | `project_manager` | `project_capabilities`, `probe_project_lifecycle`, `probe_project_settings`, `safe_project_create`, `safe_project_export`, `safe_project_import`, `safe_project_archive`, `safe_project_restore`, `safe_project_delete`, `safe_set_project_settings`, `project_settings_snapshot`, `database_capabilities`, `safe_set_current_database`, `preset_lifecycle_probe`, `project_boundary_report` |
 | Extension authoring | `script_plugin` | `extension_capabilities`, `probe_fuse_lifecycle`, `probe_dctl_lifecycle`, `probe_script_lifecycle`, `safe_install_extension`, `safe_remove_extension`, `refresh_or_restart_required`, `extension_boundary_report` |
 | Auto edit (brief → render) | `auto_edit` | `start_brief`, `brief_status`, `status`, `plan_cut`, `revise_cut`, `get_cut_summary`, `approve_cut`, `build_timeline`, `finish`, `list_briefs` |
+| Orchestrate (ingest → deliver) | `orchestrate` | `start_job`, `job_status`, `list_jobs`, `check_resume`, `force_replan_stage`, `plan_stage`, `revise_stage`, `approve_gate`, `run_stage`, `rollback_stage`, `finish_job` |
 
 ## Advanced (offline) server
 

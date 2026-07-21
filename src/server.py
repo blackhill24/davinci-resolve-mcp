@@ -615,6 +615,44 @@ Depth: docs/kernels/auto-edit-kernel.md, docs/guides/editorial-decision-guide.md
 
 
 @mcp.prompt(
+    name="orchestrate_workflow",
+    title="Orchestrate Workflow",
+    description="Drive a resumable ingest-to-deliver job through the orchestrate conductor — sequences the domain tools across ten stages and survives a context reset mid-job.",
+)
+def orchestrate_workflow() -> str:
+    return """orchestrate sequences the domain tools (media_pool, media_analysis,
+auto_edit, timeline, timeline_item_color, render, timeline_markers) across a
+durable job record. Its only reason to exist as a tool rather than replaying
+the same calls from prose is surviving context death mid-job.
+
+- start_job(files, music?, target_duration_seconds?, genre?, deliverable?,
+  options?, stages?, include_fusion?, gates?) — infers the stage manifest,
+  marks intake done, persists, acquires the lease.
+- job_status(job_id) — cursor + manifest; read-only, safe anytime.
+- run_stage(job_id) (defaults to cursor) delegates one stage and reports
+  waiting_on rather than erroring when it needs you: talking-head edit
+  kicks/polls the brief+plan (approve_gate(gate="G1") ADOPTS
+  auto_edit.approve_cut verbatim); any other genre pauses for a
+  bring-your-own-timeline cut (byo_ready=true to confirm); grade/audio
+  no-op unless options.grade/options.audio are given; deliver requires G3
+  approved, then a validated render (special-cased — no rollback, leans on
+  Resolve's own render-queue resume on failure).
+- approve_gate(job_id, gate="G2", vision_assessment, preview_frame_path) —
+  the post-grade checkpoint. ALWAYS a real look at the rendered frame,
+  never blind, never fabricated.
+- A failed reversible stage does not auto-rollback: rollback_stage(job_id,
+  stage), then run_stage again.
+- After a gap: check_resume(job_id) before trusting cursor; on
+  drifted=true, force_replan_stage(job_id, stage).
+- finish_job(job_id) once every stage is done — verifies output_path,
+  purges namespaced snapshots.
+
+Depth: docs/kernels/orchestration-kernel.md. Zero decision logic belongs in
+prose — sequencing, drift checks, and gates live in the tool. Source media
+is READ-ONLY (see AGENTS.md)."""
+
+
+@mcp.prompt(
     name="conform_workflow",
     title="Conform / Interchange Workflow",
     description="Route a conform/relink/finishing-QC/grade-trace task across the live conform tools and the offline conform QC engine.",
@@ -22173,7 +22211,12 @@ async def _orchestrate_run_grade(job, job_id, project_root, proj, p: Dict[str, A
 
 async def _orchestrate_run_audio(job, job_id, project_root, proj, p: Dict[str, Any]) -> Dict[str, Any]:
     """No default audio processing — pass options.audio (brief-level or at
-    call time) to apply specific levels/properties; otherwise a no-op done."""
+    call time) to apply specific levels/properties; otherwise a no-op done.
+    Requires G2 approved first — the mandatory vision handoff gates every
+    stage downstream of grade, not just deliver."""
+    fp_now = _orchestrate_capture_fingerprint(proj)
+    if not _orchestrate_mod.gate_is_valid(job["stages"]["grade"].get("gate"), fp_now):
+        return {"success": True, "stage": "audio", "waiting_on": "G2_approval"}
     audio_opts = dict(((job.get("brief") or {}).get("options") or {}).get("audio") or {})
     audio_opts.update(p.get("audio") or {})
     if not audio_opts:

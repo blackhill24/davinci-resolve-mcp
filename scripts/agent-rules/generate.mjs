@@ -114,6 +114,14 @@ const DOMAINS = [
     offline: 'media (ingest_verify, media_inventory, sync) on the advanced server',
     rule: 'Source media is READ-ONLY — never modify/transcode/convert/derive. Do not silently downgrade: keep visuals, transcription, persistence, metadata + Media Pool marker writeback on unless the user opts out. Finish each clip with commit_vision or it stays pending (a failure mode).',
   },
+  {
+    id: 'orchestrate', skill: 'resolve-orchestrate', title: 'Orchestrate (ingest → deliver)', prompt: 'orchestrate_workflow',
+    when: 'a task spans multiple domains (edit AND grade AND deliver) and needs to survive a context reset across sessions — a full ingest-to-delivery post job',
+    kernel: 'docs/kernels/orchestration-kernel.md', guide: null,
+    live: 'orchestrate (start_job, job_status, run_stage, approve_gate, check_resume, rollback_stage, finish_job), delegating to media_pool/media_analysis/auto_edit/timeline/timeline_item_color/render/timeline_markers',
+    offline: 'none yet — offline compute-then-apply is a deferred follow-on epic',
+    rule: 'The sole reason this is a tool and not host prose: surviving context death mid-job. Fingerprint-bound gates — a drifted approval auto-voids. G1 on a talking-head edit ADOPTS auto_edit.approve_cut verbatim; G2 always needs a real look at a rendered frame, never blind. A failed reversible stage never auto-rolls-back — rollback_stage is explicit.',
+  },
 ];
 
 // ── Shared body used across every platform (frontmatter differs, body does not) ─
@@ -175,7 +183,7 @@ const agentsBlock = [
   `Per-domain routers pair the live tools with their offline (advanced-server)`,
   `counterparts. Every domain is available on demand in ANY MCP client as a slash`,
   `prompt (\`/color_grade_workflow\`, \`/timeline_edit_workflow\`, \`/conform_workflow\`,`,
-  `\`/delivery_workflow\`, \`/auto_edit_workflow\`, \`/analyze_media\`) and, in Claude Code, as a \`.claude/skills/\``,
+  `\`/delivery_workflow\`, \`/auto_edit_workflow\`, \`/orchestrate_workflow\`, \`/analyze_media\`) and, in Claude Code, as a \`.claude/skills/\``,
   `skill. Full per-action depth lives in \`docs/kernels/\`.`,
   ``,
   ...DOMAINS.map((d) => {

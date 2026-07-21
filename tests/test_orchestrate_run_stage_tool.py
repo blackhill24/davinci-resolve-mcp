@@ -255,19 +255,43 @@ class RunStageGradeTests(OrchestrateRunStageBase):
 
 
 class RunStageAudioReviewTests(OrchestrateRunStageBase):
-    def test_audio_noop_when_unspecified(self):
+    def _approve_g2(self, job_id, fp):
+        orchestrate.record_gate_approval(
+            self.root, job_id, "G2",
+            {"fingerprint": fp, "mode": "standard", "adopted": False, "forced": False,
+             "vision_assessment": "fine", "preview_frame_path": "/tmp/frame.png"})
+
+    def test_audio_requires_g2_first(self):
         job_id = self._start_job()
         self._advance_to_done(job_id, ["ingest", "analysis", "edit", "conform", "grade"])
         out = self._run_stage({"job_id": job_id, "stage": "audio"})
         self.assertTrue(out.get("success"), out)
+        self.assertEqual(out.get("waiting_on"), "G2_approval")
+        job = orchestrate.load_job(self.root, job_id)
+        self.assertEqual(job["stages"]["audio"]["status"], "pending")
+
+    def test_audio_noop_when_unspecified(self):
+        job_id = self._start_job()
+        self._advance_to_done(job_id, ["ingest", "analysis", "edit", "conform", "grade"])
+        fp = _fp()
+        with mock.patch.object(s, "_orchestrate_capture_fingerprint", return_value=fp):
+            self._approve_g2(job_id, fp)
+            out = self._run_stage({"job_id": job_id, "stage": "audio"})
+        self.assertTrue(out.get("success"), out)
+        self.assertNotEqual(out.get("waiting_on"), "G2_approval")
+        job = orchestrate.load_job(self.root, job_id)
+        self.assertEqual(job["stages"]["audio"]["status"], "done")
 
     def test_audio_applies_when_specified(self):
         job_id = self._start_job()
         self._advance_to_done(job_id, ["ingest", "analysis", "edit", "conform", "grade"])
+        fp = _fp()
         applied = {"success": True}
-        with mock.patch.object(s, "timeline", return_value=applied) as mocked:
-            out = self._run_stage({"job_id": job_id, "stage": "audio",
-                                    "audio": {"track_index": 1, "volume_db": -3}})
+        with mock.patch.object(s, "_orchestrate_capture_fingerprint", return_value=fp):
+            self._approve_g2(job_id, fp)
+            with mock.patch.object(s, "timeline", return_value=applied) as mocked:
+                out = self._run_stage({"job_id": job_id, "stage": "audio",
+                                        "audio": {"track_index": 1, "volume_db": -3}})
         self.assertTrue(out.get("success"), out)
         mocked.assert_called_once_with("safe_set_audio_properties", {"track_index": 1, "volume_db": -3})
 

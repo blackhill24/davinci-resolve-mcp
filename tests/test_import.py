@@ -105,9 +105,11 @@ def test_compound_tool_count():
 def test_prompt_registrations():
     source = (PROJECT_ROOT / "src" / "server.py").read_text(encoding="utf-8")
     # 2 baseline (davinci_resolve_workflow + analyze_media) + 5 F2 workflow prompts
-    # + 7 per-domain workflow routers + auto_edit_workflow (auto-edit Phase 2).
-    assert source.count("@mcp.prompt") == 15
+    # + 7 per-domain workflow routers + auto_edit_workflow (auto-edit Phase 2)
+    # + orchestrate_workflow (orchestrate P4).
+    assert source.count("@mcp.prompt") == 16
     assert 'name="auto_edit_workflow"' in source
+    assert 'name="orchestrate_workflow"' in source
     # Per-domain routers (cross-platform depth via MCP prompts).
     for _name in (
         "color_grade_workflow",

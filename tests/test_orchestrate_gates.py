@@ -140,6 +140,10 @@ class GateEvaluationTests(OrchestrateBase):
             done_stages=["intake", "ingest", "analysis", "edit"],
             fingerprints={"edit": fp}, gates=gates,
         )
+        # G1's real precondition is "a plan exists" (post-plan, pre-build) —
+        # not stage status, which would be a chicken-and-egg deadlock since
+        # edit can't finish building without G1 first.
+        orchestrate.set_stage_foreign_keys(self.root, job_id, "edit", plan_id="fake-plan-1")
         return job_id, fp
 
     def test_gate_refuses_when_stage_not_done(self):

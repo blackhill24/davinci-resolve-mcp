@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "23078f49bdc22f34",
+      "fingerprint": "5a513774b7505d54",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -541,7 +541,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "9eb03e0fff6d9261",
+      "fingerprint": "4638b6b145205a68",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -611,7 +611,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "dee10e657157fd6e",
+      "fingerprint": "633aa2f0ec4cdfca",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -761,6 +761,8 @@
         "tests/test_object_inspection.py",
         "tests/test_open_control_panel.py",
         "tests/test_orchestrate.py",
+        "tests/test_orchestrate_gates.py",
+        "tests/test_orchestrate_gates_tool.py",
         "tests/test_orchestrate_tool.py",
         "tests/test_p1_param_validation.py",
         "tests/test_p1_whitelist_and_delete.py",

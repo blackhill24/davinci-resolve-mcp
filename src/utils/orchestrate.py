@@ -69,6 +69,32 @@ JOB_STATES = ("active", "finished", "aborted")
 
 DEFAULT_DELIVERABLE = "youtube_1080p"
 
+# ── gates ─────────────────────────────────────────────────────────────────
+# G1 post-plan, G2 post-grade, G3 pre-render — fixed 1:1 onto manifest stage
+# names, since a gate's job is to checkpoint the stage it names.
+GATE_STAGE = {"G1": "edit", "G2": "grade", "G3": "deliver"}
+GATE_NAMES = tuple(GATE_STAGE)
+GATE_MODES = ("auto", "standard", "paranoid")
+DEFAULT_GATES_MODE = "standard"
+
+# Pre-stage snapshot kind per stage: grade re-versions in place (cheap,
+# in-page), everything else that mutates the timeline gets a full duplicate
+# so a failed stage can be rolled back by swapping timelines. Stages that
+# never mutate destructively (intake, ingest — additive only) or that lean
+# on Resolve's own resumable mechanism (deliver, per the locked design) or
+# are read-only (review) need no pre-stage snapshot.
+SNAPSHOT_KIND_BY_STAGE = {
+    "edit": "timeline_duplicate",
+    "conform": "timeline_duplicate",
+    "grade": "grade_version",
+    "audio": "timeline_duplicate",
+    "fusion": "timeline_duplicate",
+}
+
+
+def snapshot_label(job_id: str, stage: str) -> str:
+    return f"_orch_{job_id}_{stage}"
+
 
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -126,6 +152,7 @@ def validate_job_inputs(
     target_duration_seconds: Any = None,
     title_text: Any = None,
     stages: Any = None,
+    gates: Any = None,
 ) -> List[str]:
     errors: List[str] = []
     if not isinstance(files, (list, tuple)) or not files:
@@ -146,6 +173,8 @@ def validate_job_inputs(
             errors.extend(validate_manifest(list(stages)))
         else:
             errors.append("stages must be a list of stage names when given")
+    if gates is not None and gates not in GATE_MODES:
+        errors.append(f"gates must be one of {GATE_MODES}")
     return errors
 
 
@@ -416,6 +445,7 @@ def create_job(
     include_fusion: bool = False,
     holder_id: Optional[str] = None,
     analysis_base_root: Optional[str] = None,
+    gates: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Validate + persist a new job. Intake is marked done here: reaching this
     call means the caller (server.py) already ran the live pre-flight (file
@@ -424,7 +454,7 @@ def create_job(
     errors = validate_job_inputs(
         files=files, genre=genre, deliverable=deliverable,
         target_duration_seconds=target_duration_seconds, title_text=title_text,
-        stages=stages,
+        stages=stages, gates=gates,
     )
     if errors:
         return {"success": False, "error": "invalid job brief", "problems": errors}
@@ -451,6 +481,7 @@ def create_job(
     job: Dict[str, Any] = {
         "kind": JOB_KIND,
         "job_state": "active",
+        "gates_mode": gates or DEFAULT_GATES_MODE,
         "brief": {
             "files": list(files),
             "music": music,
@@ -486,3 +517,276 @@ def job_status(project_root: str, job_id: str) -> Dict[str, Any]:
         "manifest": job.get("manifest"),
         "lease_expired": _lease_expired(lease, now=_now_epoch()),
     }
+
+
+# ── fingerprints + drift-refuse ──────────────────────────────────────────────
+#
+# The coarse fingerprint is {timeline_item_count, grade_version_id,
+# media_path_set_hash} — cheap, project-wide, and monotonically built up
+# stage by stage. That last property is why resume only ever compares
+# against ONE checkpoint, not every historical stage: each done stage's
+# recorded fingerprint is the project's state *at that moment*, and normal
+# forward progress changes it by design (ingest adds media, edit/conform
+# change item counts, grade adds versions). Comparing "now" against every
+# historical snapshot would false-positive on ordinary progress. The only
+# checkpoint a fresh run_stage(cursor) call actually depends on is the last
+# done stage's fingerprint (the frontier just behind cursor) — so that's
+# what gets re-probed on resume. "Stop at the first mismatch" degenerates to
+# a single comparison because there is only one checkpoint that matters.
+
+_FINGERPRINT_KEYS = ("timeline_item_count", "grade_version_id", "media_path_set_hash")
+
+
+def fingerprints_equal(a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return False
+    return all(a.get(k) == b.get(k) for k in _FINGERPRINT_KEYS)
+
+
+def _last_done_fingerprint(job: Dict[str, Any]):
+    """(stage_name, fingerprint) of the last done stage that recorded one, or
+    (None, None) if no baseline exists yet (nothing to verify)."""
+    manifest = job.get("manifest") or []
+    stages = job.get("stages") or {}
+    baseline_stage, baseline_fp = None, None
+    for name in manifest:
+        st = stages.get(name) or {}
+        if st.get("status") != "done":
+            break
+        if st.get("fingerprint"):
+            baseline_stage, baseline_fp = name, st["fingerprint"]
+    return baseline_stage, baseline_fp
+
+
+def check_resume(job: Dict[str, Any], current_fingerprint: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Pure drift check against the frontier checkpoint. Never mutates."""
+    baseline_stage, baseline_fp = _last_done_fingerprint(job)
+    if baseline_fp is None:
+        return {"success": True, "drifted": False, "checked_stage": None,
+                "message": "no fingerprint baseline recorded yet — nothing to verify"}
+    drifted = not fingerprints_equal(baseline_fp, current_fingerprint)
+    return {
+        "success": True,
+        "drifted": drifted,
+        "checked_stage": baseline_stage,
+        "expected": baseline_fp,
+        "actual": current_fingerprint,
+        "message": (
+            f"drift detected since {baseline_stage!r} completed — refuse to resume; "
+            f"re-plan {baseline_stage!r} before continuing"
+        ) if drifted else (
+            f"state matches the fingerprint recorded after {baseline_stage!r} — safe to resume"
+        ),
+    }
+
+
+def capture_stage_fingerprint(
+    project_root: str, job_id: str, stage: str, fingerprint: Dict[str, Any]
+) -> Dict[str, Any]:
+    job = load_job(project_root, job_id)
+    if not job:
+        return {"success": False, "error": f"job not found: {job_id!r}"}
+    if job.get("_corrupt"):
+        return {"success": False, "error": "job fingerprint mismatch — record corrupted or tampered"}
+    stages = dict(job.get("stages") or {})
+    if stage not in stages:
+        return {"success": False, "error": f"unknown stage {stage!r}"}
+    stages[stage] = dict(stages[stage], fingerprint=fingerprint)
+    job["stages"] = stages
+    job = save_job(project_root, job)
+    return {"success": True, "job": job}
+
+
+def force_replan_stage(project_root: str, job_id: str, stage: str) -> Dict[str, Any]:
+    """Concrete remediation for a drifted checkpoint: reset a done stage back
+    to pending (advance_stage already allows done -> pending) and void its
+    gate, since an approval over a state that no longer exists is worthless."""
+    job = load_job(project_root, job_id)
+    if not job:
+        return {"success": False, "error": f"job not found: {job_id!r}"}
+    if job.get("_corrupt"):
+        return {"success": False, "error": "job fingerprint mismatch — record corrupted or tampered"}
+    stages = job.get("stages") or {}
+    if stage not in stages:
+        return {"success": False, "error": f"unknown stage {stage!r}"}
+    if stages[stage].get("status") != "done":
+        return {"success": False, "error": f"stage {stage!r} is not done — nothing to re-plan"}
+    return advance_stage(project_root, job_id, stage, "pending", gate=None, fingerprint=None)
+
+
+# ── snapshots (record-level bookkeeping; live creation/deletion is server.py's job) ──
+
+
+def record_snapshot(
+    project_root: str, job_id: str, stage: str, snapshot_id: str, *, kind: str
+) -> Dict[str, Any]:
+    job = load_job(project_root, job_id)
+    if not job:
+        return {"success": False, "error": f"job not found: {job_id!r}"}
+    if job.get("_corrupt"):
+        return {"success": False, "error": "job fingerprint mismatch — record corrupted or tampered"}
+    stages = dict(job.get("stages") or {})
+    if stage not in stages:
+        return {"success": False, "error": f"unknown stage {stage!r}"}
+    existing = list(stages[stage].get("snapshot_ids") or [])
+    existing.append({"id": snapshot_id, "kind": kind, "created_at": _now()})
+    stages[stage] = dict(stages[stage], snapshot_ids=existing)
+    job["stages"] = stages
+    job = save_job(project_root, job)
+    return {"success": True, "job": job}
+
+
+def _clear_stage_snapshots(stages: Dict[str, Any], stage: str) -> "tuple[Dict[str, Any], List[Dict[str, Any]]]":
+    cleared = list(stages[stage].get("snapshot_ids") or [])
+    stages = dict(stages)
+    stages[stage] = dict(stages[stage], snapshot_ids=[])
+    return stages, cleared
+
+
+# ── gates ─────────────────────────────────────────────────────────────────
+
+
+def gates_mode(job: Dict[str, Any]) -> str:
+    return job.get("gates_mode") or DEFAULT_GATES_MODE
+
+
+def gate_is_valid(gate: Optional[Dict[str, Any]], current_fingerprint: Optional[Dict[str, Any]]) -> bool:
+    """Fingerprint-bound: a stale approval (state drifted since it was granted)
+    is void. A forced approval explicitly bypassed the drift check, so it
+    never voids on its own say-so."""
+    if not gate or not gate.get("approved_at"):
+        return False
+    if gate.get("forced"):
+        return True
+    return fingerprints_equal(gate.get("fingerprint"), current_fingerprint)
+
+
+def evaluate_gate_request(
+    job: Dict[str, Any],
+    gate: str,
+    *,
+    current_fingerprint: Optional[Dict[str, Any]],
+    vision_assessment: Optional[str] = None,
+    preview_frame_path: Optional[str] = None,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """Pure decision layer for ``approve_gate``. One of:
+      {"success": False, "error"}                                  — refuse
+      {"success": True, "already_approved": True, "gate"}          — idempotent no-op
+      {"success": True, "record", "needs_confirm": bool}           — caller
+        mints/consumes a confirm-token (needs_confirm=True) or records the
+        approval directly (adopted inner gate, or auto mode without force).
+    """
+    if gate not in GATE_STAGE:
+        return {"success": False, "error": f"unknown gate {gate!r} (must be one of {GATE_NAMES})"}
+    stage = GATE_STAGE[gate]
+    stages = job.get("stages") or {}
+    st = stages.get(stage)
+    if st is None:
+        return {"success": False, "error": f"stage {stage!r} (gated by {gate}) is not in this job's manifest"}
+    if st.get("status") != "done":
+        return {"success": False,
+                "error": f"{gate} gates {stage!r}, which is not done yet (status={st.get('status')!r})"}
+
+    if not force:
+        drift = check_resume(job, current_fingerprint)
+        if drift.get("drifted") and drift.get("checked_stage") == stage:
+            return {"success": False, "error": drift["message"], "drift": drift}
+
+    # G2's vision requirement is evidence, not a confirmation click — force
+    # only bypasses the drift-halt (per the locked design), never this.
+    if gate == "G2":
+        if not (vision_assessment and str(vision_assessment).strip()):
+            return {"success": False,
+                    "error": "G2 requires a host-supplied look assessment of a rendered frame "
+                             "(vision_assessment) — no blind grade approval."}
+        if not (preview_frame_path and str(preview_frame_path).strip()):
+            return {"success": False,
+                    "error": "G2 requires preview_frame_path — render a frame before approving."}
+
+    mode = gates_mode(job)
+    existing_gate = st.get("gate")
+    if mode != "paranoid" and gate_is_valid(existing_gate, current_fingerprint):
+        return {"success": True, "already_approved": True, "gate": existing_gate}
+
+    adopted = bool((st.get("foreign_keys") or {}).get("inner_gate_approved_at"))
+    record: Dict[str, Any] = {
+        "fingerprint": current_fingerprint,
+        "mode": mode,
+        "adopted": adopted,
+        "forced": bool(force),
+    }
+    if gate == "G2":
+        record["vision_assessment"] = vision_assessment
+        record["preview_frame_path"] = preview_frame_path
+
+    if adopted:
+        # The inner tool (e.g. auto_edit.approve_cut) already ran its own
+        # confirm-token ceremony — minting a second one would double-gate.
+        return {"success": True, "record": record, "needs_confirm": False}
+    if mode == "auto" and not force:
+        # Pre-authorized: still passed the drift check above, just skips the
+        # human confirm-token click.
+        return {"success": True, "record": record, "needs_confirm": False}
+    return {"success": True, "record": record, "needs_confirm": True}
+
+
+def record_gate_approval(project_root: str, job_id: str, gate: str, record: Dict[str, Any]) -> Dict[str, Any]:
+    """Persist an approved gate and GC the gated stage's snapshot bookkeeping
+    (approval = committing forward, so the pre-mutation rollback snapshot is
+    no longer needed). Returns the cleared snapshot list so the caller
+    (server.py) can delete the live artifacts."""
+    if gate not in GATE_STAGE:
+        return {"success": False, "error": f"unknown gate {gate!r} (must be one of {GATE_NAMES})"}
+    stage = GATE_STAGE[gate]
+    job = load_job(project_root, job_id)
+    if not job:
+        return {"success": False, "error": f"job not found: {job_id!r}"}
+    if job.get("_corrupt"):
+        return {"success": False, "error": "job fingerprint mismatch — record corrupted or tampered"}
+    stages = job.get("stages") or {}
+    if stage not in stages:
+        return {"success": False, "error": f"unknown stage {stage!r}"}
+    record = dict(record)
+    record["approved_at"] = _now()
+    stages, cleared = _clear_stage_snapshots(stages, stage)
+    stages[stage] = dict(stages[stage], gate=record)
+    job["stages"] = stages
+    job = save_job(project_root, job)
+    return {"success": True, "job": job, "gate": record, "snapshots_to_clean": cleared}
+
+
+def void_stage_gate(project_root: str, job_id: str, stage: str) -> Dict[str, Any]:
+    """A stage revision (e.g. revise_stage on the edit plan) invalidates any
+    prior gate approval — it approved a plan that no longer exists."""
+    job = load_job(project_root, job_id)
+    if not job:
+        return {"success": False, "error": f"job not found: {job_id!r}"}
+    if job.get("_corrupt"):
+        return {"success": False, "error": "job fingerprint mismatch — record corrupted or tampered"}
+    stages = dict(job.get("stages") or {})
+    if stage not in stages:
+        return {"success": False, "error": f"unknown stage {stage!r}"}
+    stages[stage] = dict(stages[stage], gate=None)
+    job["stages"] = stages
+    job = save_job(project_root, job)
+    return {"success": True, "job": job}
+
+
+def set_stage_foreign_keys(project_root: str, job_id: str, stage: str, **foreign_keys: Any) -> Dict[str, Any]:
+    """Merge foreign keys (e.g. auto_edit brief_id/plan_id) into a stage —
+    never copies the sub-tool's own state, just points at it."""
+    job = load_job(project_root, job_id)
+    if not job:
+        return {"success": False, "error": f"job not found: {job_id!r}"}
+    if job.get("_corrupt"):
+        return {"success": False, "error": "job fingerprint mismatch — record corrupted or tampered"}
+    stages = dict(job.get("stages") or {})
+    if stage not in stages:
+        return {"success": False, "error": f"unknown stage {stage!r}"}
+    merged = dict(stages[stage].get("foreign_keys") or {})
+    merged.update(foreign_keys)
+    stages[stage] = dict(stages[stage], foreign_keys=merged)
+    job["stages"] = stages
+    job = save_job(project_root, job)
+    return {"success": True, "job": job}

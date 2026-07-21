@@ -21722,6 +21722,161 @@ def _orchestrate_default_analysis_base_root(project_root: str) -> str:
     return os.path.dirname(os.path.normpath(project_root))
 
 
+def _orchestrate_capture_fingerprint(proj) -> Dict[str, Any]:
+    """Cheap coarse probe: {timeline_item_count, grade_version_id,
+    media_path_set_hash}. Best-effort — a probe failure degrades to a null/
+    empty component rather than raising, since a fingerprint mismatch is
+    exactly how "couldn't tell" should read (refuse to resume, don't guess)."""
+    timeline_item_count = 0
+    grade_versions: List[str] = []
+    try:
+        tl = proj.GetCurrentTimeline()
+    except Exception:
+        tl = None
+    if tl is not None:
+        for track_type in ("video", "audio"):
+            try:
+                count = int(tl.GetTrackCount(track_type) or 0)
+            except Exception:
+                count = 0
+            for i in range(1, count + 1):
+                try:
+                    items = tl.GetItemListInTrack(track_type, i) or []
+                except Exception:
+                    items = []
+                timeline_item_count += len(items)
+                if track_type == "video":
+                    for item in items:
+                        try:
+                            version = item.GetCurrentVersion()
+                            grade_versions.append(json.dumps(version, sort_keys=True, default=str))
+                        except Exception:
+                            pass
+    grade_version_id = (
+        _hashlib.sha256("|".join(sorted(grade_versions)).encode("utf-8")).hexdigest()[:16]
+        if grade_versions else None
+    )
+    media_paths: List[str] = []
+    try:
+        mp = proj.GetMediaPool()
+        root = mp.GetRootFolder() if mp else None
+    except Exception:
+        root = None
+    if root is not None:
+        stack = [root]
+        while stack:
+            folder = stack.pop()
+            try:
+                clips = folder.GetClipList() or []
+            except Exception:
+                clips = []
+            for clip in clips:
+                try:
+                    path = clip.GetClipProperty("File Path")
+                except Exception:
+                    path = None
+                if path:
+                    media_paths.append(str(path))
+            try:
+                stack.extend(folder.GetSubFolderList() or [])
+            except Exception:
+                pass
+    media_path_set_hash = _hashlib.sha256(
+        "|".join(sorted(set(media_paths))).encode("utf-8")).hexdigest()[:16]
+    return {
+        "timeline_item_count": timeline_item_count,
+        "grade_version_id": grade_version_id,
+        "media_path_set_hash": media_path_set_hash,
+    }
+
+
+def _orchestrate_take_snapshot(proj, *, job_id: str, stage: str) -> Dict[str, Any]:
+    """Live pre-stage snapshot per SNAPSHOT_KIND_BY_STAGE. Best-effort: a
+    failed snapshot is reported, never raised — the caller decides whether to
+    proceed without rollback cover."""
+    kind = _orchestrate_mod.SNAPSHOT_KIND_BY_STAGE.get(stage)
+    if not kind:
+        return {"success": True, "kind": None, "snapshot_id": None,
+                "note": f"stage {stage!r} needs no pre-stage snapshot"}
+    label = _orchestrate_mod.snapshot_label(job_id, stage)
+    if kind == "timeline_duplicate":
+        try:
+            tl = proj.GetCurrentTimeline()
+            if tl is None:
+                return {"success": False, "error": "no current timeline to snapshot"}
+            dup = tl.DuplicateTimeline(label)
+            if not dup:
+                return {"success": False, "error": "DuplicateTimeline failed"}
+            return {"success": True, "kind": kind, "snapshot_id": label}
+        except Exception as exc:
+            return {"success": False, "error": f"{type(exc).__name__}: {exc}"}
+    if kind == "grade_version":
+        try:
+            tl = proj.GetCurrentTimeline()
+            item = tl.GetCurrentVideoItem() if tl and hasattr(tl, "GetCurrentVideoItem") else None
+            if item is None:
+                items = tl.GetItemListInTrack("video", 1) if tl else []
+                item = items[0] if items else None
+            if item is None:
+                return {"success": False, "error": "no video item to snapshot a grade version for"}
+            ok = bool(item.AddVersion(label, 0))
+            return {"success": ok, "kind": kind, "snapshot_id": label if ok else None}
+        except Exception as exc:
+            return {"success": False, "error": f"{type(exc).__name__}: {exc}"}
+    return {"success": False, "error": f"unknown snapshot kind {kind!r}"}
+
+
+def _orchestrate_gc_snapshots_live(proj, cleared: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Best-effort live deletion of GC'd snapshot artifacts. Never blocks gate
+    approval on cleanup failure — same posture as destructive_hook's archive
+    step: the user's forward progress must not depend on housekeeping."""
+    deleted, failed = [], []
+    duplicate_ids = {s["id"] for s in cleared if s.get("kind") == "timeline_duplicate"}
+    if duplicate_ids:
+        try:
+            mp = proj.GetMediaPool()
+            count = proj.GetTimelineCount()
+            targets = []
+            for i in range(1, int(count or 0) + 1):
+                tl = proj.GetTimelineByIndex(i)
+                if tl and tl.GetName() in duplicate_ids:
+                    targets.append(tl)
+            if targets and mp:
+                mp.DeleteTimelines(targets)
+                deleted.extend(t.GetName() for t in targets)
+        except Exception as exc:
+            failed.append(f"timeline_duplicate cleanup: {type(exc).__name__}: {exc}")
+    for snap in cleared:
+        if snap.get("kind") == "grade_version":
+            try:
+                tl = proj.GetCurrentTimeline()
+                items = tl.GetItemListInTrack("video", 1) if tl else []
+                for item in items:
+                    try:
+                        if item.DeleteVersionByName(snap["id"], 0):
+                            deleted.append(snap["id"])
+                            break
+                    except Exception:
+                        continue
+            except Exception as exc:
+                failed.append(f"grade_version cleanup: {type(exc).__name__}: {exc}")
+    return {"deleted": deleted, "failed": failed}
+
+
+def _orchestrate_resolve_fingerprint(p: Dict[str, Any], proj):
+    """(fingerprint, err). An explicit override lets check_resume/approve_gate
+    be offline-testable and lets a host that already probed once reuse it."""
+    override = p.get("current_fingerprint") or p.get("currentFingerprint")
+    if isinstance(override, dict):
+        return override, None
+    if proj is None:
+        return None, _err(
+            "current_fingerprint not provided and no Resolve project is open — "
+            "pass current_fingerprint explicitly, or open a project."
+        )
+    return _orchestrate_capture_fingerprint(proj), None
+
+
 @mcp.tool()
 async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Resumable ingest-to-deliver post-production conductor.
@@ -21729,26 +21884,50 @@ async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> D
     Sequences the domain tools (media_pool, media_analysis, auto_edit,
     timeline, timeline_item_color, render, ...) across a durable, resumable
     job record — the sole reason this exists as a tool rather than host
-    prose is surviving context death mid-job. Phase 1 (current): the job
-    state machine, its two-file persistence (record = truth under
-    {analysis_root}/memory/jobs/, global index = rebuildable cache under
-    {analysis_base_root}/_jobs/), and a crash-recovery lease. Stage
-    execution (run_stage), gates, and rollback land in later phases — for
-    now every stage after intake stays pending until those ship.
+    prose is surviving context death mid-job. Phase 2 (current): fingerprints,
+    resume/drift-refuse, pre-stage snapshots, and the G1/G2/G3 gates. Full
+    stage execution (run_stage) and rollback land in a later phase — for now
+    only the "edit" stage (talking-head, via auto_edit) has a planner; every
+    other stage stays pending until run_stage ships.
 
     Actions:
       start_job(files, music?, target_duration_seconds?, genre?, deliverable?,
-        title_text?, options?, stages?, include_fusion?, holder_id?,
+        title_text?, options?, stages?, include_fusion?, gates?, holder_id?,
         analysis_root?) -> {job_id, job, holder_id} — validates files (exist
         on disk), infers the stage manifest from the brief (override with
         `stages`), marks intake done, persists, and acquires the initial
-        lease. Does NOT auto-run analysis or any other stage.
+        lease. `gates`: auto|standard|paranoid (default standard). Does NOT
+        auto-run analysis or any other stage.
       job_status(job_id, analysis_root?) -> {job, cursor, manifest,
         lease_expired} — read-only; never touches the lease.
       list_jobs(analysis_root? | analysis_base_root?, limit?, rebuild?,
         job_state?) -> {jobs} — reads the global index (auto-rebuilds if
         missing); rebuild=true forces a fresh scan of every project root
         under analysis_base_root.
+      check_resume(job_id, current_fingerprint?, analysis_root?) -> {drifted,
+        checked_stage, expected, actual, message} — re-probes (or accepts an
+        explicit current_fingerprint) and compares against the last done
+        stage's recorded checkpoint. Never mutates.
+      force_replan_stage(job_id, stage, analysis_root?) -> resets a drifted
+        done stage back to pending (and clears its gate) — the concrete
+        remediation check_resume points at.
+      plan_stage(job_id, stage="edit", analysis_root?) -> talking-head only
+        today: kicks/polls auto_edit's start_brief -> plan_cut and records
+        the brief_id/plan_id as the edit stage's foreign keys. Other genres
+        get the bring-your-own-timeline refusal; other stages refuse (no
+        planner yet).
+      revise_stage(job_id, stage="edit", notes?, edits?, analysis_root?) ->
+        delegates to auto_edit.revise_cut, updates the stage's plan_id, and
+        VOIDS any G1 approval (it approved a plan that no longer exists).
+      approve_gate(job_id, gate=G1|G2|G3, current_fingerprint?,
+        vision_assessment?, preview_frame_path?, force?, confirm_token?) ->
+        {approved_at, adopted, forced, snapshots_cleaned}. G1 on a
+        talking-head edit stage ADOPTS auto_edit.approve_cut verbatim (its
+        own confirm-token ceremony, not a second one). G2 always requires
+        vision_assessment + preview_frame_path — no blind grade approval,
+        not even under force. `force` bypasses only the drift-halt.
+        Fingerprint-bound: a drifted approval auto-voids and the gate
+        reopens. GC's the gated stage's pre-stage snapshots live on success.
     """
     p = params or {}
 
@@ -21786,6 +21965,7 @@ async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> D
             stages=p.get("stages"),
             include_fusion=bool(p.get("include_fusion") or p.get("includeFusion")),
             holder_id=p.get("holder_id") or p.get("holderId"),
+            gates=p.get("gates"),
         )
         if not created.get("success"):
             return _err("; ".join(created.get("problems") or [created.get("error") or "start_job failed"]))
@@ -21814,7 +21994,199 @@ async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> D
             job_state=p.get("job_state") or p.get("jobState"),
         )
 
-    return _unknown(action, ["start_job", "job_status", "list_jobs"])
+    if action == "check_resume":
+        r, proj, project_root, err = _orchestrate_project_context(p, need_resolve=False)
+        if err:
+            return err
+        job = _orchestrate_mod.load_job(project_root, _job_id_param())
+        if not job:
+            return _err(f"job not found: {_job_id_param()!r}")
+        if job.get("_corrupt"):
+            return _err("job fingerprint mismatch — record corrupted or tampered")
+        fp, ferr = _orchestrate_resolve_fingerprint(p, proj)
+        if ferr:
+            return ferr
+        return _orchestrate_mod.check_resume(job, fp)
+
+    if action == "force_replan_stage":
+        _r, _proj, project_root, err = _orchestrate_project_context(p, need_resolve=False)
+        if err:
+            return err
+        result = _orchestrate_mod.force_replan_stage(
+            project_root, _job_id_param(), str(p.get("stage") or ""))
+        if not result.get("success"):
+            return _err(result.get("error") or "force_replan_stage failed")
+        return result
+
+    if action == "plan_stage":
+        r, proj, project_root, err = _orchestrate_project_context(p, need_resolve=False)
+        if err:
+            return err
+        job_id = _job_id_param()
+        stage = str(p.get("stage") or "edit")
+        job = _orchestrate_mod.load_job(project_root, job_id)
+        if not job:
+            return _err(f"job not found: {job_id!r}")
+        if job.get("_corrupt"):
+            return _err("job fingerprint mismatch — record corrupted or tampered")
+        if stage != "edit":
+            return _err(f"plan_stage does not support stage {stage!r} yet — "
+                        "only 'edit' has a planner in this phase")
+        brief = job.get("brief") or {}
+        genre = brief.get("genre") or "talking_head"
+        if genre != "talking_head":
+            return _err(
+                f"genre {genre!r} uses the bring-your-own-timeline escape hatch — "
+                "no auto-plan. Cut it in Resolve; stage handoff lands in a later phase."
+            )
+        fks = (job["stages"]["edit"].get("foreign_keys") or {})
+        # plan_id is checked first — it's further along the pipeline than
+        # brief_id and implies a brief exists, so it's the authoritative
+        # "already planned" signal regardless of what else foreign_keys holds.
+        plan_id = fks.get("plan_id")
+        if plan_id:
+            summary = await auto_edit("get_cut_summary", {"plan_id": plan_id, "analysis_root": project_root})
+            return {"success": True, "stage": "edit", "brief_id": fks.get("brief_id"), "plan_id": plan_id,
+                    "already_planned": True, **summary}
+        brief_id = fks.get("brief_id")
+        if not brief_id:
+            started = await auto_edit("start_brief", {
+                "files": brief.get("files"), "music": brief.get("music"),
+                "target_duration_seconds": brief.get("target_duration_seconds"),
+                "genre": genre, "deliverable": brief.get("deliverable"),
+                "title_text": brief.get("title_text"), "analysis_root": project_root,
+            })
+            if not started.get("success"):
+                return started
+            _orchestrate_mod.set_stage_foreign_keys(
+                project_root, job_id, "edit", brief_id=started["brief_id"])
+            return {"success": True, "stage": "edit", "waiting_on": "analysis",
+                    "brief_id": started["brief_id"],
+                    "analysis_job_id": started.get("analysis_job_id")}
+        status = await auto_edit("brief_status", {"brief_id": brief_id, "analysis_root": project_root})
+        if not status.get("success"):
+            return status
+        state = (status.get("brief") or {}).get("state")
+        if state != "ready":
+            return {"success": True, "stage": "edit", "brief_id": brief_id,
+                    "waiting_on": "analysis", "brief_state": state}
+        planned = await auto_edit("plan_cut", {"brief_id": brief_id, "analysis_root": project_root})
+        if not planned.get("success"):
+            return planned
+        _orchestrate_mod.set_stage_foreign_keys(
+            project_root, job_id, "edit", plan_id=planned["plan_id"])
+        return {"success": True, "stage": "edit", "brief_id": brief_id, **planned}
+
+    if action == "revise_stage":
+        _r, _proj, project_root, err = _orchestrate_project_context(p, need_resolve=False)
+        if err:
+            return err
+        job_id = _job_id_param()
+        stage = str(p.get("stage") or "edit")
+        job = _orchestrate_mod.load_job(project_root, job_id)
+        if not job:
+            return _err(f"job not found: {job_id!r}")
+        if job.get("_corrupt"):
+            return _err("job fingerprint mismatch — record corrupted or tampered")
+        if stage != "edit":
+            return _err(f"revise_stage does not support stage {stage!r} yet — "
+                        "only 'edit' has a planner in this phase")
+        fks = (job["stages"]["edit"].get("foreign_keys") or {})
+        brief_id = fks.get("brief_id")
+        plan_id = fks.get("plan_id")
+        if not brief_id or not plan_id:
+            return _err("no plan yet for this stage — call plan_stage first")
+        revised = await auto_edit("revise_cut", {
+            "brief_id": brief_id, "plan_id": plan_id, "notes": p.get("notes") or "",
+            "edits": p.get("edits"), "analysis_root": project_root,
+        })
+        if not revised.get("success"):
+            return revised
+        _orchestrate_mod.set_stage_foreign_keys(project_root, job_id, "edit", plan_id=revised["plan_id"])
+        # A revision invalidates any G1 approval — it approved a plan that no longer exists.
+        _orchestrate_mod.void_stage_gate(project_root, job_id, "edit")
+        return {"success": True, "stage": "edit", "plan_id": revised["plan_id"], **revised}
+
+    if action == "approve_gate":
+        r, proj, project_root, err = _orchestrate_project_context(p, need_resolve=False)
+        if err:
+            return err
+        job_id = _job_id_param()
+        gate = str(p.get("gate") or "")
+        job = _orchestrate_mod.load_job(project_root, job_id)
+        if not job:
+            return _err(f"job not found: {job_id!r}")
+        if job.get("_corrupt"):
+            return _err("job fingerprint mismatch — record corrupted or tampered")
+        stage = _orchestrate_mod.GATE_STAGE.get(gate)
+        if stage is None:
+            return _err(f"unknown gate {gate!r} (must be one of {_orchestrate_mod.GATE_NAMES})")
+        force = bool(p.get("force"))
+        fp, ferr = _orchestrate_resolve_fingerprint(p, proj)
+        if ferr and not force:
+            return ferr
+
+        genre = (job.get("brief") or {}).get("genre")
+        if gate == "G1" and genre == "talking_head" and not force:
+            fks = (job["stages"]["edit"].get("foreign_keys") or {})
+            plan_id = fks.get("plan_id")
+            if not plan_id:
+                return _err("no approved-cut plan yet for this job — call plan_stage first")
+            inner_params = {k: v for k, v in p.items() if k != "gate"}
+            inner_params["plan_id"] = plan_id
+            inner_params["analysis_root"] = project_root
+            inner = await auto_edit("approve_cut", inner_params)
+            if not inner.get("success"):
+                return inner  # bubbles confirmation_required / errors as-is
+            _orchestrate_mod.set_stage_foreign_keys(
+                project_root, job_id, "edit", inner_gate_approved_at=inner.get("approved_at"))
+            job = _orchestrate_mod.load_job(project_root, job_id)
+
+        evaluated = _orchestrate_mod.evaluate_gate_request(
+            job, gate, current_fingerprint=fp,
+            vision_assessment=p.get("vision_assessment"),
+            preview_frame_path=p.get("preview_frame_path") or p.get("previewFramePath"),
+            force=force,
+        )
+        if not evaluated.get("success"):
+            return _err(evaluated.get("error") or "approve_gate failed")
+        if evaluated.get("already_approved"):
+            return {"success": True, "gate": gate, "stage": stage,
+                    "already_approved": True, "record": evaluated["gate"]}
+        if evaluated.get("needs_confirm"):
+            token_action = f"orchestrate.approve_gate.{gate}"
+            if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+                preview = {
+                    "operation": token_action, "stage": stage, "job_id": job_id,
+                    "warning": f"Approves {gate} ({stage}) — the pipeline advances past this checkpoint.",
+                }
+                if gate == "G2":
+                    preview["vision_assessment"] = p.get("vision_assessment")
+                    preview["preview_frame_path"] = p.get("preview_frame_path") or p.get("previewFramePath")
+                return _issue_confirm_token(action=token_action, params=p, preview=preview)
+            blocked = _consume_confirm_token(action=token_action, params=p)
+            if blocked:
+                return blocked
+
+        recorded = _orchestrate_mod.record_gate_approval(project_root, job_id, gate, evaluated["record"])
+        if not recorded.get("success"):
+            return _err(recorded.get("error") or "failed to record gate approval")
+        cleanup = {"deleted": [], "failed": []}
+        if recorded.get("snapshots_to_clean") and proj is not None:
+            cleanup = _orchestrate_gc_snapshots_live(proj, recorded["snapshots_to_clean"])
+        return {
+            "success": True, "gate": gate, "stage": stage,
+            "approved_at": recorded["gate"]["approved_at"],
+            "adopted": recorded["gate"].get("adopted"),
+            "forced": recorded["gate"].get("forced"),
+            "snapshots_cleaned": cleanup,
+        }
+
+    return _unknown(action, [
+        "start_job", "job_status", "list_jobs",
+        "check_resume", "force_replan_stage",
+        "plan_stage", "revise_stage", "approve_gate",
+    ])
 
 
 _TIMELINE_ACTIONS = [

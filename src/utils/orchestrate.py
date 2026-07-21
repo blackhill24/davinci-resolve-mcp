@@ -773,6 +773,85 @@ def void_stage_gate(project_root: str, job_id: str, stage: str) -> Dict[str, Any
     return {"success": True, "job": job}
 
 
+def can_run_stage(job: Dict[str, Any], stage: str) -> Optional[str]:
+    """None if `stage` is runnable now, else a refusal message. Manifest-order
+    only — run_stage never lets a later stage jump ahead of the cursor, and
+    the P2 gates already guard the checkpoints between stages."""
+    manifest = job.get("manifest") or []
+    if stage not in manifest:
+        return f"stage {stage!r} is not in this job's manifest"
+    if job.get("cursor") != stage:
+        return f"stage {stage!r} is not the current cursor (cursor={job.get('cursor')!r})"
+    status = (job.get("stages") or {}).get(stage, {}).get("status")
+    if status not in ("pending", "failed", "running"):
+        return f"stage {stage!r} is {status!r} — nothing to run"
+    return None
+
+
+def rollback_stage(
+    project_root: str, job_id: str, stage: str, *, snapshot_consumed: bool
+) -> Dict[str, Any]:
+    """Bookkeeping half of a rollback: reset the stage to pending (clean
+    retry) after the live layer has restored the snapshot. `snapshot_consumed`
+    tells us whether the restore used up the recorded snapshot (a
+    timeline_duplicate is renamed back into place — gone) or left it reusable
+    (a grade_version LoadVersion doesn't consume the version)."""
+    job = load_job(project_root, job_id)
+    if not job:
+        return {"success": False, "error": f"job not found: {job_id!r}"}
+    if job.get("_corrupt"):
+        return {"success": False, "error": "job fingerprint mismatch — record corrupted or tampered"}
+    stages = job.get("stages") or {}
+    if stage not in stages:
+        return {"success": False, "error": f"unknown stage {stage!r}"}
+    if stages[stage].get("status") not in ("failed", "running"):
+        return {"success": False,
+                "error": f"stage {stage!r} is {stages[stage].get('status')!r} — nothing to roll back"}
+    result = advance_stage(project_root, job_id, stage, "pending")
+    if not result.get("success"):
+        return result
+    if snapshot_consumed:
+        stages, _cleared = _clear_stage_snapshots(result["job"].get("stages") or {}, stage)
+        job = dict(result["job"])
+        job["stages"] = stages
+        job = save_job(project_root, job)
+        result = {"success": True, "job": job}
+    return result
+
+
+def finish_job(project_root: str, job_id: str, *, output_path: Optional[str] = None) -> Dict[str, Any]:
+    """Bookkeeping half of finish_job: refuses unless every manifest stage is
+    done, then marks the job finished and hands back every stage's remaining
+    snapshot bookkeeping (across the WHOLE job, not just one gated stage) for
+    the live layer to purge — the final sweep P2's per-gate GC doesn't reach
+    (e.g. a stage the user never explicitly gated)."""
+    job = load_job(project_root, job_id)
+    if not job:
+        return {"success": False, "error": f"job not found: {job_id!r}"}
+    if job.get("_corrupt"):
+        return {"success": False, "error": "job fingerprint mismatch — record corrupted or tampered"}
+    manifest = job.get("manifest") or []
+    stages = job.get("stages") or {}
+    incomplete = [name for name in manifest if (stages.get(name) or {}).get("status") != "done"]
+    if incomplete:
+        return {"success": False, "error": f"job is not finishable — stage(s) not done: {incomplete}"}
+    all_snapshots: List[Dict[str, Any]] = []
+    cleared_stages = dict(stages)
+    for name in manifest:
+        snaps = list(cleared_stages.get(name, {}).get("snapshot_ids") or [])
+        if snaps:
+            all_snapshots.extend(snaps)
+            cleared_stages[name] = dict(cleared_stages[name], snapshot_ids=[])
+    job = dict(job)
+    job["stages"] = cleared_stages
+    job["job_state"] = "finished"
+    job["finished_at"] = _now()
+    if output_path is not None:
+        job["output_path"] = output_path
+    job = save_job(project_root, job)
+    return {"success": True, "job": job, "snapshots_to_clean": all_snapshots}
+
+
 def set_stage_foreign_keys(project_root: str, job_id: str, stage: str, **foreign_keys: Any) -> Dict[str, Any]:
     """Merge foreign keys (e.g. auto_edit brief_id/plan_id) into a stage —
     never copies the sub-tool's own state, just points at it."""

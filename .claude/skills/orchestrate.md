@@ -12,10 +12,9 @@ context death. The tool owns all state and decision logic; this skill is a
 thin driver — if a step here has to *compute* anything, that belongs in the
 tool, not here.
 
-**Phase 2 (current):** job lifecycle + fingerprints/drift-refuse + gates exist.
-`run_stage` (full delegation to grade/audio/render) and `rollback_stage` land
-in a later phase — until then only the `edit` stage has a planner (talking-head,
-via `auto_edit`); every other stage stays `pending` until run_stage ships.
+**Phase 3 (current):** `run_stage` delegates every stage to its domain tool
+(craft is never reimplemented), plus `rollback_stage` and `finish_job`.
+`fusion` stays unimplemented (opt-in, no default ops yet).
 
 ## The loop
 
@@ -27,21 +26,47 @@ via `auto_edit`); every other stage stays `pending` until run_stage ships.
    `{job_id, job, holder_id}`.
 2. `job_status(job_id)` to check `cursor` (the next non-done stage) and
    `manifest`. Read-only — safe to call anytime, never touches the lease.
-3. Talking-head edit stage: `plan_stage(job_id)` (kicks/polls analysis, then
-   `plan_cut`) → show the returned cut summary → `revise_stage(job_id, notes,
-   edits)` to iterate (each revision voids any G1 approval — expected, not a
-   bug) → `approve_gate(job_id, gate="G1", vision_assessment?, ...)`, which
-   **adopts `auto_edit.approve_cut` verbatim** (its confirm-token ceremony,
-   not a second one). Any other genre gets a bring-your-own-timeline refusal
-   from `plan_stage` — cut it in Resolve; full handoff is a later phase.
+3. Drive the pipeline with `run_stage(job_id)` (defaults to the cursor
+   stage) — it delegates, snapshots reversible stages first, and reports
+   `waiting_on` when a stage needs something from you rather than treating
+   that as an error:
+   - `ingest`/`analysis`(non-talking-head)/`conform` run to completion (or
+     report a QC refusal — pass `accept_gaps`/`accept_missing` to proceed
+     anyway).
+   - **Talking-head edit**: `run_stage` kicks/polls the brief and plan for
+     you — when it reports `waiting_on: "G1_approval"`, show the cut summary
+     (`plan_id` in the response) and call `approve_gate(job_id, gate="G1",
+     vision_assessment?, ...)`, which **adopts `auto_edit.approve_cut`
+     verbatim** (its confirm-token ceremony, not a second one). Iterate first
+     with `revise_stage(job_id, notes, edits)` if the user wants changes —
+     each revision voids any G1 approval (expected, not a bug).
+   - **Any other genre**: `run_stage("edit")` reports `waiting_on:
+     "byo_timeline"` — cut it in Resolve, then call `run_stage(job_id,
+     stage="edit", byo_ready=true)`, which fingerprints whatever timeline
+     now exists and marks the stage done.
+   - `grade`/`audio` are no-ops unless the brief (or the call) supplies
+     `options.grade`/`options.audio` — pass `grade={drx_path|cdl, ...}` or
+     `audio={...}` to `run_stage` to actually apply something.
+   - `deliver` requires **G3** approved first (`run_stage` reports
+     `waiting_on: "G3_approval"` otherwise); it's special-cased — no
+     snapshot, no auto-rollback. A failure marks
+     `failed-resumable-via-Resolve`; lean on Resolve's own render-queue
+     resume rather than restarting from scratch.
 4. `approve_gate(job_id, gate="G2", vision_assessment, preview_frame_path)`
    for the post-grade checkpoint — **G2 always needs a host-supplied look
    assessment of a rendered frame.** Never approve it blind, never fabricate
-   an assessment. `approve_gate(job_id, gate="G3", ...)` gates pre-render.
-5. Resuming after a gap: `check_resume(job_id)` before trusting `cursor` —
+   an assessment.
+5. A reversible stage that fails (`run_stage` returns `success: false`,
+   stage status `failed`) does **not** auto-rollback — call
+   `rollback_stage(job_id, stage)` to restore the pre-mutation snapshot and
+   reset the stage to pending, then `run_stage` again for a clean retry.
+6. Resuming after a gap: `check_resume(job_id)` before trusting `cursor` —
    if it reports `drifted: true`, call `force_replan_stage(job_id, stage)`
    rather than pushing forward past a checkpoint that no longer holds.
-6. `list_jobs()` to resume across sessions — reads the global index (auto-
+7. Once every manifest stage is done: `finish_job(job_id)` — verifies the
+   `output_path`, purges every remaining namespaced snapshot (reports the
+   count), and marks the job finished. `keep_snapshots=true` opts out.
+8. `list_jobs()` to resume across sessions — reads the global index (auto-
    rebuilds if missing); pass `rebuild=true` after any out-of-band record
    change.
 
@@ -64,6 +89,6 @@ via `auto_edit`); every other stage stays `pending` until run_stage ships.
 - Design + phased build plan: GitHub epic (`orchestrate`), locked design
   decisions.
 - Core module: `src/utils/orchestrate.py` (state machine + two-file
-  persistence + lease). Tool wiring: `src/server.py` (`orchestrate`).
-- Kernel doc (`docs/kernels/orchestration-kernel.md`) lands in a later phase
-  alongside `run_stage`/gates.
+  persistence + lease + fingerprints/gates/snapshots). Tool wiring:
+  `src/server.py` (`orchestrate`).
+- Kernel doc (`docs/kernels/orchestration-kernel.md`) lands in a later phase.

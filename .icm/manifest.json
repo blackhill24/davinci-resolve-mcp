@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "5a513774b7505d54",
+      "fingerprint": "5b4f3e222c0758c8",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -611,7 +611,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "633aa2f0ec4cdfca",
+      "fingerprint": "fc886ed49501347c",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -763,6 +763,8 @@
         "tests/test_orchestrate.py",
         "tests/test_orchestrate_gates.py",
         "tests/test_orchestrate_gates_tool.py",
+        "tests/test_orchestrate_run_stage.py",
+        "tests/test_orchestrate_run_stage_tool.py",
         "tests/test_orchestrate_tool.py",
         "tests/test_p1_param_validation.py",
         "tests/test_p1_whitelist_and_delete.py",

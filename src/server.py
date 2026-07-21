@@ -21863,6 +21863,412 @@ def _orchestrate_gc_snapshots_live(proj, cleared: List[Dict[str, Any]]) -> Dict[
     return {"deleted": deleted, "failed": failed}
 
 
+def _orchestrate_restore_snapshot(proj, *, kind: str, snapshot_id: str) -> Dict[str, Any]:
+    """Live restore for rollback_stage. timeline_duplicate: the snapshot
+    timeline BECOMES current (the failed mutation's timeline is deleted) —
+    no rename-back needed, so no bookkeeping has to track the pre-mutation
+    name. grade_version: LoadVersion switches back without consuming the
+    snapshot (it stays available for a second rollback if needed)."""
+    if kind == "timeline_duplicate":
+        try:
+            count = proj.GetTimelineCount()
+            snapshot_tl, current_tl = None, None
+            try:
+                current_tl = proj.GetCurrentTimeline()
+            except Exception:
+                current_tl = None
+            for i in range(1, int(count or 0) + 1):
+                tl = proj.GetTimelineByIndex(i)
+                if tl and tl.GetName() == snapshot_id:
+                    snapshot_tl = tl
+                    break
+            if snapshot_tl is None:
+                return {"success": False, "error": f"snapshot timeline {snapshot_id!r} not found",
+                        "consumed": False}
+            if current_tl is not None and current_tl.GetUniqueId() != snapshot_tl.GetUniqueId():
+                try:
+                    mp = proj.GetMediaPool()
+                    if mp:
+                        mp.DeleteTimelines([current_tl])
+                except Exception:
+                    pass  # best-effort — the snapshot still becomes current below
+            proj.SetCurrentTimeline(snapshot_tl)
+            return {"success": True, "consumed": True}
+        except Exception as exc:
+            return {"success": False, "error": f"{type(exc).__name__}: {exc}", "consumed": False}
+    if kind == "grade_version":
+        try:
+            tl = proj.GetCurrentTimeline()
+            items = tl.GetItemListInTrack("video", 1) if tl else []
+            for item in items:
+                try:
+                    if item.LoadVersionByName(snapshot_id, 0):
+                        return {"success": True, "consumed": False}
+                except Exception:
+                    continue
+            return {"success": False, "error": f"grade version {snapshot_id!r} not found on any item",
+                    "consumed": False}
+        except Exception as exc:
+            return {"success": False, "error": f"{type(exc).__name__}: {exc}", "consumed": False}
+    return {"success": False, "error": f"unknown snapshot kind {kind!r}", "consumed": False}
+
+
+async def _orchestrate_plan_stage_talking_head(
+    job: Dict[str, Any], job_id: str, project_root: str
+) -> Dict[str, Any]:
+    """Kick/poll auto_edit's start_brief -> plan_cut for the edit stage,
+    recording the brief_id/plan_id foreign keys. Shared by the plan_stage
+    action and run_stage("edit")/("analysis") for talking-head jobs — the
+    only planner that exists in this phase."""
+    brief = job.get("brief") or {}
+    fks = (job["stages"]["edit"].get("foreign_keys") or {})
+    # plan_id is checked first — it's further along the pipeline than
+    # brief_id and implies a brief exists, so it's the authoritative
+    # "already planned" signal regardless of what else foreign_keys holds.
+    plan_id = fks.get("plan_id")
+    if plan_id:
+        summary = await auto_edit("get_cut_summary", {"plan_id": plan_id, "analysis_root": project_root})
+        return {"success": True, "stage": "edit", "brief_id": fks.get("brief_id"), "plan_id": plan_id,
+                "already_planned": True, **summary}
+    brief_id = fks.get("brief_id")
+    if not brief_id:
+        started = await auto_edit("start_brief", {
+            "files": brief.get("files"), "music": brief.get("music"),
+            "target_duration_seconds": brief.get("target_duration_seconds"),
+            "genre": brief.get("genre") or "talking_head", "deliverable": brief.get("deliverable"),
+            "title_text": brief.get("title_text"), "analysis_root": project_root,
+        })
+        if not started.get("success"):
+            return started
+        _orchestrate_mod.set_stage_foreign_keys(
+            project_root, job_id, "edit", brief_id=started["brief_id"])
+        return {"success": True, "stage": "edit", "waiting_on": "analysis",
+                "brief_id": started["brief_id"],
+                "analysis_job_id": started.get("analysis_job_id")}
+    status = await auto_edit("brief_status", {"brief_id": brief_id, "analysis_root": project_root})
+    if not status.get("success"):
+        return status
+    state = (status.get("brief") or {}).get("state")
+    if state != "ready":
+        return {"success": True, "stage": "edit", "brief_id": brief_id,
+                "waiting_on": "analysis", "brief_state": state}
+    planned = await auto_edit("plan_cut", {"brief_id": brief_id, "analysis_root": project_root})
+    if not planned.get("success"):
+        return planned
+    _orchestrate_mod.set_stage_foreign_keys(
+        project_root, job_id, "edit", plan_id=planned["plan_id"])
+    return {"success": True, "stage": "edit", "brief_id": brief_id, **planned}
+
+
+async def _orchestrate_execute_reversible_stage(project_root, job_id, stage, proj, mutate_fn):
+    """Shared run_stage body for reversible stages: snapshot -> mutate ->
+    done+fingerprint | failed (never auto-rolls-back — that's the separate
+    explicit rollback_stage action; a failure here just stops and leaves the
+    snapshot in place for it). A pending confirm-token isn't a failure — the
+    stage stays "running" so a retry with the token can complete it, and no
+    second snapshot is taken on that retry."""
+    job = _orchestrate_mod.load_job(project_root, job_id)
+    already_has_snapshot = bool((job.get("stages", {}).get(stage) or {}).get("snapshot_ids"))
+    _orchestrate_mod.advance_stage(project_root, job_id, stage, "running")
+    if not already_has_snapshot:
+        snap = _orchestrate_take_snapshot(proj, job_id=job_id, stage=stage)
+        if snap.get("snapshot_id"):
+            _orchestrate_mod.record_snapshot(project_root, job_id, stage, snap["snapshot_id"], kind=snap["kind"])
+    try:
+        result = await mutate_fn()
+    except Exception as exc:
+        result = {"success": False, "error": f"{type(exc).__name__}: {exc}"}
+    if isinstance(result, dict) and result.get("status") == "confirmation_required":
+        return result
+    if not (isinstance(result, dict) and result.get("success")):
+        _orchestrate_mod.advance_stage(
+            project_root, job_id, stage, "failed",
+            notes=[str((result or {}).get("error") if isinstance(result, dict) else result)])
+        return result
+    fp = _orchestrate_capture_fingerprint(proj)
+    _orchestrate_mod.advance_stage(project_root, job_id, stage, "done", fingerprint=fp)
+    result.setdefault("stage", stage)
+    return result
+
+
+async def _orchestrate_run_ingest(job, job_id, project_root, proj) -> Dict[str, Any]:
+    """Additive/non-destructive — no snapshot (nothing to protect: nothing
+    existed before an import). Reuses the exact bin-scaffold helpers
+    auto_edit.start_brief uses."""
+    _orchestrate_mod.advance_stage(project_root, job_id, "ingest", "running")
+    brief = job.get("brief") or {}
+    files, music = brief.get("files") or [], brief.get("music")
+    mp = proj.GetMediaPool()
+    if not mp:
+        _orchestrate_mod.advance_stage(project_root, job_id, "ingest", "failed", notes=["no media pool"])
+        return _err("No media pool")
+    imported: Dict[str, Any] = {}
+    for bin_name, paths in (("Footage", list(files)), ("Music", [music] if music else [])):
+        if not paths:
+            continue
+        _folder, folder_err = _ensure_folder_path(mp, bin_name)
+        if folder_err:
+            _orchestrate_mod.advance_stage(project_root, job_id, "ingest", "failed", notes=[str(folder_err)])
+            return folder_err
+        result = _safe_import_media(mp, {"paths": paths, "target_folder": bin_name})
+        if result.get("error"):
+            _orchestrate_mod.advance_stage(project_root, job_id, "ingest", "failed", notes=[str(result)])
+            return result
+        imported[bin_name] = result
+    fp = _orchestrate_capture_fingerprint(proj)
+    _orchestrate_mod.advance_stage(project_root, job_id, "ingest", "done", fingerprint=fp)
+    return {"success": True, "stage": "ingest", "imported": imported}
+
+
+async def _orchestrate_run_analysis(job, job_id, project_root, proj) -> Dict[str, Any]:
+    """Talking-head: fused with the edit stage's own brief pipeline (analysis
+    IS what start_brief kicks — a separate pass would be redundant). Every
+    other genre: kick/poll a generic media_analysis batch job over the whole
+    project; per the locked design this is expensive and never auto-driven
+    slice-by-slice here — the host progresses it (directly, or by calling
+    run_stage again) exactly like the original "never auto-run" intent."""
+    genre = (job.get("brief") or {}).get("genre") or "talking_head"
+    _orchestrate_mod.advance_stage(project_root, job_id, "analysis", "running")
+    if genre == "talking_head":
+        planned = await _orchestrate_plan_stage_talking_head(job, job_id, project_root)
+        if not planned.get("success"):
+            _orchestrate_mod.advance_stage(
+                project_root, job_id, "analysis", "failed",
+                notes=[str(planned.get("error") or planned)])
+            return planned
+        if planned.get("waiting_on"):
+            return {"success": True, "stage": "analysis", "waiting_on": planned["waiting_on"],
+                    "brief_id": planned.get("brief_id"), "brief_state": planned.get("brief_state")}
+        fp = _orchestrate_capture_fingerprint(proj)
+        _orchestrate_mod.advance_stage(project_root, job_id, "analysis", "done", fingerprint=fp)
+        return {"success": True, "stage": "analysis", "brief_id": planned.get("brief_id")}
+
+    fks = (job["stages"]["analysis"].get("foreign_keys") or {})
+    batch_job_id = fks.get("batch_job_id")
+    if not batch_job_id:
+        started = await media_analysis("start_batch_job", {
+            "target": {"type": "project"}, "analysis_root": project_root,
+        })
+        if not started.get("success"):
+            _orchestrate_mod.advance_stage(project_root, job_id, "analysis", "failed", notes=[str(started)])
+            return started
+        batch_job_id = started.get("job_id")
+        _orchestrate_mod.set_stage_foreign_keys(project_root, job_id, "analysis", batch_job_id=batch_job_id)
+        return {"success": True, "stage": "analysis", "waiting_on": "analysis", "batch_job_id": batch_job_id,
+                "note": "batch job started — drive it (or call run_stage again to poll)"}
+    status = await media_analysis("batch_job_status", {"job_id": batch_job_id, "analysis_root": project_root})
+    if not status.get("success"):
+        return status
+    if str(status.get("status") or "").startswith("completed"):
+        fp = _orchestrate_capture_fingerprint(proj)
+        _orchestrate_mod.advance_stage(project_root, job_id, "analysis", "done", fingerprint=fp)
+        return {"success": True, "stage": "analysis", "batch_job_id": batch_job_id}
+    return {"success": True, "stage": "analysis", "waiting_on": "analysis", "batch_job_id": batch_job_id,
+            "job_status": status.get("status"), "progress": status.get("progress")}
+
+
+async def _orchestrate_run_edit(job, job_id, project_root, proj, p: Dict[str, Any]) -> Dict[str, Any]:
+    """Talking-head: continues plan_stage -> requires G1 valid -> build_timeline
+    (adopted gate, per the epic's core design decision). Every other genre:
+    the bring-your-own-timeline escape hatch — pause until the host reports
+    byo_ready=true, then just fingerprint whatever timeline exists."""
+    genre = (job.get("brief") or {}).get("genre") or "talking_head"
+    _orchestrate_mod.advance_stage(project_root, job_id, "edit", "running")
+    if genre != "talking_head":
+        if not p.get("byo_ready"):
+            return {"success": True, "stage": "edit", "waiting_on": "byo_timeline",
+                    "message": "cut it in Resolve, then call run_stage again with byo_ready=true"}
+        fp = _orchestrate_capture_fingerprint(proj)
+        _orchestrate_mod.advance_stage(project_root, job_id, "edit", "done", fingerprint=fp)
+        return {"success": True, "stage": "edit", "byo": True, "fingerprint": fp}
+
+    planned = await _orchestrate_plan_stage_talking_head(job, job_id, project_root)
+    if not planned.get("success"):
+        _orchestrate_mod.advance_stage(project_root, job_id, "edit", "failed",
+                                        notes=[str(planned.get("error") or planned)])
+        return planned
+    if planned.get("waiting_on"):
+        return {"success": True, **planned}
+    plan_id = planned.get("plan_id")
+    if not plan_id:
+        return {"success": True, "stage": "edit", "waiting_on": "plan", **planned}
+
+    job = _orchestrate_mod.load_job(project_root, job_id)  # refresh — plan_stage updated foreign_keys
+    fp_now = _orchestrate_capture_fingerprint(proj)
+    if not _orchestrate_mod.gate_is_valid(job["stages"]["edit"].get("gate"), fp_now):
+        return {"success": True, "stage": "edit", "waiting_on": "G1_approval", "plan_id": plan_id}
+
+    if not (job["stages"]["edit"].get("snapshot_ids")):
+        snap = _orchestrate_take_snapshot(proj, job_id=job_id, stage="edit")
+        if snap.get("snapshot_id"):
+            _orchestrate_mod.record_snapshot(project_root, job_id, "edit", snap["snapshot_id"], kind=snap["kind"])
+
+    inner_params = {"plan_id": plan_id, "analysis_root": project_root}
+    if p.get("confirm_token"):
+        inner_params["confirm_token"] = p["confirm_token"]
+    built = await auto_edit("build_timeline", inner_params)
+    if built.get("status") == "confirmation_required":
+        return built
+    if not built.get("success"):
+        _orchestrate_mod.advance_stage(project_root, job_id, "edit", "failed",
+                                        notes=[str(built.get("error") or built)])
+        return built
+    _orchestrate_mod.set_stage_foreign_keys(project_root, job_id, "edit", timeline_name=built.get("timeline_name"))
+    fp = _orchestrate_capture_fingerprint(proj)
+    _orchestrate_mod.advance_stage(project_root, job_id, "edit", "done", fingerprint=fp)
+    return {"success": True, "stage": "edit", "plan_id": plan_id, **built}
+
+
+async def _orchestrate_run_conform(job, job_id, project_root, proj, p: Dict[str, Any]) -> Dict[str, Any]:
+    """Read-only QC by default (gaps/overlaps, missing media) — refuses on
+    findings unless explicitly accepted. Relink is left to the host driving
+    `timeline` directly; this stage's job is to surface problems honestly,
+    not to silently decide they're fine."""
+    async def _mutate():
+        gaps = timeline("detect_gaps_overlaps", {})
+        missing = timeline("detect_missing_media", {})
+        problems = []
+        if gaps.get("gap_count") or gaps.get("overlap_count"):
+            if not p.get("accept_gaps"):
+                problems.append(
+                    f"{gaps.get('gap_count', 0)} gap(s)/{gaps.get('overlap_count', 0)} overlap(s) — "
+                    "pass accept_gaps=true to proceed anyway")
+        if missing.get("missing_count"):
+            if not p.get("accept_missing"):
+                problems.append(
+                    f"{missing.get('missing_count')} missing media reference(s) — "
+                    "pass accept_missing=true, or relink first")
+        if problems:
+            return {"success": False, "error": "; ".join(problems), "gaps": gaps, "missing": missing}
+        return {"success": True, "gaps": gaps, "missing": missing}
+
+    return await _orchestrate_execute_reversible_stage(project_root, job_id, "conform", proj, _mutate)
+
+
+async def _orchestrate_run_grade(job, job_id, project_root, proj, p: Dict[str, Any]) -> Dict[str, Any]:
+    """Applies a grade via timeline_item_color IF the brief (or the call)
+    specifies one; otherwise a no-op done — G2's vision checkpoint still
+    fires regardless (a look assessment of "no grade applied" is honest
+    too)."""
+    grade_opts = dict(((job.get("brief") or {}).get("options") or {}).get("grade") or {})
+    grade_opts.update(p.get("grade") or {})
+    if not grade_opts:
+        _orchestrate_mod.advance_stage(project_root, job_id, "grade", "running")
+        fp = _orchestrate_capture_fingerprint(proj)
+        _orchestrate_mod.advance_stage(project_root, job_id, "grade", "done", fingerprint=fp)
+        return {"success": True, "stage": "grade", "note": "no grade specified — nothing to apply"}
+
+    async def _mutate():
+        call_params = dict(grade_opts)
+        drx_path = call_params.pop("drx_path", None) or call_params.get("path")
+        if drx_path:
+            call_params["path"] = drx_path
+            grade_action = "safe_apply_drx"
+        else:
+            grade_action = "safe_set_cdl"
+        return timeline_item_color(grade_action, call_params)
+
+    return await _orchestrate_execute_reversible_stage(project_root, job_id, "grade", proj, _mutate)
+
+
+async def _orchestrate_run_audio(job, job_id, project_root, proj, p: Dict[str, Any]) -> Dict[str, Any]:
+    """No default audio processing — pass options.audio (brief-level or at
+    call time) to apply specific levels/properties; otherwise a no-op done."""
+    audio_opts = dict(((job.get("brief") or {}).get("options") or {}).get("audio") or {})
+    audio_opts.update(p.get("audio") or {})
+    if not audio_opts:
+        _orchestrate_mod.advance_stage(project_root, job_id, "audio", "running")
+        fp = _orchestrate_capture_fingerprint(proj)
+        _orchestrate_mod.advance_stage(project_root, job_id, "audio", "done", fingerprint=fp)
+        return {"success": True, "stage": "audio", "note": "no audio settings specified — nothing to apply"}
+
+    async def _mutate():
+        return timeline("safe_set_audio_properties", audio_opts)
+
+    return await _orchestrate_execute_reversible_stage(project_root, job_id, "audio", proj, _mutate)
+
+
+async def _orchestrate_run_review(job, job_id, project_root, proj) -> Dict[str, Any]:
+    _orchestrate_mod.advance_stage(project_root, job_id, "review", "running")
+    report = timeline_markers("export_review_report", {})
+    if isinstance(report, dict) and report.get("error"):
+        _orchestrate_mod.advance_stage(project_root, job_id, "review", "failed", notes=[str(report)])
+        return report
+    fp = _orchestrate_capture_fingerprint(proj)
+    _orchestrate_mod.advance_stage(project_root, job_id, "review", "done", fingerprint=fp)
+    return {"success": True, "stage": "review", "report": report}
+
+
+async def _orchestrate_run_deliver(job, job_id, project_root, proj, p: Dict[str, Any]) -> Dict[str, Any]:
+    """Special-cased per the locked design: G3 must already be approved (a
+    SEPARATE precondition from can_run_stage's cursor check); no pre-stage
+    snapshot and no auto-rollback on failure — the render queue itself is
+    the recovery mechanism (mark failed-resumable-via-Resolve, let the host
+    resume via Resolve's own render lifecycle rather than restart)."""
+    fp_now = _orchestrate_capture_fingerprint(proj)
+    if not _orchestrate_mod.gate_is_valid(job["stages"]["deliver"].get("gate"), fp_now):
+        return {"success": True, "stage": "deliver", "waiting_on": "G3_approval"}
+    _orchestrate_mod.advance_stage(project_root, job_id, "deliver", "running")
+
+    render_opts = dict(((job.get("brief") or {}).get("options") or {}).get("render") or {})
+    render_opts.update(p.get("render") or {})
+    target_dir = str(render_opts.get("target_dir") or render_opts.get("targetDir") or "")
+    if not target_dir:
+        from src.utils import analysis_memory as _analysis_memory
+        target_dir = os.path.join(_analysis_memory.memory_dir(project_root), "orchestrate", job_id, "renders")
+    os.makedirs(target_dir, exist_ok=True)
+    custom_name = str(render_opts.get("custom_name") or render_opts.get("customName") or f"orchestrate_{job_id}")
+    prepared = _prepare_render_job(proj, {
+        "target_dir": target_dir, "settings": render_opts.get("settings") or {},
+        "format": render_opts.get("format"), "codec": render_opts.get("codec"),
+        "custom_name": custom_name, "require_temp_target": False,
+    })
+    if not prepared.get("success"):
+        _orchestrate_mod.advance_stage(project_root, job_id, "deliver", "failed",
+                                        notes=["failed-resumable-via-Resolve", str(prepared)])
+        return {"success": False, "stage": "deliver", "error": "prepare_render_job failed", "render": prepared}
+    render_job_id = prepared["job_id"]
+
+    def _render_work():
+        render_started = time.time()
+        started = bool(proj.StartRendering([render_job_id], False))
+        if not started:
+            return {"success": False, "error": "StartRendering returned false", "job_id": render_job_id}
+        while proj.IsRenderingInProgress():
+            time.sleep(2)
+        status = _ser(proj.GetRenderJobStatus(render_job_id))
+        job_failed = str((status or {}).get("JobStatus") if isinstance(status, dict)
+                         else "").lower() in ("failed", "cancelled", "canceled")
+        outputs = []
+        for fname in os.listdir(target_dir):
+            if not fname.startswith(custom_name):
+                continue
+            full = os.path.join(target_dir, fname)
+            if os.path.getmtime(full) >= render_started - 2:
+                outputs.append(full)
+        outputs.sort(key=os.path.getmtime, reverse=True)
+        output_path = outputs[0] if outputs else None
+        out = {"success": bool(output_path and os.path.isfile(output_path)) and not job_failed,
+               "job_id": render_job_id, "status": status, "output_path": output_path}
+        if not output_path:
+            out["error"] = "no output file found after render"
+        elif job_failed:
+            out["error"] = "render job did not complete"
+        return out
+
+    import anyio
+    render_result = await anyio.to_thread.run_sync(
+        lambda: _run_maybe_background("orchestrate.run_stage.deliver", p, _render_work))
+    if not (isinstance(render_result, dict) and render_result.get("success")):
+        _orchestrate_mod.advance_stage(project_root, job_id, "deliver", "failed",
+                                        notes=["failed-resumable-via-Resolve", str(render_result)])
+        return {"success": False, "stage": "deliver", "render": render_result}
+    _orchestrate_mod.set_stage_foreign_keys(project_root, job_id, "deliver", output_path=render_result["output_path"])
+    fp = _orchestrate_capture_fingerprint(proj)
+    _orchestrate_mod.advance_stage(project_root, job_id, "deliver", "done", fingerprint=fp)
+    return {"success": True, "stage": "deliver", "render": render_result}
+
+
 def _orchestrate_resolve_fingerprint(p: Dict[str, Any], proj):
     """(fingerprint, err). An explicit override lets check_resume/approve_gate
     be offline-testable and lets a host that already probed once reuse it."""
@@ -21884,11 +22290,11 @@ async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> D
     Sequences the domain tools (media_pool, media_analysis, auto_edit,
     timeline, timeline_item_color, render, ...) across a durable, resumable
     job record — the sole reason this exists as a tool rather than host
-    prose is surviving context death mid-job. Phase 2 (current): fingerprints,
-    resume/drift-refuse, pre-stage snapshots, and the G1/G2/G3 gates. Full
-    stage execution (run_stage) and rollback land in a later phase — for now
-    only the "edit" stage (talking-head, via auto_edit) has a planner; every
-    other stage stays pending until run_stage ships.
+    prose is surviving context death mid-job. Phase 3 (current): run_stage
+    delegates every stage to its domain tool (craft is never reimplemented —
+    orchestrate calls the domain functions and holds foreign keys), plus
+    rollback_stage and finish_job. fusion stays unimplemented (opt-in, no
+    default ops yet).
 
     Actions:
       start_job(files, music?, target_duration_seconds?, genre?, deliverable?,
@@ -21928,6 +22334,35 @@ async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> D
         not even under force. `force` bypasses only the drift-halt.
         Fingerprint-bound: a drifted approval auto-voids and the gate
         reopens. GC's the gated stage's pre-stage snapshots live on success.
+      run_stage(job_id, stage?, analysis_root?, ...stage params) -> runs the
+        current cursor stage (or an explicit `stage`), delegating to its
+        domain tool: ingest -> media_pool import; analysis -> the edit
+        stage's own brief pipeline (talking-head) or a generic
+        media_analysis batch job (other genres — kicked/polled, never
+        auto-driven slice-by-slice, per the locked "expensive, never
+        auto-run" design); edit -> plan+build via auto_edit (talking-head,
+        requires G1) or the bring-your-own-timeline pause (`byo_ready=true`
+        to confirm the manual cut is done); conform -> read-only gap/
+        overlap/missing-media QC (refuses on findings unless
+        `accept_gaps`/`accept_missing`); grade -> timeline_item_color
+        safe_apply_drx/safe_set_cdl if `grade` options are given, else a
+        no-op; audio -> timeline safe_set_audio_properties if `audio`
+        options are given, else a no-op; deliver -> requires G3, then a
+        validated render (special-cased: no snapshot, no auto-rollback —
+        failure marks `failed-resumable-via-Resolve`, lean on Resolve's own
+        render-queue resume); review -> timeline_markers export_review_report.
+        Reversible stages snapshot before mutating and leave the stage
+        "failed" (snapshot intact) on error — rollback_stage is the
+        explicit next step, never automatic.
+      rollback_stage(job_id, stage, analysis_root?) -> restores the stage's
+        latest recorded snapshot live (timeline_duplicate: the snapshot
+        becomes the current timeline; grade_version: LoadVersion switches
+        back) and resets the stage to pending for a clean retry.
+      finish_job(job_id, keep_snapshots?, analysis_root?) -> refuses unless
+        every manifest stage is done; verifies the deliver stage's
+        output_path exists, purges every remaining `_orch_{job_id}_*`
+        snapshot (live deletion + count), and marks the job finished.
+        `keep_snapshots=true` opts out of the purge.
     """
     p = params or {}
 
@@ -22032,50 +22467,13 @@ async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> D
         if stage != "edit":
             return _err(f"plan_stage does not support stage {stage!r} yet — "
                         "only 'edit' has a planner in this phase")
-        brief = job.get("brief") or {}
-        genre = brief.get("genre") or "talking_head"
+        genre = (job.get("brief") or {}).get("genre") or "talking_head"
         if genre != "talking_head":
             return _err(
                 f"genre {genre!r} uses the bring-your-own-timeline escape hatch — "
                 "no auto-plan. Cut it in Resolve; stage handoff lands in a later phase."
             )
-        fks = (job["stages"]["edit"].get("foreign_keys") or {})
-        # plan_id is checked first — it's further along the pipeline than
-        # brief_id and implies a brief exists, so it's the authoritative
-        # "already planned" signal regardless of what else foreign_keys holds.
-        plan_id = fks.get("plan_id")
-        if plan_id:
-            summary = await auto_edit("get_cut_summary", {"plan_id": plan_id, "analysis_root": project_root})
-            return {"success": True, "stage": "edit", "brief_id": fks.get("brief_id"), "plan_id": plan_id,
-                    "already_planned": True, **summary}
-        brief_id = fks.get("brief_id")
-        if not brief_id:
-            started = await auto_edit("start_brief", {
-                "files": brief.get("files"), "music": brief.get("music"),
-                "target_duration_seconds": brief.get("target_duration_seconds"),
-                "genre": genre, "deliverable": brief.get("deliverable"),
-                "title_text": brief.get("title_text"), "analysis_root": project_root,
-            })
-            if not started.get("success"):
-                return started
-            _orchestrate_mod.set_stage_foreign_keys(
-                project_root, job_id, "edit", brief_id=started["brief_id"])
-            return {"success": True, "stage": "edit", "waiting_on": "analysis",
-                    "brief_id": started["brief_id"],
-                    "analysis_job_id": started.get("analysis_job_id")}
-        status = await auto_edit("brief_status", {"brief_id": brief_id, "analysis_root": project_root})
-        if not status.get("success"):
-            return status
-        state = (status.get("brief") or {}).get("state")
-        if state != "ready":
-            return {"success": True, "stage": "edit", "brief_id": brief_id,
-                    "waiting_on": "analysis", "brief_state": state}
-        planned = await auto_edit("plan_cut", {"brief_id": brief_id, "analysis_root": project_root})
-        if not planned.get("success"):
-            return planned
-        _orchestrate_mod.set_stage_foreign_keys(
-            project_root, job_id, "edit", plan_id=planned["plan_id"])
-        return {"success": True, "stage": "edit", "brief_id": brief_id, **planned}
+        return await _orchestrate_plan_stage_talking_head(job, job_id, project_root)
 
     if action == "revise_stage":
         _r, _proj, project_root, err = _orchestrate_project_context(p, need_resolve=False)
@@ -22182,10 +22580,95 @@ async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> D
             "snapshots_cleaned": cleanup,
         }
 
+    if action == "run_stage":
+        r, proj, project_root, err = _orchestrate_project_context(p, need_resolve=True)
+        if err:
+            return err
+        job_id = _job_id_param()
+        job = _orchestrate_mod.load_job(project_root, job_id)
+        if not job:
+            return _err(f"job not found: {job_id!r}")
+        if job.get("_corrupt"):
+            return _err("job fingerprint mismatch — record corrupted or tampered")
+        stage = str(p.get("stage") or job.get("cursor") or "")
+        refusal = _orchestrate_mod.can_run_stage(job, stage)
+        if refusal:
+            return _err(refusal)
+        if stage == "ingest":
+            return await _orchestrate_run_ingest(job, job_id, project_root, proj)
+        if stage == "analysis":
+            return await _orchestrate_run_analysis(job, job_id, project_root, proj)
+        if stage == "edit":
+            return await _orchestrate_run_edit(job, job_id, project_root, proj, p)
+        if stage == "conform":
+            return await _orchestrate_run_conform(job, job_id, project_root, proj, p)
+        if stage == "grade":
+            return await _orchestrate_run_grade(job, job_id, project_root, proj, p)
+        if stage == "audio":
+            return await _orchestrate_run_audio(job, job_id, project_root, proj, p)
+        if stage == "review":
+            return await _orchestrate_run_review(job, job_id, project_root, proj)
+        if stage == "deliver":
+            return await _orchestrate_run_deliver(job, job_id, project_root, proj, p)
+        return _err(f"run_stage does not support stage {stage!r} yet")
+
+    if action == "rollback_stage":
+        r, proj, project_root, err = _orchestrate_project_context(p, need_resolve=True)
+        if err:
+            return err
+        job_id = _job_id_param()
+        stage = str(p.get("stage") or "")
+        job = _orchestrate_mod.load_job(project_root, job_id)
+        if not job:
+            return _err(f"job not found: {job_id!r}")
+        if job.get("_corrupt"):
+            return _err("job fingerprint mismatch — record corrupted or tampered")
+        snapshots = list((job.get("stages", {}).get(stage) or {}).get("snapshot_ids") or [])
+        if not snapshots:
+            return _err(f"stage {stage!r} has no recorded snapshot to roll back to")
+        latest = snapshots[-1]
+        restored = _orchestrate_restore_snapshot(proj, kind=latest["kind"], snapshot_id=latest["id"])
+        if not restored.get("success"):
+            return _err(restored.get("error") or "snapshot restore failed")
+        result = _orchestrate_mod.rollback_stage(
+            project_root, job_id, stage, snapshot_consumed=bool(restored.get("consumed")))
+        if not result.get("success"):
+            return _err(result.get("error") or "rollback bookkeeping failed")
+        return {"success": True, "stage": stage, "restored": latest, "job": result["job"]}
+
+    if action == "finish_job":
+        r, proj, project_root, err = _orchestrate_project_context(p, need_resolve=False)
+        if err:
+            return err
+        job_id = _job_id_param()
+        keep_snapshots = bool(p.get("keep_snapshots"))
+        job = _orchestrate_mod.load_job(project_root, job_id)
+        if not job:
+            return _err(f"job not found: {job_id!r}")
+        if job.get("_corrupt"):
+            return _err("job fingerprint mismatch — record corrupted or tampered")
+        output_path = (job.get("stages", {}).get("deliver") or {}).get("foreign_keys", {}).get("output_path")
+        output_verified = bool(output_path and os.path.isfile(str(output_path)))
+        finished = _orchestrate_mod.finish_job(project_root, job_id, output_path=output_path)
+        if not finished.get("success"):
+            return _err(finished.get("error") or "finish_job failed")
+        cleanup = {"deleted": [], "failed": []}
+        if not keep_snapshots and finished.get("snapshots_to_clean") and proj is not None:
+            cleanup = _orchestrate_gc_snapshots_live(proj, finished["snapshots_to_clean"])
+        return {
+            "success": True, "job_id": job_id, "output_path": output_path,
+            "output_verified": output_verified,
+            "purged_count": len(cleanup["deleted"]),
+            "purge_failed": cleanup["failed"],
+            "kept_snapshots": keep_snapshots,
+            "finished_at": finished["job"].get("finished_at"),
+        }
+
     return _unknown(action, [
         "start_job", "job_status", "list_jobs",
         "check_resume", "force_replan_stage",
         "plan_stage", "revise_stage", "approve_gate",
+        "run_stage", "rollback_stage", "finish_job",
     ])
 
 

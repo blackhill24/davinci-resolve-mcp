@@ -543,7 +543,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "e7c164ff093465bc",
+      "fingerprint": "9e3339a465ad2a42",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -614,7 +614,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "9d4b95585ae3fb91",
+      "fingerprint": "2e40da00e06b9652",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",

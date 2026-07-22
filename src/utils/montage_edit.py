@@ -43,6 +43,7 @@ if given, trims it rather than replacing it as the primary driver).
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Dict, List, Optional, Sequence
 
 from src.utils import auto_edit, cut_ir, edit_engine, music_analysis, timeline_brain_db
@@ -287,7 +288,7 @@ def build_cut_list_for_brief(
             source_start_frame=start_frame, source_end_frame=end_frame,
             rationale=f"select_potential rank {shot['rank']}, pacing={shot['pacing']}",
             evidence={"basis": "select_potential+pacing", "clip_name": shot.get("clip_name"),
-                      "description": shot.get("description")},
+                      "description": shot.get("description"), "pacing": shot["pacing"]},
         )
 
     hook_src_start = hook["time_seconds_start"]
@@ -367,8 +368,69 @@ def build_cut_list_for_brief(
     plan["problems"] = problems
     plan["tempo_bpm"] = tempo
     plan["onset_count"] = len(onsets)
+    # record_start_frame is what build_timeline's shared executor actually
+    # reads to place each segment — without it every segment defaults to 0
+    # and stacks on top of the last. Reused verbatim (generic cursor walk,
+    # not talking-head-specific) so the executor and this plan agree.
+    auto_edit._assign_record_frames(plan)
     errors = cut_ir.validate_cut_list(plan)
     if errors:
         return {"success": False, "error": "generated CutList failed validation", "problems": errors}
     plan = edit_engine.save_plan(project_root, plan)
     return {"success": True, "plan": plan, "plan_id": plan["plan_id"]}
+
+
+# ── checkpoint summary ───────────────────────────────────────────────────────
+
+
+def render_montage_summary(plan: Dict[str, Any]) -> str:
+    """Human-readable cut list for THE approval checkpoint (markdown).
+
+    Mirrors auto_edit.render_cut_summary's shape, adapted to montage's
+    fields: no transcript excerpt/smoothing columns (montage has neither),
+    a description/pacing column instead, plus the beat-grid stats
+    (tempo/onset count) auto_edit's talking-head plans don't carry."""
+    fps = float(plan.get("fps") or 24.0)
+
+    def tc(frames: int) -> str:
+        seconds = frames / fps
+        return f"{int(seconds // 60):d}:{seconds % 60:05.2f}"
+
+    est = plan.get("estimates") or {}
+    tempo = plan.get("tempo_bpm")
+    lines = [
+        f"# Montage cut list — revision {plan.get('revision', 0)} (`{plan.get('plan_id', 'unsaved')}`)",
+        "",
+        f"**Runtime:** ~{est.get('duration_seconds')}s "
+        f"({est.get('duration_frames')} frames @ {fps:g} fps) · "
+        f"**Segments:** {est.get('segment_count')} · "
+        f"**Tempo:** {f'{tempo:.0f} BPM' if tempo else 'unknown'} · "
+        f"**Onsets detected:** {plan.get('onset_count', 0)}",
+        "",
+        "| # | Record | Source (frames) | Role | Description | Pacing |",
+        "|---|--------|-----------------|------|--------------|--------|",
+    ]
+    for i, seg in enumerate(plan.get("segments") or []):
+        evidence = seg.get("evidence") or {}
+        pacing = evidence.get("pacing") or ""
+        description = evidence.get("description") or ""
+        lines.append(
+            f"| {i} | {tc(seg.get('record_start_frame', 0))} "
+            f"| {seg['source_start_frame']}–{seg['source_end_frame']} "
+            f"| {seg.get('role')} "
+            f"| {description} "
+            f"| {pacing or '—'} |"
+        )
+    problems = plan.get("problems") or []
+    if problems:
+        lines += ["", "**Notes:**"] + [f"- {p}" for p in problems]
+    music = plan.get("music")
+    if music:
+        lines += [
+            "",
+            f"**Music:** {os.path.basename(str(music.get('path') or ''))} on "
+            f"A{music.get('track_index', 2)}, static level (montage has no "
+            "voiceover to duck under — see epic #38).",
+        ]
+    lines += ["", "_Approve to build; revise with structured notes (reorder/keep/drop)._"]
+    return "\n".join(lines)

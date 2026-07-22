@@ -87,10 +87,20 @@ class BriefValidationTest(AutoEditBase):
         loaded = auto_edit.load_brief(self.root, brief["plan_id"])
         self.assertEqual(loaded["files"], ["/media/talk.mp4"])
 
+    def test_montage_genre_accepted(self):
+        # auto_edit.py stays unaware of montage's OWN rules (e.g. music
+        # required) — that's montage_edit.validate_montage_brief_inputs' job,
+        # called separately in server.py's start_brief dispatch. This module
+        # only needs to accept the genre string.
+        out = auto_edit.create_brief(self.root, files=["/media/broll.mp4"], genre="montage")
+        self.assertTrue(out["success"], out)
+
     def test_invalid_briefs_rejected(self):
         for kwargs, needle in [
             (dict(files=[]), "non-empty list"),
-            (dict(files=["/a.mp4"], genre="montage"), "genre"),
+            # "montage" became a valid genre string once montage_edit shipped
+            # (epic #38) — GENRES now only rejects genres with no planner at all.
+            (dict(files=["/a.mp4"], genre="narrative"), "genre"),
             (dict(files=["/a.mp4"], target_duration_seconds=-3), "positive"),
             (dict(files=["/a.mp4"], music=""), "music"),
         ]:

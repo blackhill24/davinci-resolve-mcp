@@ -22,7 +22,15 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from src.utils import cut_ir, edit_engine, music_analysis, strata, timeline_brain_db
 
 BRIEF_KIND = "auto_edit_brief"
-GENRES = {"talking_head"}
+# "montage" is planned by the sibling montage_edit module (server.py's
+# auto_edit tool dispatches start_brief/plan_cut by genre) but shares this
+# module's execution (build_timeline/approve_cut/finish/apply_revision,
+# all genre-agnostic — they only operate on the CutList structure) and its
+# brief state machine below. Genre-specific validation (e.g. montage's
+# required music) lives in montage_edit.validate_montage_brief_inputs, not
+# here — this module stays unaware of montage's own rules to avoid a
+# circular import (montage_edit already imports this module).
+GENRES = {"talking_head", "montage"}
 BRIEF_STATES = (
     "created", "analyzing", "ready", "planned", "approved", "built", "finished",
 )

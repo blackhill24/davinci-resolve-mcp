@@ -119,6 +119,7 @@ from src.utils import analysis_runs as _analysis_runs
 from src.utils import brain_edits as _brain_edits
 from src.utils import edit_engine as _edit_engine_mod
 from src.utils import auto_edit as _auto_edit_mod
+from src.utils import montage_edit as _montage_edit_mod
 from src.utils import orchestrate as _orchestrate_mod
 from src.utils import advanced_bridge as _advanced_bridge
 from src.utils import music_analysis as _music_analysis_mod
@@ -20812,6 +20813,21 @@ def _auto_edit_ffprobe_ok(path: str) -> Tuple[bool, str]:
     return True, ""
 
 
+def _is_montage_plan(plan: Dict[str, Any]) -> bool:
+    """CutLists carry no genre field (montage adds roles, not schema) — detect
+    by role instead of threading genre through plan/revise/summary calls."""
+    return any(
+        seg.get("role") in _auto_edit_mod.cut_ir.MONTAGE_SEGMENT_ROLES
+        for seg in (plan.get("segments") or [])
+    )
+
+
+def _render_cut_summary_for(plan: Dict[str, Any]) -> str:
+    if _is_montage_plan(plan):
+        return _montage_edit_mod.render_montage_summary(plan)
+    return _auto_edit_mod.render_cut_summary(plan)
+
+
 @mcp.tool()
 @_destructive_op("auto_edit")
 async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -20884,6 +20900,14 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             deliverable=p.get("deliverable") or "youtube_1080p",
             title_text=p.get("title_text") or p.get("titleText"),
         )
+        # Genre-specific rules (montage requires music) live here, not in
+        # auto_edit.py — that module stays unaware of montage's own rules to
+        # avoid a circular import (montage_edit already imports auto_edit).
+        if str(p.get("genre") or "talking_head") == _montage_edit_mod.GENRE:
+            problems.extend(_montage_edit_mod.validate_montage_brief_inputs(
+                files=files, music=music,
+                target_duration_seconds=p.get("target_duration_seconds") or p.get("targetDurationSeconds"),
+            ))
         probe_targets = []
         for path in list(files) + ([music] if music else []):
             if not isinstance(path, str) or not os.path.isfile(path):
@@ -21025,28 +21049,34 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             # build_cut_list_for_brief fails honestly when analysis is missing.
             _auto_edit_mod.advance_brief(project_root, brief["plan_id"], "ready")
             brief = _auto_edit_mod.load_brief(project_root, brief["plan_id"]) or brief
-        music_gain_db = None
-        if brief.get("music") and os.path.isfile(str(brief["music"])):
-            music_path = str(brief["music"])
-            try:
-                music_mtime = os.path.getmtime(music_path)
-            except OSError:
-                music_mtime = None
-            gain_cache = brief.get("music_gain_cache") or {}
-            if gain_cache.get("path") == music_path and gain_cache.get("mtime") == music_mtime:
-                music_gain_db = gain_cache.get("gain_db")
-            else:
-                # Full ffmpeg loudness pass — measure once per music file and
-                # cache on the brief so re-planning doesn't re-decode it.
-                bed = _music_analysis_mod.analyze_music_bed(music_path)
-                music_gain_db = bed.get("gain_db")
-                if music_gain_db is not None:
-                    _auto_edit_mod.advance_brief(
-                        project_root, brief["plan_id"], str(brief.get("state") or "ready"),
-                        music_gain_cache={"path": music_path, "mtime": music_mtime,
-                                          "gain_db": music_gain_db})
-        built = _auto_edit_mod.build_cut_list_for_brief(
-            project_root, brief, music_gain_db=music_gain_db)
+        genre = str(brief.get("genre") or "talking_head")
+        if genre == _montage_edit_mod.GENRE:
+            # No ducking/voiceover in montage — the loudness-bed-gain pass
+            # exists only to feed talking-head's ducking ladder.
+            built = _montage_edit_mod.build_cut_list_for_brief(project_root, brief)
+        else:
+            music_gain_db = None
+            if brief.get("music") and os.path.isfile(str(brief["music"])):
+                music_path = str(brief["music"])
+                try:
+                    music_mtime = os.path.getmtime(music_path)
+                except OSError:
+                    music_mtime = None
+                gain_cache = brief.get("music_gain_cache") or {}
+                if gain_cache.get("path") == music_path and gain_cache.get("mtime") == music_mtime:
+                    music_gain_db = gain_cache.get("gain_db")
+                else:
+                    # Full ffmpeg loudness pass — measure once per music file and
+                    # cache on the brief so re-planning doesn't re-decode it.
+                    bed = _music_analysis_mod.analyze_music_bed(music_path)
+                    music_gain_db = bed.get("gain_db")
+                    if music_gain_db is not None:
+                        _auto_edit_mod.advance_brief(
+                            project_root, brief["plan_id"], str(brief.get("state") or "ready"),
+                            music_gain_cache={"path": music_path, "mtime": music_mtime,
+                                              "gain_db": music_gain_db})
+            built = _auto_edit_mod.build_cut_list_for_brief(
+                project_root, brief, music_gain_db=music_gain_db)
         if not built.get("success"):
             return _err(built.get("error") or "planning failed",
                         ) | {"problems": built.get("problems") or []}
@@ -21058,7 +21088,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             "brief_id": brief["plan_id"],
             "plan_id": plan["plan_id"],
             "plan": plan,
-            "summary": _auto_edit_mod.render_cut_summary(plan),
+            "summary": _render_cut_summary_for(plan),
             "next": "review the summary; approve_cut(plan_id) or revise_cut(brief_id, edits)",
         }
 
@@ -21087,7 +21117,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             "plan_id": plan["plan_id"],
             "revision": plan.get("revision"),
             "plan": plan,
-            "summary": _auto_edit_mod.render_cut_summary(plan),
+            "summary": _render_cut_summary_for(plan),
         }
 
     if action == "get_cut_summary":
@@ -21100,7 +21130,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         if str(p.get("format") or "markdown").lower() == "json":
             return {"success": True, "plan": plan}
         return {"success": True, "plan_id": plan["plan_id"],
-                "summary": _auto_edit_mod.render_cut_summary(plan)}
+                "summary": _render_cut_summary_for(plan)}
 
     if action == "approve_cut":
         _r, _proj, project_root, err = _auto_edit_project_context(p, need_resolve=False)
@@ -21109,10 +21139,16 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         plan = _edit_engine_mod.load_plan(project_root, _plan_id_param())
         if not plan or plan.get("_corrupt") or plan.get("kind") != _auto_edit_mod.cut_ir.CUT_LIST_KIND:
             return _err(f"cut list not found (or failed its fingerprint check): {_plan_id_param()!r}")
-        music_bed_consent = bool(p.get("music_bed_consent") or p.get("musicBedConsent"))
+        is_montage = _is_montage_plan(plan)
+        # Montage has no voiceover to duck under — force static regardless of
+        # what's passed, never honor a stray consent flag into a rendered
+        # derivative for a genre that was designed to never need one.
+        music_bed_consent = False if is_montage else bool(
+            p.get("music_bed_consent") or p.get("musicBedConsent"))
         # Tier-2 ducking (issue #14): write the bed gain into the .drt volume during
         # polish_timeline — no rendered derivative, so no consent needed.
-        prefer_drt_ducking = bool(p.get("prefer_drt_ducking") or p.get("preferDrtDucking"))
+        prefer_drt_ducking = False if is_montage else bool(
+            p.get("prefer_drt_ducking") or p.get("preferDrtDucking"))
         if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
             preview: Dict[str, Any] = {
                 "operation": "auto_edit.approve_cut",
@@ -21121,9 +21157,9 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                 "plan_id": plan["plan_id"],
                 "revision": plan.get("revision"),
                 "estimates": plan.get("estimates"),
-                "summary_markdown": _auto_edit_mod.render_cut_summary(plan),
+                "summary_markdown": _render_cut_summary_for(plan),
             }
-            if plan.get("music"):
+            if plan.get("music") and not is_montage:
                 preview["music_bed_consent_requested"] = music_bed_consent
                 preview["prefer_drt_ducking"] = prefer_drt_ducking
                 # drt_automation writes no derivative media, so the consent line is
@@ -22059,15 +22095,16 @@ async def _orchestrate_run_ingest(job, job_id, project_root, proj) -> Dict[str, 
 
 
 async def _orchestrate_run_analysis(job, job_id, project_root, proj) -> Dict[str, Any]:
-    """Talking-head: fused with the edit stage's own brief pipeline (analysis
-    IS what start_brief kicks — a separate pass would be redundant). Every
-    other genre: kick/poll a generic media_analysis batch job over the whole
+    """Auto-assembling genres (auto_edit.GENRES — talking-head, montage):
+    fused with the edit stage's own brief pipeline (analysis IS what
+    start_brief kicks — a separate pass would be redundant). Every other
+    genre: kick/poll a generic media_analysis batch job over the whole
     project; per the locked design this is expensive and never auto-driven
     slice-by-slice here — the host progresses it (directly, or by calling
     run_stage again) exactly like the original "never auto-run" intent."""
     genre = (job.get("brief") or {}).get("genre") or "talking_head"
     _orchestrate_mod.advance_stage(project_root, job_id, "analysis", "running")
-    if genre == "talking_head":
+    if genre in _auto_edit_mod.GENRES:
         planned = await _orchestrate_plan_stage_talking_head(job, job_id, project_root)
         if not planned.get("success"):
             _orchestrate_mod.advance_stage(
@@ -22106,13 +22143,14 @@ async def _orchestrate_run_analysis(job, job_id, project_root, proj) -> Dict[str
 
 
 async def _orchestrate_run_edit(job, job_id, project_root, proj, p: Dict[str, Any]) -> Dict[str, Any]:
-    """Talking-head: continues plan_stage -> requires G1 valid -> build_timeline
-    (adopted gate, per the epic's core design decision). Every other genre:
-    the bring-your-own-timeline escape hatch — pause until the host reports
-    byo_ready=true, then just fingerprint whatever timeline exists."""
+    """Auto-assembling genres (auto_edit.GENRES): continues plan_stage ->
+    requires G1 valid -> build_timeline (adopted gate, per the epic's core
+    design decision). Every other genre: the bring-your-own-timeline escape
+    hatch — pause until the host reports byo_ready=true, then just
+    fingerprint whatever timeline exists."""
     genre = (job.get("brief") or {}).get("genre") or "talking_head"
     _orchestrate_mod.advance_stage(project_root, job_id, "edit", "running")
-    if genre != "talking_head":
+    if genre not in _auto_edit_mod.GENRES:
         if not p.get("byo_ready"):
             return {"success": True, "stage": "edit", "waiting_on": "byo_timeline",
                     "message": "cut it in Resolve, then call run_stage again with byo_ready=true"}
@@ -22433,9 +22471,10 @@ async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> D
         VOIDS any G1 approval (it approved a plan that no longer exists).
       approve_gate(job_id, gate=G1|G2|G3, current_fingerprint?,
         vision_assessment?, preview_frame_path?, force?, confirm_token?) ->
-        {approved_at, adopted, forced, snapshots_cleaned}. G1 on a
-        talking-head edit stage ADOPTS auto_edit.approve_cut verbatim (its
-        own confirm-token ceremony, not a second one). G2 always requires
+        {approved_at, adopted, forced, snapshots_cleaned}. G1 on an
+        auto-assembling edit stage (auto_edit.GENRES — talking-head,
+        montage) ADOPTS auto_edit.approve_cut verbatim (its own
+        confirm-token ceremony, not a second one). G2 always requires
         vision_assessment + preview_frame_path — no blind grade approval,
         not even under force. `force` bypasses only the drift-halt.
         Fingerprint-bound: a drifted approval auto-voids and the gate
@@ -22574,7 +22613,7 @@ async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> D
             return _err(f"plan_stage does not support stage {stage!r} yet — "
                         "only 'edit' has a planner in this phase")
         genre = (job.get("brief") or {}).get("genre") or "talking_head"
-        if genre != "talking_head":
+        if genre not in _auto_edit_mod.GENRES:
             return _err(
                 f"genre {genre!r} uses the bring-your-own-timeline escape hatch — "
                 "no auto-plan. Cut it in Resolve; stage handoff lands in a later phase."
@@ -22631,7 +22670,7 @@ async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> D
             return ferr
 
         genre = (job.get("brief") or {}).get("genre")
-        if gate == "G1" and genre == "talking_head" and not force:
+        if gate == "G1" and genre in _auto_edit_mod.GENRES and not force:
             fks = (job["stages"]["edit"].get("foreign_keys") or {})
             plan_id = fks.get("plan_id")
             if not plan_id:

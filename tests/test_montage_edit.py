@@ -210,6 +210,24 @@ class BuildCutListMockedBeatsTests(MontageEditBase):
         self.assertTrue(all(r == "montage" for r in roles[1:]))
         self.assertGreater(len(plan["segments"]), 2)
 
+    def test_record_frames_are_sequential(self):
+        # build_timeline's shared executor reads record_start_frame to place
+        # each segment — without _assign_record_frames every segment would
+        # default to 0 and stack on top of the last.
+        files = self._seed_pool()
+        brief = {"files": files, "music": "/media/track.wav"}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats",
+                                return_value=self._mock_beats()):
+            out = montage_edit.build_cut_list_for_brief(self.root, brief)
+        segments = out["plan"]["segments"]
+        cursor = 0
+        for seg in segments:
+            self.assertEqual(seg["record_start_frame"], cursor)
+            cursor += seg["source_end_frame"] - seg["source_start_frame"]
+        self.assertEqual(out["plan"]["record_duration_frames"], cursor)
+        self.assertEqual(out["plan"]["music"]["record_start_frame"], 0)
+        self.assertEqual(out["plan"]["music"]["record_end_frame"], cursor)
+
     def test_hook_is_highest_ranked_shot(self):
         files = self._seed_pool()
         brief = {"files": files, "music": "/media/track.wav"}
@@ -293,6 +311,39 @@ class BuildCutListMockedBeatsTests(MontageEditBase):
             out = montage_edit.build_cut_list_for_brief(self.root, brief)
         self.assertFalse(out["success"])
         self.assertIn("mixed frame rates", out["error"])
+
+
+class RenderMontageSummaryTests(MontageEditBase):
+    def test_summary_includes_beat_stats_and_roles_no_transcript_column(self):
+        files = self._seed_pool()
+        beats = {"success": True, "available": True, "duration_seconds": 12.0,
+                 "onsets": [round(0.5 * i, 3) for i in range(1, 25)],
+                 "onset_count": 24, "tempo_bpm": 120.0}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        summary = montage_edit.render_montage_summary(out["plan"])
+        self.assertIn("Montage cut list", summary)
+        self.assertIn("120 BPM", summary)
+        self.assertIn("montage_hook", summary)
+        self.assertIn("static level", summary)
+        self.assertNotIn("Excerpt", summary)
+
+    def test_summary_surfaces_truncation_problem(self):
+        self._ingest_clip(
+            clip_id="resolve-tiny2", name="Tiny2.mp4", path="/media/tiny2.mp4", clip_dir="tiny2-dir",
+            shots=[
+                _shot(1, 0.0, 3.0, select_potential="high", pacing="kinetic"),
+                _shot(2, 3.0, 6.0, select_potential="high", pacing="still"),
+            ])
+        beats = {"success": True, "available": True, "duration_seconds": 60.0,
+                 "onsets": [round(0.5 * i, 3) for i in range(1, 121)],
+                 "onset_count": 120, "tempo_bpm": 120.0}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": ["/media/tiny2.mp4"], "music": "/media/track.wav"})
+        summary = montage_edit.render_montage_summary(out["plan"])
+        self.assertIn("ran out of candidate shots", summary)
 
 
 class BuildCutListRealBeatsTests(MontageEditBase):

@@ -125,6 +125,21 @@ class RunStageAnalysisTests(OrchestrateRunStageBase):
         job = orchestrate.load_job(self.root, job_id)
         self.assertEqual(job["stages"]["analysis"]["status"], "running")
 
+    def test_montage_genre_also_fuses_with_edit_brief_pipeline(self):
+        # montage is auto-assembling too (auto_edit.GENRES), same as
+        # talking_head — it must NOT fall through to the generic
+        # media_analysis batch path a non-auto-assembling genre takes.
+        job_id = self._start_job(genre="montage")
+        self._advance_to_done(job_id, ["ingest"])
+        started = {"success": True, "brief_id": "b1", "analysis_job_id": "aj1"}
+        with mock.patch.object(s, "auto_edit", mock.AsyncMock(return_value=started)) as mocked_auto_edit, \
+             mock.patch.object(s, "media_analysis", mock.AsyncMock()) as mocked_media_analysis:
+            out = self._run_stage({"job_id": job_id, "stage": "analysis"})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out.get("waiting_on"), "analysis")
+        mocked_auto_edit.assert_called_once()
+        mocked_media_analysis.assert_not_called()
+
     def test_non_talking_head_starts_batch_job(self):
         job_id = self._start_job(genre="documentary")
         self._advance_to_done(job_id, ["ingest"])
@@ -147,6 +162,56 @@ class RunStageAnalysisTests(OrchestrateRunStageBase):
         self.assertTrue(out.get("success"), out)
         job = orchestrate.load_job(self.root, job_id)
         self.assertEqual(job["stages"]["analysis"]["status"], "done")
+
+
+class RunStageEditTests(OrchestrateRunStageBase):
+    def _to_edit(self, job_id):
+        self._advance_to_done(job_id, ["ingest", "analysis"])
+
+    def test_byo_genre_pauses_for_manual_cut(self):
+        job_id = self._start_job(genre="documentary")
+        self._to_edit(job_id)
+        out = self._run_stage({"job_id": job_id, "stage": "edit"})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out.get("waiting_on"), "byo_timeline")
+        job = orchestrate.load_job(self.root, job_id)
+        self.assertEqual(job["stages"]["edit"]["status"], "running")
+
+    def test_byo_ready_fingerprints_and_marks_done(self):
+        job_id = self._start_job(genre="documentary")
+        self._to_edit(job_id)
+        out = self._run_stage({"job_id": job_id, "stage": "edit", "byo_ready": True})
+        self.assertTrue(out.get("success"), out)
+        self.assertTrue(out.get("byo"))
+        job = orchestrate.load_job(self.root, job_id)
+        self.assertEqual(job["stages"]["edit"]["status"], "done")
+        self.assertIsNotNone(job["stages"]["edit"]["fingerprint"])
+
+    def test_talking_head_waits_on_g1_approval_once_planned(self):
+        job_id = self._start_job(genre="talking_head")
+        self._to_edit(job_id)
+        # Pre-seed foreign_keys as if plan_stage already ran to completion —
+        # _orchestrate_plan_stage_talking_head's "already_planned" branch then
+        # only needs one auto_edit("get_cut_summary", ...) call.
+        orchestrate.set_stage_foreign_keys(self.root, job_id, "edit", brief_id="b1", plan_id="p1")
+        summary_response = {"success": True, "plan_id": "p1", "summary": "# Cut list"}
+        with mock.patch.object(s, "auto_edit", mock.AsyncMock(return_value=summary_response)):
+            out = self._run_stage({"job_id": job_id, "stage": "edit"})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out.get("waiting_on"), "G1_approval")
+        self.assertEqual(out.get("plan_id"), "p1")
+
+    def test_montage_waits_on_g1_approval_once_planned(self):
+        # montage is auto-assembling too (auto_edit.GENRES) — must reach the
+        # same G1 gate as talking_head, not the BYO pause.
+        job_id = self._start_job(genre="montage")
+        self._to_edit(job_id)
+        orchestrate.set_stage_foreign_keys(self.root, job_id, "edit", brief_id="b1", plan_id="p1")
+        summary_response = {"success": True, "plan_id": "p1", "summary": "# Montage cut list"}
+        with mock.patch.object(s, "auto_edit", mock.AsyncMock(return_value=summary_response)):
+            out = self._run_stage({"job_id": job_id, "stage": "edit"})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out.get("waiting_on"), "G1_approval")
 
 
 class RunStageConformTests(OrchestrateRunStageBase):

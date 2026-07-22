@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "84cdefd905d064fd",
+      "fingerprint": "7f7b355a81085ac4",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -614,7 +614,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "3f93ef7d9bce7772",
+      "fingerprint": "bfad250eac19bfec",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -763,6 +763,7 @@
         "tests/test_media_pool_ingest_probe.py",
         "tests/test_media_pool_walk.py",
         "tests/test_montage_edit.py",
+        "tests/test_montage_wiring.py",
         "tests/test_multicam_setup.py",
         "tests/test_music_analysis.py",
         "tests/test_object_inspection.py",

@@ -34,6 +34,8 @@ manifest explicitly.
 | `plan_stage` / `revise_stage` | Talking-head `edit` only today: kicks/polls `auto_edit`'s `start_brief` → `plan_cut` (and `revise_cut`), recording `brief_id`/`plan_id` as foreign keys. A revision voids any G1 approval. Other stages/genres refuse honestly. |
 | `approve_gate` | G1 (edit) / G2 (grade) / G3 (deliver). Fingerprint-bound — a drifted approval auto-voids. G1 on a talking-head job **adopts `auto_edit.approve_cut` verbatim** instead of minting a second confirm-token. G2 always requires `vision_assessment` + `preview_frame_path`, even under `force`. GC's the gated stage's pre-stage snapshots live on success. |
 | `run_stage` | Runs the current cursor stage (or an explicit `stage`), delegating per the table below. Reversible stages snapshot before mutating; a failure leaves the stage `failed` with the snapshot intact — never auto-rolls-back. |
+| `request_offline_op` | Parks the current cursor stage at `awaiting_offline_artifact` for a narrow slice of the advanced server that needs the Resolve project CLOSED (see "Offline compute" below). Refuses any `(tool, action)` outside that whitelist — those are pure file/DB-read and belong on the in-band `run_advanced_tool` path instead. Never touches Resolve's process itself. |
+| `resolve_offline_op` | Un-parks the stage a prior `request_offline_op` parked, per the host-reported result of actually running the op with Resolve closed. Success resumes `running` (call `run_stage` again to finish); failure marks the stage `failed` (same clean-retry path any other stage failure gets). |
 | `rollback_stage` | Restores the stage's latest recorded snapshot live and resets it to pending for a clean retry. |
 | `finish_job` | Refuses unless every manifest stage is done; verifies the deliver stage's `output_path`, purges every remaining namespaced snapshot (count reported; `keep_snapshots` opts out), marks the job finished. |
 
@@ -63,9 +65,21 @@ per-ACTION slice of the advanced server actually requires Resolve closed
 (`conform.fix_reverse_clip`, `offline_ref`'s LIVE DB link/unlink,
 `project_db.relayout_node_graphs`, `fairlight`'s DB path) — most tools,
 including everything wired into `orchestrate` so far (`drx` grade compute,
-`deliverable` QC), are pure-file and safe in-band. The Resolve-closed
-slice doesn't map cleanly onto any current stage and isn't wired — tracked
-separately if a concrete use case emerges (issue #39).
+`deliverable` QC), are pure-file and safe in-band.
+
+The Resolve-closed slice (`orchestrate.OFFLINE_CLOSED_ACTIONS`) doesn't map
+onto any stage's *domain* work — it's a generic pause/resume capability any
+stage can request (issue #39): `request_offline_op` parks the current
+cursor stage at `awaiting_offline_artifact` with an instruction; the host
+then does the actual quit (`resolve_control.quit_app`) → advanced-tool call
+→ relaunch (`launch`) — each an existing, separately-permissioned tool call,
+never automated by `orchestrate` itself — then reports the result back to
+`resolve_offline_op` to resume. The job record carries the pending op
+through a context reset same as any other stage state, so `job_status`
+always shows what's outstanding. No current genre calls this yet (still no
+concrete consumer), and the first *live* run — an agent programmatically
+quitting/relaunching a real Resolve session — needs explicit user awareness
+before it happens, per the issue's own risk callout.
 
 ## Fingerprints, drift, and gates
 

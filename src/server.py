@@ -679,6 +679,10 @@ reverse-subclip repair, lineage, and grade tracing with no Resolve open.
 - .drt for Resolve 19.1.3: set DbPrjVer 17 -> 16. project_db patches need the
   project CLOSED + iConfirmProjectClosed:true, auto-backup + read-back verify, and
   a full QUIT+relaunch of Resolve before the change is visible.
+- Inside an `orchestrate` job, `conform.fix_reverse_clip` / `offline_ref`'s
+  LIVE DB link/unlink need this same closed-project dance — call
+  `orchestrate request_offline_op` to park the stage instead of hand-rolling
+  the quit/relaunch sequence; `resolve_offline_op` resumes it afterward.
 
 Depth: docs/kernels/timeline-conform-interchange-kernel.md. better-sqlite3 gates
 lineage/reverse/DB, sharp/ffmpeg gate frame compare — call advanced `capabilities`.
@@ -760,7 +764,9 @@ edits audio files with no Resolve open. Plan/measure offline, apply live.
 - Offline `fairlight`: bus routing has NO scripting API — patches the
   FLStudioModelBA blob. read_buses_from_blob (offline); read_buses_from_db,
   expand_buses, export_template/import_template, backup, restore (DB path; needs
-  better-sqlite3; project CLOSED + quit/relaunch like other DB patches).
+  better-sqlite3; project CLOSED + quit/relaunch like other DB patches — inside
+  an `orchestrate` job, park the audio stage with `request_offline_op` instead
+  of hand-rolling the sequence).
 - Offline `audio`: split (silence/TC/intervals) / trim / convert (needs ffmpeg on
   PATH — GPL, not bundled). Align/loudness-measure not yet vendored.
 
@@ -22499,6 +22505,26 @@ async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> D
         Reversible stages snapshot before mutating and leave the stage
         "failed" (snapshot intact) on error — rollback_stage is the
         explicit next step, never automatic.
+      request_offline_op(job_id, stage?, tool, op_action, args?, instruction?,
+        analysis_root?) -> {waiting_on: "offline_artifact", pending_offline_op}
+        — parks the current cursor stage on a narrow slice of the advanced
+        (Node) server that needs the Resolve project CLOSED
+        (conform.fix_reverse_clip; offline_ref.link_in_project/
+        unlink_in_project; project_db.relayout_node_graphs; fairlight's DB
+        path). Refuses any (tool, op_action) outside that whitelist — those
+        are pure file/DB-read and belong on the in-band
+        advanced_bridge.run_advanced_tool path instead, no pause needed.
+        This action never quits or relaunches Resolve itself: the host
+        still does that via the existing quit_app/restart_app/launch tools
+        (each separately permissioned) — this only records what's
+        outstanding so a fresh session can see it via job_status and resume
+        cleanly after a context reset.
+      resolve_offline_op(job_id, result, analysis_root?) -> un-parks the
+        stage a prior request_offline_op parked, per the host-reported
+        `result` of actually running the op with Resolve closed. Success
+        resumes "running" (call run_stage again to finish the stage);
+        failure marks the stage "failed" (same clean-retry path any other
+        stage failure gets).
       rollback_stage(job_id, stage, analysis_root?) -> restores the stage's
         latest recorded snapshot live (timeline_duplicate: the snapshot
         becomes the current timeline; grade_version: LoadVersion switches
@@ -22757,6 +22783,42 @@ async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> D
             return await _orchestrate_run_deliver(job, job_id, project_root, proj, p)
         return _err(f"run_stage does not support stage {stage!r} yet")
 
+    if action == "request_offline_op":
+        # Bookkeeping only — parks the stage and hands back an instruction.
+        # The actual quit/patch/relaunch stays on the existing, separately
+        # permissioned tools (resolve_control quit_app/restart_app, this
+        # server's launch); this action never touches Resolve's process.
+        r, proj, project_root, err = _orchestrate_project_context(p, need_resolve=False)
+        if err:
+            return err
+        job_id = _job_id_param()
+        job = _orchestrate_mod.load_job(project_root, job_id)
+        if not job:
+            return _err(f"job not found: {job_id!r}")
+        if job.get("_corrupt"):
+            return _err("job fingerprint mismatch — record corrupted or tampered")
+        stage = str(p.get("stage") or job.get("cursor") or "")
+        result = _orchestrate_mod.request_offline_op(
+            project_root, job_id, stage,
+            tool=str(p.get("tool") or ""),
+            action=str(p.get("op_action") or ""),
+            args=p.get("args") or {},
+            instruction=p.get("instruction"),
+        )
+        if not result.get("success"):
+            return _err(result.get("error") or "request_offline_op failed")
+        return {"success": True, "stage": stage, "waiting_on": "offline_artifact", **result}
+
+    if action == "resolve_offline_op":
+        r, proj, project_root, err = _orchestrate_project_context(p, need_resolve=False)
+        if err:
+            return err
+        job_id = _job_id_param()
+        result = _orchestrate_mod.resolve_offline_op(project_root, job_id, result=p.get("result") or {})
+        if not result.get("success"):
+            return _err(result.get("error") or "resolve_offline_op failed")
+        return result
+
     if action == "rollback_stage":
         r, proj, project_root, err = _orchestrate_project_context(p, need_resolve=True)
         if err:
@@ -22813,7 +22875,8 @@ async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> D
         "start_job", "job_status", "list_jobs",
         "check_resume", "force_replan_stage",
         "plan_stage", "revise_stage", "approve_gate",
-        "run_stage", "rollback_stage", "finish_job",
+        "run_stage", "request_offline_op", "resolve_offline_op",
+        "rollback_stage", "finish_job",
     ])
 
 

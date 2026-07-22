@@ -40,6 +40,17 @@ if a step here has to *compute* anything, that belongs in the tool, not here.
    frame** — never blind, never fabricated.
 5. A failed reversible stage does **not** auto-rollback: call
    `rollback_stage(job_id, stage)`, then `run_stage` again for a clean retry.
+5b. A narrow slice of the advanced server needs the Resolve project CLOSED
+   (`conform.fix_reverse_clip`, `offline_ref` LIVE DB link/unlink,
+   `project_db.relayout_node_graphs`, `fairlight`'s DB path) — call
+   `request_offline_op(job_id, stage, tool, op_action, args)` to park the
+   current stage instead of hand-rolling it. This never quits or relaunches
+   Resolve itself: **you** do that via `quit_app` → the advanced tool call →
+   `launch`, each its own explicit, permissioned step — a real Resolve
+   process being killed/relaunched programmatically is meaningfully riskier
+   than any other bridge call here, so confirm with the user before the
+   first live run. Report the result to `resolve_offline_op(job_id, result)`
+   to resume, then `run_stage` again.
 6. After a gap, `check_resume(job_id)` before trusting `cursor` — on
    `drifted: true`, call `force_replan_stage(job_id, stage)` rather than
    push forward past a checkpoint that no longer holds.

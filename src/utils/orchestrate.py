@@ -55,15 +55,39 @@ ALL_STAGES = (
 # stage is on by default.
 DEFAULT_STAGES = tuple(s for s in ALL_STAGES if s != "fusion")
 
-STAGE_STATUSES = ("pending", "running", "done", "failed")
+STAGE_STATUSES = ("pending", "running", "done", "failed", "awaiting_offline_artifact")
 _STAGE_TRANSITIONS: Dict[str, set] = {
     "pending": {"running"},
-    "running": {"done", "failed"},
+    "running": {"done", "failed", "awaiting_offline_artifact"},
     # A later phase's drift-refuse re-plan resets a stale "done" back to
     # pending rather than blind-continuing past it.
     "done": {"pending"},
     "failed": {"pending", "running"},  # clean retry
+    # request_offline_op parks the stage here while the host does the actual
+    # quit/patch/relaunch dance (outside this module, see request_offline_op
+    # below); resolve_offline_op moves it back to running (op succeeded) or
+    # failed (op errored) once that's reported back.
+    "awaiting_offline_artifact": {"running", "failed"},
 }
+
+# The narrow per-ACTION slice of the advanced (Node) server that needs the
+# Resolve project CLOSED to touch its DB safely — everything else is pure
+# file/DB-read and already runs in-band via advanced_bridge.run_advanced_tool
+# (see docs/kernels/orchestration-kernel.md "Offline compute"). This whitelist
+# is what request_offline_op checks against; anything not listed here is
+# refused with a pointer back to the in-band bridge instead.
+OFFLINE_CLOSED_ACTIONS = frozenset({
+    ("conform", "fix_reverse_clip"),
+    ("offline_ref", "link_in_project"),
+    ("offline_ref", "unlink_in_project"),
+    ("project_db", "relayout_node_graphs"),
+    ("fairlight", "read_buses_from_db"),
+    ("fairlight", "expand_buses"),
+    ("fairlight", "export_template"),
+    ("fairlight", "import_template"),
+    ("fairlight", "backup"),
+    ("fairlight", "restore"),
+})
 
 JOB_STATES = ("active", "finished", "aborted")
 
@@ -812,6 +836,128 @@ def can_run_stage(job: Dict[str, Any], stage: str) -> Optional[str]:
     if status not in ("pending", "failed", "running"):
         return f"stage {stage!r} is {status!r} — nothing to run"
     return None
+
+
+# ── offline (Resolve-closed) op pause/resume ─────────────────────────────────
+#
+# A narrow slice of the advanced server needs the Resolve project CLOSED
+# (OFFLINE_CLOSED_ACTIONS above) — request_offline_op parks the current
+# cursor stage at "awaiting_offline_artifact" and records exactly what the
+# host still needs to do; resolve_offline_op un-parks it once that's done.
+# Neither function touches Resolve's process lifecycle itself — quitting and
+# relaunching stay on the existing, separately-permissioned tools
+# (resolve_control.quit_app/restart_app, server.py's launch). This module
+# only makes the pause survive a context reset: the job record captures the
+# pending op so a fresh session can see exactly what's outstanding via
+# job_status, same as any other stage.
+
+
+def default_offline_op_instruction(tool: str, action: str) -> str:
+    """Human-readable handoff text for a paused stage — the actual quit/
+    relaunch stays on the existing, permission-gated tools (resolve_control
+    quit_app/restart_app or server.py's launch); this module never calls
+    them itself."""
+    return (
+        f"Resolve-closed op requested: {tool}.{action}. To resume: "
+        "1) quit_app() (or otherwise close the project) 2) call the "
+        f"resolve-advanced '{tool}' tool, action '{action}', with the "
+        "project CLOSED 3) relaunch Resolve (launch()) 4) call "
+        "orchestrate.resolve_offline_op(job_id=..., result=<the op's "
+        "returned payload>) to resume this stage."
+    )
+
+
+def request_offline_op(
+    project_root: str,
+    job_id: str,
+    stage: str,
+    *,
+    tool: str,
+    action: str,
+    args: Optional[Dict[str, Any]] = None,
+    instruction: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Park the current cursor stage on a Resolve-closed advanced-server op.
+
+    Refuses outright if `(tool, action)` isn't in OFFLINE_CLOSED_ACTIONS —
+    that's a pure file/DB-read action and belongs on the in-band
+    advanced_bridge.run_advanced_tool path instead (no pause needed)."""
+    job = load_job(project_root, job_id)
+    if not job:
+        return {"success": False, "error": f"job not found: {job_id!r}"}
+    if job.get("_corrupt"):
+        return {"success": False, "error": "job fingerprint mismatch — record corrupted or tampered"}
+    manifest = job.get("manifest") or []
+    if stage not in manifest:
+        return {"success": False, "error": f"stage {stage!r} is not in this job's manifest"}
+    if job.get("cursor") != stage:
+        return {"success": False, "error": f"stage {stage!r} is not the current cursor (cursor={job.get('cursor')!r})"}
+    key = (str(tool), str(action))
+    if key not in OFFLINE_CLOSED_ACTIONS:
+        return {
+            "success": False,
+            "error": (
+                f"{tool}.{action} does not require Resolve closed — call it in-band "
+                "via advanced_bridge.run_advanced_tool instead (no pause needed)"
+            ),
+        }
+    status = (job.get("stages") or {}).get(stage, {}).get("status")
+    if status == "pending":
+        started = advance_stage(project_root, job_id, stage, "running")
+        if not started.get("success"):
+            return started
+        job = started["job"]
+        status = "running"
+    if status != "running":
+        return {"success": False, "error": f"stage {stage!r} is {status!r} — cannot request an offline op"}
+    pending_op = {
+        "stage": stage,
+        "tool": str(tool),
+        "action": str(action),
+        "args": dict(args or {}),
+        "requested_at": _now(),
+        "instruction": instruction or default_offline_op_instruction(tool, action),
+    }
+    job = dict(job)
+    job["pending_offline_op"] = pending_op
+    job = save_job(project_root, job)
+    parked = advance_stage(project_root, job_id, stage, "awaiting_offline_artifact")
+    if not parked.get("success"):
+        return parked
+    return {"success": True, "job": parked["job"], "pending_offline_op": pending_op}
+
+
+def resolve_offline_op(project_root: str, job_id: str, *, result: Dict[str, Any]) -> Dict[str, Any]:
+    """Un-park the stage a prior request_offline_op parked, per the host-
+    reported `result` of actually running the op (project closed, advanced
+    tool called, project reopened). Success resumes "running" so the stage's
+    normal run_stage delegate can pick up and finish; failure marks the
+    stage "failed" (same clean-retry path a live-mutation failure gets)."""
+    job = load_job(project_root, job_id)
+    if not job:
+        return {"success": False, "error": f"job not found: {job_id!r}"}
+    if job.get("_corrupt"):
+        return {"success": False, "error": "job fingerprint mismatch — record corrupted or tampered"}
+    pending = job.get("pending_offline_op")
+    if not pending:
+        return {"success": False, "error": "no pending offline op recorded for this job"}
+    stage = pending["stage"]
+    stages = job.get("stages") or {}
+    if (stages.get(stage) or {}).get("status") != "awaiting_offline_artifact":
+        return {"success": False, "error": f"stage {stage!r} is not awaiting an offline op"}
+    ok = bool(isinstance(result, dict) and result.get("success"))
+    note = (
+        f"offline op {pending['tool']}.{pending['action']} succeeded" if ok
+        else f"offline op {pending['tool']}.{pending['action']} failed: "
+             f"{result.get('error') if isinstance(result, dict) else result}"
+    )
+    job = dict(job)
+    job["pending_offline_op"] = None
+    job = save_job(project_root, job)
+    resumed = advance_stage(project_root, job_id, stage, "running" if ok else "failed", notes=[note])
+    if not resumed.get("success"):
+        return resumed
+    return {"success": True, "job": resumed["job"], "stage": stage, "resumed": ok, "note": note}
 
 
 def rollback_stage(

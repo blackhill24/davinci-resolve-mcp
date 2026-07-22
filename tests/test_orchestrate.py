@@ -198,6 +198,96 @@ def time_from_epoch(epoch: float) -> str:
     return _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(epoch))
 
 
+class OrchestrateOfflineOpTests(unittest.TestCase):
+    """request_offline_op / resolve_offline_op — pause/resume around the
+    narrow Resolve-closed advanced-server slice (issue #39)."""
+
+    def setUp(self) -> None:
+        self.base = tempfile.mkdtemp(prefix="orchestrate-test-")
+        self.addCleanup(shutil.rmtree, self.base, True)
+        self.root = os.path.join(self.base, "project")
+        os.makedirs(self.root, exist_ok=True)
+        # A short manifest lands the cursor straight on "conform" — no need
+        # to walk ingest/analysis/edit through done first.
+        created = orchestrate.create_job(self.root, files=_files(), stages=["intake", "conform"])
+        self.job_id = created["job_id"]
+
+    def test_refuses_action_not_in_whitelist(self):
+        result = orchestrate.request_offline_op(
+            self.root, self.job_id, "conform",
+            tool="conform", action="analyze_media", args={},
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("in-band", result["error"])
+
+    def test_refuses_stage_not_current_cursor(self):
+        result = orchestrate.request_offline_op(
+            self.root, self.job_id, "intake",
+            tool="conform", action="fix_reverse_clip", args={},
+        )
+        self.assertFalse(result["success"])
+        self.assertIn("cursor", result["error"])
+
+    def test_parks_stage_and_records_pending_op(self):
+        result = orchestrate.request_offline_op(
+            self.root, self.job_id, "conform",
+            tool="conform", action="fix_reverse_clip", args={"itemId": "x"},
+        )
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result["job"]["stages"]["conform"]["status"], "awaiting_offline_artifact")
+        pending = result["job"]["pending_offline_op"]
+        self.assertEqual(pending["tool"], "conform")
+        self.assertEqual(pending["action"], "fix_reverse_clip")
+        self.assertIn("quit_app", pending["instruction"])
+
+    def test_parked_stage_cannot_be_run(self):
+        orchestrate.request_offline_op(
+            self.root, self.job_id, "conform",
+            tool="conform", action="fix_reverse_clip", args={},
+        )
+        job = orchestrate.load_job(self.root, self.job_id)
+        refusal = orchestrate.can_run_stage(job, "conform")
+        self.assertIsNotNone(refusal)
+        self.assertIn("awaiting_offline_artifact", refusal)
+
+    def test_resolve_offline_op_refuses_without_pending(self):
+        result = orchestrate.resolve_offline_op(self.root, self.job_id, result={"success": True})
+        self.assertFalse(result["success"])
+        self.assertIn("no pending", result["error"])
+
+    def test_resolve_offline_op_success_resumes_running(self):
+        orchestrate.request_offline_op(
+            self.root, self.job_id, "conform",
+            tool="conform", action="fix_reverse_clip", args={},
+        )
+        result = orchestrate.resolve_offline_op(self.root, self.job_id, result={"success": True})
+        self.assertTrue(result["success"], result)
+        self.assertTrue(result["resumed"])
+        self.assertEqual(result["job"]["stages"]["conform"]["status"], "running")
+        self.assertIsNone(result["job"]["pending_offline_op"])
+
+    def test_resolve_offline_op_failure_marks_stage_failed(self):
+        orchestrate.request_offline_op(
+            self.root, self.job_id, "conform",
+            tool="conform", action="fix_reverse_clip", args={},
+        )
+        result = orchestrate.resolve_offline_op(
+            self.root, self.job_id, result={"success": False, "error": "DB locked"})
+        self.assertTrue(result["success"], result)
+        self.assertFalse(result["resumed"])
+        self.assertEqual(result["job"]["stages"]["conform"]["status"], "failed")
+
+    def test_resolve_offline_op_then_retry_is_a_legal_transition(self):
+        orchestrate.request_offline_op(
+            self.root, self.job_id, "conform",
+            tool="conform", action="fix_reverse_clip", args={},
+        )
+        orchestrate.resolve_offline_op(self.root, self.job_id, result={"success": True})
+        # Back to "running" — the domain-tool mutate can now finish the stage.
+        done = orchestrate.advance_stage(self.root, self.job_id, "conform", "done")
+        self.assertTrue(done["success"], done)
+
+
 class OrchestrateGlobalIndexTests(unittest.TestCase):
     def setUp(self) -> None:
         self.base = tempfile.mkdtemp(prefix="orchestrate-base-")

@@ -2,12 +2,12 @@
   "version": 2,
   "layers": 3,
   "root_nav": "CLAUDE.md",
-  "synced": "2026-07-21",
+  "synced": "2026-07-22",
   "_root_structure": "75479c43f99da814",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "edbbcd016e8da44e",
+      "fingerprint": "84cdefd905d064fd",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -67,6 +67,7 @@
         "src/utils/media_analysis_jobs.py",
         "src/utils/media_pool_changes.py",
         "src/utils/media_pool_ingest_live_probe.py",
+        "src/utils/montage_edit.py",
         "src/utils/multicam.py",
         "src/utils/music_analysis.py",
         "src/utils/object_inspection.py",
@@ -108,7 +109,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "d13665469a4dfb4b",
+      "fingerprint": "9a157a78ad801da4",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -542,7 +543,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "7705b098bc0348de",
+      "fingerprint": "fbe07600d74b862b",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -613,7 +614,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "f8db90279cda1ed5",
+      "fingerprint": "3f93ef7d9bce7772",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -761,6 +762,7 @@
         "tests/test_media_pool_folder_ops.py",
         "tests/test_media_pool_ingest_probe.py",
         "tests/test_media_pool_walk.py",
+        "tests/test_montage_edit.py",
         "tests/test_multicam_setup.py",
         "tests/test_music_analysis.py",
         "tests/test_object_inspection.py",

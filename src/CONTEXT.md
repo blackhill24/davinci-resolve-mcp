@@ -13,7 +13,7 @@ Python MCP that drives a **running** DaVinci Resolve via its scripting API.
 | Media-analysis / vision work | `utils/media_analysis*.py`, `utils/deep_vision.py` | `granular/` | `docs/guides/media-analysis-guide.md` |
 | Check what a live probe supports | `utils/*_live_probe.py` for the domain | codecs (advanced-server) | matching `docs/kernels/*-kernel.md` |
 | Document a Resolve API limitation | `utils/api_truth.py` | — | run `scripts/gen_api_limitations.py` |
-| Auto-edit pipeline (brief→render) | `utils/auto_edit.py`, `utils/cut_ir.py`, `utils/music_analysis.py` (ducking-mode ladder), `server.py` (auto_edit tool) | `granular/` | `.claude/skills/auto-edit.md` |
+| Auto-edit pipeline (brief→render, all genres) | `utils/auto_edit.py` (talking-head), `utils/montage_edit.py` (montage — sibling decision layer, same CutList IR), `utils/cut_ir.py`, `utils/music_analysis.py` (ducking ladder + beat detection), `server.py` (auto_edit tool) | `granular/` | `.claude/skills/auto-edit.md` |
 | Orchestrate conductor (ingest→deliver, resumable) | `utils/orchestrate.py`, `server.py` (orchestrate tool + `_orchestrate_*` helpers) | `granular/` | `.claude/skills/orchestrate.md`, `docs/kernels/orchestration-kernel.md` |
 | Reverse-engineer a drt/drp encoding | `utils/drt_diff.py` (raw export-diff for ground-truth), `tests/live_auto_edit_ducking_probe.py` | Node `vendor/drp-format/diff.js` (semantic) | issue #14 |
 | Invoke resolve-advanced (Node) ops | `utils/advanced_bridge.py` (drt/drp surgery in scratch; honest refuse w/o node) | `granular/` | `resolve-advanced/scripts/drp-bridge.mjs` |

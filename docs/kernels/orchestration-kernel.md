@@ -176,3 +176,17 @@ forced-failure/rollback check ran with no snapshot to restore (best-effort
 degrades correctly — the failure and clean retry both still worked; only
 the snapshot-COVERED-failure path is unverified). The
 bring-your-own-timeline (non-talking-head) path is offline-tested only.
+
+**`request_offline_op`/`resolve_offline_op` live-verified on Resolve Studio
+21.0.2.4** (2026-07-22, issue #39): a disposable project
+(`orch_offline_op_probe`) was created and saved (real `Project.db` on disk),
+a 2-stage job (`intake`, `conform`) parked at `conform` via
+`request_offline_op(tool="conform", op_action="fix_reverse_clip")` →
+`resolve_control("quit")` actually quit the running Resolve app →
+`tests/preflight.py` confirmed `state: closed` → `advanced_bridge.run_advanced_tool`
+read the real, now-closed `Project.db` (`fix_reverse_clip` mode `locate`,
+read-only) → `resolve_control("launch")` relaunched and reconnected →
+`resolve_offline_op` resumed the stage to `running`, cleared
+`pending_offline_op`, and recorded the outcome in `notes`. Full round trip,
+no manual intervention. Probe project deleted afterward; environment
+returned to its pre-test state (`Untitled Project` open, untouched).

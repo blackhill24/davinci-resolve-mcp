@@ -20,11 +20,13 @@ if a step here has to *compute* anything, that belongs in the tool, not here.
 3. `run_stage(job_id)` (defaults to cursor) drives one stage: it delegates,
    snapshots reversible stages first, and reports `waiting_on` rather than
    erroring when it needs something from you:
-   - **Talking-head edit**: kicks/polls the brief+plan; on
+   - **Auto-assembling genres (talking-head, montage)**: kicks/polls the
+     brief+plan (genre-dispatched inside `auto_edit`); on
      `waiting_on: "G1_approval"` show the cut summary (`plan_id`), iterate
      with `revise_stage(job_id, notes, edits)` if needed, then
      `approve_gate(job_id, gate="G1", ...)` — **adopts `auto_edit.approve_cut`
-     verbatim**, not a second checkpoint.
+     verbatim**, not a second checkpoint. Montage requires `music` in the
+     brief (its length sets the runtime) and has no voiceover/ducking.
    - **Any other genre**: `waiting_on: "byo_timeline"` — cut it in Resolve,
      then `run_stage(job_id, stage="edit", byo_ready=true)`.
    - `grade`/`audio` no-op unless the brief (or the call) supplies

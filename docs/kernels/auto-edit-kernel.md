@@ -1,13 +1,36 @@
 # Auto Edit Kernel Boundary
 
 The `auto_edit` compound tool is the autonomous brief-to-rendered-video
-pipeline (Phase 1 genre: talking head / interview). It is a thin executor over
+pipeline, now spanning two genres — **talking-head** (interview, Phase 1) and
+**montage** (B-roll cut to music, epic #38). It is a thin executor over
 evidence the analysis program already produces: word-level transcripts
 (`transcript_words`), story beats, select potential, and the similarity index.
-The decision layer (`src/utils/auto_edit.py`) is pure planning — no Resolve
-imports — and the executor uses only the proven `MediaPool.AppendToTimeline`
-append-rebuild mechanism. Timelines are stateless artifacts: revisions rebuild;
-nothing existing is mutated.
+`start_brief`/`plan_cut` branch by `brief.genre` to the genre's own decision
+layer — `src/utils/auto_edit.py` (talking-head) or `src/utils/montage_edit.py`
+(montage) — but **share everything downstream**: both produce a
+`cut_ir.CutList`, and `build_timeline`/`approve_cut`/`finish`/`revise_cut` are
+genre-agnostic executors that only operate on the CutList structure, never on
+which decision layer produced it. Both decision layers are pure planning — no
+Resolve imports — and the executor uses only the proven
+`MediaPool.AppendToTimeline` append-rebuild mechanism. Timelines are stateless
+artifacts: revisions rebuild; nothing existing is mutated.
+
+## Montage genre (epic #38)
+
+`montage_edit.build_cut_list_for_brief` ranks candidate shots by
+`select_potential` (borrowing `edit_engine.plan_selects`' query approach, not
+its execution path), picks a hook shot (highest-ranked overall, prepended),
+then assembles the body: local onset DENSITY around each point (from
+`music_analysis.detect_beats`'s onset list — no separate DSP) sets the PACING
+target, each shot's own `pacing` classification (`still`/`moderate`/`kinetic`/
+`variable` — NOT `energy_arc`, which is clip-level only) sets PLACEMENT, and
+every cut boundary snaps to the nearest real onset. Shot exhaustion loosens the
+select_potential floor then truncates honestly rather than repeating a shot.
+Music is required (its length is the runtime); no voiceover/ducking concept —
+`approve_cut` forces static ducking for montage regardless of what consent
+flags get passed. `render_montage_summary` replaces `render_cut_summary` for
+montage plans (detected by CutList segment role, no schema field needed) —
+role/description/pacing columns instead of transcript excerpt/smoothing.
 
 ## The single human checkpoint
 
@@ -75,6 +98,15 @@ retime, or automate audio levels (`src/utils/api_truth.py`). Hence:
 
 Offline: `tests/test_cut_ir_words.py`, `tests/test_auto_edit.py`,
 `tests/test_auto_edit_tool.py`, `tests/test_auto_edit_polish.py`,
-`tests/test_advanced_bridge_ops.py`, `tests/test_music_analysis.py`.
-Live: `tests/live_auto_edit_validation.py` (requires Resolve Studio; see the
-release process).
+`tests/test_advanced_bridge_ops.py`, `tests/test_music_analysis.py`; montage
+adds `tests/test_montage_edit.py` (the decision layer, incl. a real
+click-track end-to-end run) and `tests/test_montage_wiring.py` (verifies —
+doesn't assume — that `apply_revision`/G1-adoption/cut-summary dispatch work
+against montage CutLists, not just talking-head ones).
+Live: `tests/live_auto_edit_validation.py`, `tests/live_montage_probe.py`
+(requires Resolve Studio; see the release process). The montage probe
+surfaced two real interactions no amount of offline mocking would have caught
+— `start_brief` always kicks a real analysis batch job that wipes seeded
+editorial data before montage's own `plan_cut` reads it (fix: seed after
+ingest, retry once after the expected first failure), and `resolve_clip_id`
+must be Resolve's real media-pool unique ID, not a placeholder string.

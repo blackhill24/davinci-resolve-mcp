@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "7f7b355a81085ac4",
+      "fingerprint": "985a0600d7414e30",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
@@ -543,7 +543,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "fbe07600d74b862b",
+      "fingerprint": "e7c164ff093465bc",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -614,7 +614,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "bfad250eac19bfec",
+      "fingerprint": "9d4b95585ae3fb91",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -650,6 +650,7 @@
         "tests/live_media_pool_ingest_validation.py",
         "tests/live_metadata_field_inventory_validation.py",
         "tests/live_metadata_publish_validation.py",
+        "tests/live_montage_probe.py",
         "tests/live_multicam_drt_probe.py",
         "tests/live_multicam_setup_validation.py",
         "tests/live_orchestrate_probe.py",

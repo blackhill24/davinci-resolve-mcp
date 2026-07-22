@@ -1,6 +1,6 @@
 ---
 name: resolve-auto-edit
-description: Autonomous brief-to-rendered-video pipeline in the DaVinci Resolve MCP (Phase 1 genre: talking head / interview). Apply when the user names source files, optional music, and the kind of video they want and expects a finished cut — "edit this interview down to 3 minutes with music and a title". Orchestrates start_brief → analysis → plan_cut → the ONE approve_cut checkpoint → build_timeline → finish (grade/subtitles/render).
+description: Autonomous brief-to-rendered-video pipeline in the DaVinci Resolve MCP — talking-head/interview, and montage (B-roll cut to music, genre="montage"). Apply when the user names source files, optional music, and the kind of video they want and expects a finished cut — "edit this interview down to 3 minutes with music and a title", or "cut this B-roll into a highlight reel set to this track". Orchestrates start_brief → analysis → plan_cut → the ONE approve_cut checkpoint → build_timeline → finish (grade/subtitles/render) — the same execution for both genres; only the planning step differs.
 ---
 
 # Resolve Auto Edit — Claude Code Skill
@@ -44,5 +44,7 @@ approval (`approve_cut`) sits between planning and execution.
 - Action boundary: `docs/kernels/auto-edit-kernel.md`
 - Editorial heuristics (pacing, punch-in vs b-roll, titles, music):
   `docs/guides/editorial-decision-guide.md` → "Auto-Edit Heuristics"
-- Decision layer internals: `src/utils/auto_edit.py`, `src/utils/cut_ir.py`,
+- Decision layer internals: `src/utils/auto_edit.py` (talking-head),
+  `src/utils/montage_edit.py` (montage — genre="montage", music required,
+  no ducking), `src/utils/cut_ir.py`,
   `src/utils/music_analysis.py`

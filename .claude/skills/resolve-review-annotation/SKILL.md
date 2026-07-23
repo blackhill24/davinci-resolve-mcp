@@ -19,6 +19,15 @@ Thin router; depth stays in the kernel.
 There is no offline counterpart — annotation state lives only inside the open
 Resolve project.
 
+**Granular (`--full`).** `timeline_markers` is kernel-only — no one-per-method
+granular twin; `src/domains/review_annotation/actions.py` is the sole
+implementation, live-only. Granular marker CRUD does exist per-scope in
+`src/granular/timeline.py` (`timeline_add_marker`/`timeline_get_markers`/…)
+and `src/granular/timeline_item.py` (`ti_add_marker`/`ti_add_flag`/…) if you
+need a single raw call instead of the scope-aware kernel. **Prompt** —
+`review_annotation_workflow` (`src/server.py`). **Resource** —
+`status://current_timeline`.
+
 ## Scope Matrix
 
 | Scope | Markers | Custom Data | Flags | Clip Color | Frame Space |

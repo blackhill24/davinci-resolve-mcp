@@ -16,10 +16,11 @@ import unittest
 
 from src.core import timeline_brain_db
 from src.domains.media_analysis.utils import analysis_store, strata
-from tests.domains.media_analysis.test_analysis_store import make_report
-
-REAL_SAMPLE_ROOT = os.path.expanduser(
-    "~/Documents/davinci-resolve-mcp-analysis/20260517_sample-fc314309e4"
+from tests.domains.media_analysis.test_analysis_store import (
+    ANALYSIS_DIR,
+    clip_reports_in,
+    make_report,
+    real_sample_roots,
 )
 
 
@@ -263,24 +264,31 @@ class TranscriptWordsTests(unittest.TestCase):
         self.assertEqual(summary["words_written"], 4)
         self.assertEqual(len(strata.read_words(conn, result["clip_uuid"])), 4)
 
-    def test_backfill_real_sample_root(self) -> None:
-        clips_root = os.path.join(REAL_SAMPLE_ROOT, "clips")
-        if not os.path.isdir(clips_root):
-            self.skipTest("real sample root not present on this machine")
-        ingested = 0
-        for entry in sorted(os.listdir(clips_root)):
-            report_path = os.path.join(clips_root, entry, "analysis.json")
-            if not os.path.isfile(report_path):
-                continue
-            with open(report_path, "r", encoding="utf-8") as handle:
-                report = json.load(handle)
-            result = analysis_store.ingest_report(self.root, report, clip_dir=entry)
-            self.assertTrue(result["success"], result)
-            ingested += 1
-        self.assertGreater(ingested, 0)
-        summary = strata.backfill_transcript_words(self.root)
-        self.assertTrue(summary["success"], summary)
-        self.assertEqual(summary["clips_seen"], ingested)
+    def test_backfill_real_sample_roots(self) -> None:
+        roots = real_sample_roots()
+        if not roots:
+            self.skipTest(f"no analyzed root with clip reports under {ANALYSIS_DIR}")
+        total = 0
+        for root in roots:
+            # One DB per root: two runs over the same source clip share a
+            # clip_uuid, which would make clips_seen lag the ingest count for
+            # a reason that is bookkeeping, not a backfill defect.
+            db_root = tempfile.mkdtemp(prefix="strata-real-")
+            self.addCleanup(shutil.rmtree, db_root, True)
+            self.addCleanup(timeline_brain_db.close_all)  # LIFO: closes before the rmtree
+            ingested = 0
+            with self.subTest(root=os.path.basename(root)):
+                for entry, report_path in clip_reports_in(root):
+                    with open(report_path, "r", encoding="utf-8") as handle:
+                        report = json.load(handle)
+                    result = analysis_store.ingest_report(db_root, report, clip_dir=entry)
+                    self.assertTrue(result["success"], result)
+                    ingested += 1
+                summary = strata.backfill_transcript_words(db_root)
+                self.assertTrue(summary["success"], summary)
+                self.assertEqual(summary["clips_seen"], ingested)
+            total += ingested
+        self.assertGreater(total, 0)
 
 
 class ResolveClipTests(unittest.TestCase):

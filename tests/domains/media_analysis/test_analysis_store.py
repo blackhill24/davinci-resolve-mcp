@@ -18,11 +18,53 @@ import unittest
 from src.core import timeline_brain_db
 from src.domains.media_analysis.utils import analysis_store
 
-# A real analyzed sample root (issue references: 20260517 sample). The test
-# only READS its analysis.json files; rows are written to a temp DB.
-REAL_SAMPLE_ROOT = os.path.expanduser(
-    "~/Documents/davinci-resolve-mcp-analysis/20260517_sample-fc314309e4"
+# Real analyzed roots, for the guards that round-trip actual reports rather
+# than a handwritten one. This used to be pinned to a single directory name
+# (20260517_sample-…) that only ever existed on the box that made it, so the
+# guards skipped everywhere — including here — and never ran at all. Discover
+# instead: any root under the analysis dir carrying clip reports qualifies.
+# Both env vars are escape hatches — pin one root, or point at another
+# analysis dir entirely.
+#
+# Read-only, always: reports are opened for reading and every row written goes
+# to a throwaway temp DB. Nothing under the analysis dir is touched.
+ANALYSIS_DIR = os.path.expanduser(
+    os.environ.get("RESOLVE_MCP_ANALYSIS_DIR", "~/Documents/davinci-resolve-mcp-analysis")
 )
+
+
+def clip_reports_in(root):
+    """`[(clip_dir, analysis.json path)]` for one analysis root."""
+    clips_root = os.path.join(root, "clips")
+    if not os.path.isdir(clips_root):
+        return []
+    found = []
+    for entry in sorted(os.listdir(clips_root)):
+        path = os.path.join(clips_root, entry, "analysis.json")
+        if os.path.isfile(path):
+            found.append((entry, path))
+    return found
+
+
+def real_sample_roots():
+    """Analysis roots on this machine that hold at least one clip report.
+
+    Each root is returned separately on purpose: the same source clip is
+    commonly analyzed by several runs, so ingesting two roots into one DB
+    would have the later run overwrite the earlier one's rows and the
+    round-trip would "drift" for a reason that is not a defect.
+    """
+    pinned = os.environ.get("RESOLVE_MCP_TEST_ANALYSIS_ROOT")
+    if pinned:
+        pinned = os.path.expanduser(pinned)
+        return [pinned] if clip_reports_in(pinned) else []
+    if not os.path.isdir(ANALYSIS_DIR):
+        return []
+    return [
+        os.path.join(ANALYSIS_DIR, name)
+        for name in sorted(os.listdir(ANALYSIS_DIR))
+        if clip_reports_in(os.path.join(ANALYSIS_DIR, name))
+    ]
 
 
 def make_report(**overrides):
@@ -158,23 +200,26 @@ class AnalysisStoreTests(unittest.TestCase):
         exported = analysis_store.export_report(self.root, result["clip_uuid"])
         self.assertEqual(original, exported)
 
-    def test_round_trip_real_sample_root(self) -> None:
-        clips_root = os.path.join(REAL_SAMPLE_ROOT, "clips")
-        if not os.path.isdir(clips_root):
-            self.skipTest("real sample root not present on this machine")
+    def test_round_trip_real_sample_roots(self) -> None:
+        roots = real_sample_roots()
+        if not roots:
+            self.skipTest(f"no analyzed root with clip reports under {ANALYSIS_DIR}")
         round_tripped = 0
-        for entry in sorted(os.listdir(clips_root)):
-            report_path = os.path.join(clips_root, entry, "analysis.json")
-            if not os.path.isfile(report_path):
-                continue
-            with open(report_path, "r", encoding="utf-8") as handle:
-                report = json.load(handle)
-            original = json.loads(json.dumps(report, sort_keys=True, default=str))
-            result = analysis_store.ingest_report(self.root, report, clip_dir=entry)
-            self.assertTrue(result["success"], result)
-            exported = analysis_store.export_report(self.root, result["clip_uuid"])
-            self.assertEqual(original, exported, f"round-trip drift for {entry}")
-            round_tripped += 1
+        for root in roots:
+            # One DB per root — see real_sample_roots' docstring.
+            db_root = tempfile.mkdtemp(prefix="analysis-store-real-")
+            self.addCleanup(shutil.rmtree, db_root, True)
+            self.addCleanup(timeline_brain_db.close_all)  # LIFO: closes before the rmtree
+            for entry, report_path in clip_reports_in(root):
+                with open(report_path, "r", encoding="utf-8") as handle:
+                    report = json.load(handle)
+                original = json.loads(json.dumps(report, sort_keys=True, default=str))
+                with self.subTest(root=os.path.basename(root), clip=entry):
+                    result = analysis_store.ingest_report(db_root, report, clip_dir=entry)
+                    self.assertTrue(result["success"], result)
+                    exported = analysis_store.export_report(db_root, result["clip_uuid"])
+                    self.assertEqual(original, exported, f"round-trip drift for {report_path}")
+                round_tripped += 1
         self.assertGreater(round_tripped, 0)
 
     def test_reingest_is_idempotent(self) -> None:

@@ -79,9 +79,37 @@ class ResolveSpawnEnvTest(unittest.TestCase):
                 conf = fh.read()
             self.assertIn("type hw; card 0; device 3", conf)
             self.assertIn("type hw; card 1; device 2", conf)
-            # must not include the system alsa.conf: its conf.d hooks re-apply
-            # the pipewire default after any override in this file
-            self.assertNotIn("alsa.conf", conf)
+            # Must not INCLUDE the system alsa.conf: its conf.d hooks re-apply
+            # the pipewire default after any override in this file. Checked on
+            # directive lines only — the header comment names the file to
+            # explain why it is excluded, which is not an include.
+            directives = [
+                line for line in conf.splitlines()
+                if line.strip() and not line.lstrip().startswith("#")
+            ]
+            self.assertFalse(
+                [line for line in directives if "alsa.conf" in line or line.lstrip().startswith("<")],
+                "generated conf must not pull in the system alsa.conf",
+            )
+
+    def test_defines_hw_names_for_by_name_opens(self):
+        """Resolve opens `hw:0`/`hw:1` by name for the mixer.
+
+        A self-contained conf has none of alsa.conf's `hw` name definitions, so
+        without these blocks every such open fails with "Invalid CTL hw:0" —
+        observed repeating in ResolveDebug.txt (issue #93).
+        """
+        with tempfile.TemporaryDirectory() as root:
+            self._fake_asound(root, [
+                (0, 3, "playback", "closed"),
+                (1, 2, "capture", "closed"),
+            ])
+            env = resolve_spawn_env({}, proc_asound=root, conf_dir=root)
+            with open(env["ALSA_CONFIG_PATH"], encoding="utf-8") as fh:
+                conf = fh.read()
+            self.assertIn("ctl.hw {", conf)
+            self.assertIn("pcm.hw {", conf)
+            self.assertIn("@args.CARD", conf)
 
     def test_no_free_duplex_pair_leaves_env_unchanged(self):
         with tempfile.TemporaryDirectory() as root:

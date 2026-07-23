@@ -22,6 +22,16 @@ Bridges online-editing / finishing *craft* to this repo's *tools*.
 | Import / relink / compare a **running** conform | `davinci-resolve` (Python, live) | `timeline` (conform actions), `media_pool` (`safe_relink`, `safe_import_sequence`) |
 | Conform QC math, reverse-clip repair, lineage, grade tracing, `.drt`/`.drp`/DB edits with **no Resolve open** | `davinci-resolve-advanced` (Node) | `conform`, `color_trace`, `offline_ref`, `editorial`, `drt`, `project_db` |
 
+**Granular (`--full`).** Unlike `resolve-color-grade`/`resolve-timeline-edit`,
+these `timeline` conform actions have **no one-per-method granular twin** —
+they live only in `src/domains/timeline_conform_interchange/actions.py` as
+guarded kernel actions; the compound `timeline` tool is the sole live
+interface here. `media_pool.safe_relink`'s nearest granular building block is
+`src/granular/media_pool.py`'s `import_media`/`import_timeline_from_file`
+(raw import, no relink guard). **Prompt** — `conform_workflow` (`src/server.py`).
+**Resources** — `status://current_timeline`, `capabilities://installed_tools`
+(surfaces the native-dep gates below).
+
 ## Live conform essentials
 
 - Inspect before touching: `probe_timeline_structure`, `detect_gaps_overlaps`,

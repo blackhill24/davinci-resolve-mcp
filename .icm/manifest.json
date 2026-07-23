@@ -2,12 +2,12 @@
   "version": 2,
   "layers": 3,
   "root_nav": "CLAUDE.md",
-  "synced": "2026-07-23",
+  "synced": "2026-07-24",
   "_root_structure": "75479c43f99da814",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "9024a52330bc9c92",
+      "fingerprint": "e536068e07373ef8",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -25,6 +25,7 @@
         "src/core/destructive_hook.py",
         "src/core/envelope.py",
         "src/core/failure_tracker.py",
+        "src/core/launch_shim.py",
         "src/core/live_connection.py",
         "src/core/mcp_stdio.py",
         "src/core/mcp_transport.py",
@@ -607,7 +608,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "d0ed1f99a05beb6b",
+      "fingerprint": "ac5ddc1a55bd2ee7",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -680,7 +681,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "e4d4f3e6a84a6667",
+      "fingerprint": "3080e401439174e2",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -890,6 +891,7 @@
         "tests/test_granular_disconnected_smoke.py",
         "tests/test_import.py",
         "tests/test_improvements.py",
+        "tests/test_launch_shim.py",
         "tests/test_live_api.py",
         "tests/test_mcp_prompts.py",
         "tests/test_mcp_resources.py",

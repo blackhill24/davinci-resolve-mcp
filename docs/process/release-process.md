@@ -106,7 +106,7 @@ Examples:
 env RESOLVE_SCRIPT_API="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting" \
   RESOLVE_SCRIPT_LIB="/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so" \
   PYTHONPATH="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules" \
-  .venv/bin/python tests/live_marker_validation.py
+  .venv/bin/python tests/domains/review_annotation/live_marker_validation.py
 
 env RESOLVE_SCRIPT_API="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting" \
   RESOLVE_SCRIPT_LIB="/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so" \
@@ -122,7 +122,7 @@ which creates a disposable Fusion-title project, exercises `add_fusion_mask` and
 env RESOLVE_SCRIPT_API="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting" \
   RESOLVE_SCRIPT_LIB="/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so" \
   PYTHONPATH="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules" \
-  venv/bin/python tests/live_fusion_mask_title_validation.py
+  venv/bin/python tests/domains/fusion_composition/live_fusion_mask_title_validation.py
 ```
 
 One-off live harnesses are acceptable during review, but reusable coverage

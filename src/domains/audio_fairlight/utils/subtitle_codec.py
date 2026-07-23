@@ -1,7 +1,7 @@
 """Subtitle cue codec + SRT→.drt authoring (issues #22/#30, 3.2.5 + 3.2.6).
 
 Productization of the oracle-validated codec proven in
-``tests/live_srt_import_probe.py``: a Resolve subtitle cue is an
+``tests/domains/audio_fairlight/live_srt_import_probe.py``: a Resolve subtitle cue is an
 ``Sm2TiGenerator`` inside ``<SubtitleTrackVec>`` whose TIMING is plain XML
 (``<Start>``/``<Duration>``, frames) and whose TEXT + STYLE live in
 ``<EffectFiltersBA>`` — ``00000002`` + 4-byte-BE length + ``0x81`` + a zstd
@@ -418,7 +418,7 @@ def author_subtitle_track(
 
 # ------------------------------------------------- embedded template -------
 # A SYNTHETIC subtitle cue element wrapping the ground-truth blob. Proven live
-# (tests/live_import_srt_tool_probe.py Q1 on 21.0.2.4): a minimal Sm2TiGenerator
+# (tests/domains/audio_fairlight/live_import_srt_tool_probe.py Q1 on 21.0.2.4): a minimal Sm2TiGenerator
 # inside a synthesized Sm2TiTrack SubType=3 survives .drt reimport with the cue
 # text intact — so import_srt needs no pre-existing cue at all.
 

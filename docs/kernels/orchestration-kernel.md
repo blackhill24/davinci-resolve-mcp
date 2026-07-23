@@ -156,7 +156,7 @@ not the domain tools' internals); `tests/test_advanced_bridge_drx_compute.py`,
 including real end-to-end calls — synthetic ffmpeg frames through a real
 drx compute, a real ffprobe-backed `deliverable_qc` — when Node + the
 relevant optional deps are present; graceful skip otherwise). Live:
-`tests/live_orchestrate_probe.py`
+`tests/domains/orchestration/live_orchestrate_probe.py`
 (requires Resolve Studio; gated by `tests/preflight.py`).
 
 **Live-verified on Resolve Studio 21.0.2.4** (18/20 checks): a talking-head

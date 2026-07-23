@@ -561,7 +561,7 @@ should write to `Roll Card #` even when older helper code or UI/property maps us
 For live validation against a disposable synthetic project, run:
 
 ```bash
-venv/bin/python tests/live_metadata_field_inventory_validation.py --output-dir /tmp/resolve-metadata-field-probe
+venv/bin/python tests/domains/media_analysis/live_metadata_field_inventory_validation.py --output-dir /tmp/resolve-metadata-field-probe
 ```
 
 That harness compares `metadata_field_inventory`, `MediaPool.ExportMetadata()`,

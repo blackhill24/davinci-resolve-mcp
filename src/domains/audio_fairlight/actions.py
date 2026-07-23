@@ -366,7 +366,7 @@ def _timeline_set_clip_volume_impl(proj, tl, p: Dict[str, Any]):
 def _timeline_set_clip_pan_impl(proj, tl, p: Dict[str, Any]):
     """3.2.1 (issue #22): clip audio pan, reverse-engineered the same way as clip
     volume (issue #14) — export-diff a hand-edited Inspector Pan value against a
-    center baseline (tests/live_pan_probe.py). See audio-effect-encoder.js for the
+    center baseline (tests/domains/audio_fairlight/live_pan_probe.py). See audio-effect-encoder.js for the
     byte-exact ground truth.
     """
     from src.domains.timeline_edit.actions import _advanced_edit_resolve_clip, _advanced_timeline_edit

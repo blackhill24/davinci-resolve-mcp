@@ -126,7 +126,7 @@ Rule of thumb: author and verify the comp offline, then apply it live with
 Run the live boundary probe with:
 
 ```bash
-.venv/bin/python tests/live_fusion_composition_validation.py --output-dir /tmp/fusion-composition-probe
+.venv/bin/python tests/domains/fusion_composition/live_fusion_composition_validation.py --output-dir /tmp/fusion-composition-probe
 ```
 
 The harness creates a disposable project, generates synthetic video media,

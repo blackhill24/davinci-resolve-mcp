@@ -103,7 +103,7 @@ adds `tests/test_montage_edit.py` (the decision layer, incl. a real
 click-track end-to-end run) and `tests/test_montage_wiring.py` (verifies —
 doesn't assume — that `apply_revision`/G1-adoption/cut-summary dispatch work
 against montage CutLists, not just talking-head ones).
-Live: `tests/live_auto_edit_validation.py`, `tests/live_montage_probe.py`
+Live: `tests/domains/auto_edit/live_auto_edit_validation.py`, `tests/domains/auto_edit/live_montage_probe.py`
 (requires Resolve Studio; see the release process). The montage probe
 surfaced two real interactions no amount of offline mocking would have caught
 — `start_brief` always kicks a real analysis batch job that wipes seeded

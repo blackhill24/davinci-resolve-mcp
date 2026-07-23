@@ -102,7 +102,7 @@ Final validation ran on May 9, 2026 with DaVinci Resolve Studio 20.3.2.9 and
 Python 3.11.14.
 
 ```
-.venv/bin/python tests/live_render_deliver_validation.py \
+.venv/bin/python tests/domains/render_deliver/live_render_deliver_validation.py \
   --output-dir /private/tmp/render-deliver-probe-20260509-release
 ```
 

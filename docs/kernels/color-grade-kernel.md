@@ -142,7 +142,7 @@ craft ↔ live ↔ offline routing and the frame-first rule.
 Run the live boundary probe with:
 
 ```bash
-.venv/bin/python tests/live_color_grade_validation.py --output-dir /tmp/color-grade-probe
+.venv/bin/python tests/domains/color_grade/live_color_grade_validation.py --output-dir /tmp/color-grade-probe
 ```
 
 The harness creates a disposable project, generates synthetic color-bar media,

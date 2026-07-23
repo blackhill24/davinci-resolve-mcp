@@ -106,7 +106,7 @@ returns and newer folder-object returns.
 Run the live boundary probe with:
 
 ```bash
-.venv/bin/python tests/live_project_lifecycle_validation.py --output-dir /tmp/project-lifecycle-probe
+.venv/bin/python tests/domains/project_lifecycle/live_project_lifecycle_validation.py --output-dir /tmp/project-lifecycle-probe
 ```
 
 The harness creates disposable `_mcp_` projects, creates an empty timeline,

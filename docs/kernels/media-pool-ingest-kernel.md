@@ -146,7 +146,7 @@ Final validation ran on May 9, 2026 with DaVinci Resolve Studio 20.3.2.9 and
 Python 3.11.14.
 
 ```
-.venv/bin/python tests/live_media_pool_ingest_validation.py \
+.venv/bin/python tests/domains/media_pool_ingest/live_media_pool_ingest_validation.py \
   --output-dir /private/tmp/media-pool-ingest-probe-20260509-release
 ```
 

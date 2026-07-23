@@ -89,7 +89,7 @@ All kernel actions are exposed through `script_plugin`.
 Run the live boundary probe with:
 
 ```bash
-.venv/bin/python tests/live_extension_authoring_validation.py --output-dir /tmp/extension-authoring-probe
+.venv/bin/python tests/domains/extension_authoring/live_extension_authoring_validation.py --output-dir /tmp/extension-authoring-probe
 ```
 
 The harness creates a disposable `_mcp_` project, installs and removes a

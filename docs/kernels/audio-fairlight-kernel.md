@@ -119,7 +119,7 @@ Investigated for 3.2.2 (EQ/FairlightFX/automation beyond volume), findings in
 Run the live boundary probe with:
 
 ```bash
-.venv/bin/python tests/live_audio_fairlight_validation.py --output-dir /tmp/audio-fairlight-probe
+.venv/bin/python tests/domains/audio_fairlight/live_audio_fairlight_validation.py --output-dir /tmp/audio-fairlight-probe
 ```
 
 The harness creates a disposable project, generates synthetic video and

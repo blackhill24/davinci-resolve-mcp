@@ -29,7 +29,7 @@ surfaces, and known API boundaries.
 Run it with:
 
 ```bash
-.venv/bin/python tests/live_duplicate_clips_validation.py --output-dir /tmp/timeline-kernel-probe
+.venv/bin/python tests/domains/timeline_edit/live_duplicate_clips_validation.py --output-dir /tmp/timeline-kernel-probe
 ```
 
 The output directory receives both JSON and Markdown reports. Reports are

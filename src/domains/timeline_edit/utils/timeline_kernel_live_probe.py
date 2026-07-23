@@ -7,7 +7,7 @@ evidence reports, and deletes the project unless --keep-open is provided.
 
 Run with Python 3.10-3.12 against a running Resolve Studio instance:
 
-  .venv/bin/python tests/live_duplicate_clips_validation.py --output-dir /tmp/timeline-kernel-probe
+  .venv/bin/python tests/domains/timeline_edit/live_duplicate_clips_validation.py --output-dir /tmp/timeline-kernel-probe
 """
 
 from __future__ import annotations

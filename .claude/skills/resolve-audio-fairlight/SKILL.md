@@ -33,6 +33,12 @@ Thin router; depth stays in the kernel.
   `convert` (needs ffmpeg on PATH — GPL, not bundled). Align/loudness-measure not
   yet vendored.
 
+**Granular (`--full`).** `timeline`'s audio/Fairlight actions are kernel-only
+— no one-per-method granular twin; `src/domains/audio_fairlight/actions.py`
+is the sole live implementation. **Prompt** — `audio_workflow` (`src/server.py`).
+**Resources** — `status://current_timeline`, `capabilities://installed_tools`
+(ffmpeg gate).
+
 ## Gotchas
 
 - Timeline audio `SetProperty` (e.g. `Volume`) can return false for some

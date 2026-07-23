@@ -29,4 +29,10 @@ Thin router; depth stays in the kernel.
    and input readability vary by Resolve/Fusion build; some inputs coerce or are
    write-only. Bulk mutation needs timeline scope, not the active Fusion page.
 
+**Granular (`--full`).** `fusion_comp`'s actions are kernel-only — no
+one-per-method granular twin, same posture as `resolve-timeline-conform-interchange`
+and `resolve-render-deliver`'s `render`; `src/domains/fusion_composition/actions.py`
+is the sole live implementation. **Prompt** — `fusion_workflow` (`src/server.py`).
+**Resources** — `status://current_timeline`, `capabilities://installed_tools`.
+
 Never modify/transcode/derive source media (AGENTS.md).

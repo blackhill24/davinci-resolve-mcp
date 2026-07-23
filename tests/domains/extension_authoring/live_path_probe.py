@@ -5,14 +5,13 @@ launches Resolve, and reports which class names register.
 """
 
 import os
-import subprocess
 import sys
 import time
 
 PROJECT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, PROJECT)
 
-from src.core.platform import get_resolve_paths
+from src.core.platform import get_resolve_paths, get_resolve_plugin_paths
 
 paths = get_resolve_paths()
 os.environ["RESOLVE_SCRIPT_API"] = paths["api_path"]
@@ -20,6 +19,7 @@ os.environ["RESOLVE_SCRIPT_LIB"] = paths["lib_path"]
 sys.path.insert(0, paths["modules_path"])
 
 import DaVinciResolveScript as dvr_script  # noqa: E402
+from src.granular.common import _launch_resolve  # noqa: E402
 
 
 def _add(comp, name):
@@ -40,7 +40,9 @@ def main():
         except Exception:
             pass
 
-    subprocess.Popen(["open", "/Applications/DaVinci Resolve/DaVinci Resolve.app"])
+    if not _launch_resolve():
+        print("ABORT: could not launch Resolve on this platform.")
+        sys.exit(1)
     handle = None
     for i in range(60):
         time.sleep(2)
@@ -91,14 +93,13 @@ def main():
     except Exception as e:
         print(f"  [ERR] {e}")
 
-    # Cleanup
+    # Cleanup — the staged copies live in whichever Fuses directory this
+    # platform reports, not a hard-coded macOS Application Support path.
     print("\n=== Cleanup ===")
-    home = os.path.expanduser("~")
+    fuses_dir = get_resolve_plugin_paths()["fuses_dir"]
     for p in [
-        os.path.join(home, "Library/Application Support/Blackmagic Design/"
-                            "DaVinci Resolve/Fusion/Fuses/Example1.fuse"),
-        os.path.join(home, "Library/Application Support/Blackmagic Design/"
-                            "DaVinci Resolve/Support/Fusion/Fuses/Example1WithSupport.fuse"),
+        os.path.join(fuses_dir, "Example1.fuse"),
+        os.path.join(fuses_dir, "Example1WithSupport.fuse"),
     ]:
         try:
             os.unlink(p)

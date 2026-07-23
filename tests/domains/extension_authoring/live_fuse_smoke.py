@@ -10,7 +10,6 @@ Cleans up regardless of pass/fail. Quits Resolve afterward unless --keep-open.
 
 import argparse
 import os
-import subprocess
 import sys
 import time
 
@@ -26,6 +25,7 @@ sys.path.insert(0, paths["modules_path"])
 
 import DaVinciResolveScript as dvr_script  # noqa: E402
 from src.domains.extension_authoring.utils import fuse_templates  # noqa: E402
+from src.granular.common import _launch_resolve  # noqa: E402
 
 
 # Curated subset spanning the highest-risk surfaces.
@@ -99,10 +99,9 @@ def main():
 
     try:
         print("\n=== Launching Resolve ===")
-        if sys.platform != "darwin":
-            print("This harness only supports macOS launch.")
+        if not _launch_resolve():
+            print("ABORT: could not launch Resolve on this platform.")
             sys.exit(1)
-        subprocess.Popen(["open", "/Applications/DaVinci Resolve/DaVinci Resolve.app"])
 
         handle = None
         for i in range(60):

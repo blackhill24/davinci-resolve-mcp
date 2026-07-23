@@ -31,6 +31,16 @@ import zipfile
 import zlib
 from typing import Dict, Any, Optional, List, Tuple
 
+if __name__ == "__main__":
+    # Domain action modules below do `from src.server import mcp`. Run as a
+    # script (as the MCP client launches it), this module's __name__ is
+    # "__main__", not "src.server" — that self-import wouldn't find this
+    # already-executing module and would re-exec this file from scratch,
+    # circularly re-entering a domain module still mid-import. Registering
+    # under the dotted name up front makes the later self-import resolve to
+    # this same (progressively populated) module object instead.
+    sys.modules.setdefault("src.server", sys.modules[__name__])
+
 # ─── Path Setup ───────────────────────────────────────────────────────────────
 
 current_dir = os.path.dirname(os.path.abspath(__file__))

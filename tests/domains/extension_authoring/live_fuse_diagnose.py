@@ -7,7 +7,6 @@ Tests three hypotheses:
 """
 
 import os
-import subprocess
 import sys
 import time
 
@@ -23,6 +22,7 @@ sys.path.insert(0, paths["modules_path"])
 
 import DaVinciResolveScript as dvr_script  # noqa: E402
 from src.domains.extension_authoring.utils import fuse_templates  # noqa: E402
+from src.granular.common import _launch_resolve  # noqa: E402
 
 
 # Hand-written minimal Fuse — pure pass-through, no aux features.
@@ -91,7 +91,9 @@ def main():
     handle = None
     try:
         print("\n=== Launching Resolve ===")
-        subprocess.Popen(["open", "/Applications/DaVinci Resolve/DaVinci Resolve.app"])
+        if not _launch_resolve():
+            print("ABORT: could not launch Resolve on this platform.")
+            sys.exit(1)
 
         for i in range(60):
             time.sleep(2)

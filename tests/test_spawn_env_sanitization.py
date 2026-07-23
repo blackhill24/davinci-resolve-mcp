@@ -14,6 +14,7 @@ from unittest import mock
 
 import src.granular.common as granular_common
 import src.server as server
+import src.core.live_connection as live_connection
 import src.core.app_control as app_control
 import src.domains.media_analysis.utils.media_analysis as media_analysis
 from src.core.proc import preload_audit, resolve_spawn_env, sanitized_spawn_env
@@ -134,12 +135,12 @@ class LaunchSitesUseSanitizedEnvTest(unittest.TestCase):
 
     def test_server_launch_resolve(self):
         with mock.patch.dict("os.environ", {"LD_PRELOAD": NXEGL}, clear=False), \
-             mock.patch.object(server.subprocess, "Popen") as popen, \
+             mock.patch.object(live_connection.subprocess, "Popen") as popen, \
              mock.patch("os.path.exists", return_value=True), \
-             mock.patch.object(server.platform, "system", return_value="Linux"), \
-             mock.patch.object(server.time, "sleep"), \
-             mock.patch.object(server, "_try_connect", return_value=True):
-            self.assertTrue(server._launch_resolve())
+             mock.patch.object(live_connection.platform, "system", return_value="Linux"), \
+             mock.patch.object(live_connection.time, "sleep"), \
+             mock.patch.object(live_connection, "_try_connect", return_value=True):
+            self.assertTrue(live_connection._launch_resolve())
         self._assert_popen_sanitized(popen)
 
     def test_restart_resolve_app(self):

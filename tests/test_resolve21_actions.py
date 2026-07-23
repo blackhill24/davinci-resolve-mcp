@@ -13,6 +13,9 @@ import tempfile
 import unittest
 
 import src.server as compound
+import src.domains.media_pool_ingest.actions as _dom_media_pool_ingest
+import src.domains.project_lifecycle.actions as _dom_project_lifecycle
+import src.core.tool_kernel as _core_tool_kernel
 from src.core import resolve_ai_ledger as _ledger
 
 
@@ -186,20 +189,20 @@ class LegacyResolve:
 
 class Resolve21FolderActionsTest(unittest.TestCase):
     def setUp(self):
-        compound._CONFIRM_TOKENS.clear()
+        _core_tool_kernel._CONFIRM_TOKENS.clear()
         self.folder = Folder21()
         self.mp = MediaPoolStub(folder=self.folder)
-        self._orig_get_mp = compound._get_mp
-        compound._get_mp = lambda: (None, None, self.mp, None)
+        self._orig_get_mp = _dom_media_pool_ingest._get_mp
+        _dom_media_pool_ingest._get_mp = lambda: (None, None, self.mp, None)
         # Isolate the AI-ops ledger to a temp project root (also avoids the real
         # _destructive_versioning_provider hitting a live Resolve during tests).
         self._tmp = tempfile.TemporaryDirectory()
-        self._orig_root = compound._ai_ledger_root
-        compound._ai_ledger_root = lambda: self._tmp.name
+        self._orig_root = _core_tool_kernel._ai_ledger_root
+        _core_tool_kernel._ai_ledger_root = lambda: self._tmp.name
 
     def tearDown(self):
-        compound._get_mp = self._orig_get_mp
-        compound._ai_ledger_root = self._orig_root
+        _dom_media_pool_ingest._get_mp = self._orig_get_mp
+        _core_tool_kernel._ai_ledger_root = self._orig_root
         self._tmp.cleanup()
 
     def test_op_is_recorded_in_ledger(self):
@@ -261,21 +264,21 @@ class Resolve21FolderActionsTest(unittest.TestCase):
 
 class Resolve21ClipActionsTest(unittest.TestCase):
     def setUp(self):
-        compound._CONFIRM_TOKENS.clear()
+        _core_tool_kernel._CONFIRM_TOKENS.clear()
         self.clip = Clip21()
         self.mp = MediaPoolStub(clip=self.clip)
-        self._orig_get_mp = compound._get_mp
-        self._orig_find_clip = compound._find_clip
-        compound._get_mp = lambda: (None, None, self.mp, None)
-        compound._find_clip = lambda root, cid: self.clip
+        self._orig_get_mp = _dom_media_pool_ingest._get_mp
+        self._orig_find_clip = _dom_media_pool_ingest._find_clip
+        _dom_media_pool_ingest._get_mp = lambda: (None, None, self.mp, None)
+        _dom_media_pool_ingest._find_clip = lambda root, cid: self.clip
         self._tmp = tempfile.TemporaryDirectory()
-        self._orig_root = compound._ai_ledger_root
-        compound._ai_ledger_root = lambda: self._tmp.name
+        self._orig_root = _core_tool_kernel._ai_ledger_root
+        _core_tool_kernel._ai_ledger_root = lambda: self._tmp.name
 
     def tearDown(self):
-        compound._get_mp = self._orig_get_mp
-        compound._find_clip = self._orig_find_clip
-        compound._ai_ledger_root = self._orig_root
+        _dom_media_pool_ingest._get_mp = self._orig_get_mp
+        _dom_media_pool_ingest._find_clip = self._orig_find_clip
+        _core_tool_kernel._ai_ledger_root = self._orig_root
         self._tmp.cleanup()
 
     def test_remove_motion_blur_records_clip_id_in_ledger(self):
@@ -311,7 +314,7 @@ class Resolve21ClipActionsTest(unittest.TestCase):
 
     def test_legacy_clip_version_guarded(self):
         self.clip = LegacyClip()
-        compound._find_clip = lambda root, cid: self.clip
+        _dom_media_pool_ingest._find_clip = lambda root, cid: self.clip
         out = compound.media_pool_item("perform_audio_classification", {"clip_id": "L1"})
         self.assertIn("error", out)
         self.assertIn("21.0", str(out))
@@ -340,17 +343,17 @@ class Resolve21ResolveControlTest(unittest.TestCase):
 
 class Resolve21GenerateSpeechTest(unittest.TestCase):
     def setUp(self):
-        compound._CONFIRM_TOKENS.clear()
+        _core_tool_kernel._CONFIRM_TOKENS.clear()
         self.proj = Project21()
-        self._orig_check = compound._check
-        compound._check = lambda: (None, self.proj, None)
+        self._orig_check = _dom_project_lifecycle._check
+        _dom_project_lifecycle._check = lambda: (None, self.proj, None)
         self._tmp = tempfile.TemporaryDirectory()
-        self._orig_root = compound._ai_ledger_root
-        compound._ai_ledger_root = lambda: self._tmp.name
+        self._orig_root = _core_tool_kernel._ai_ledger_root
+        _core_tool_kernel._ai_ledger_root = lambda: self._tmp.name
 
     def tearDown(self):
-        compound._check = self._orig_check
-        compound._ai_ledger_root = self._orig_root
+        _dom_project_lifecycle._check = self._orig_check
+        _core_tool_kernel._ai_ledger_root = self._orig_root
         self._tmp.cleanup()
 
     def test_requires_text_input(self):
@@ -372,7 +375,7 @@ class Resolve21GenerateSpeechTest(unittest.TestCase):
         self.assertEqual(self.proj.calls[0][1], "01:00:00:00")
 
     def test_legacy_project_guarded(self):
-        compound._check = lambda: (None, LegacyProject(), None)
+        _dom_project_lifecycle._check = lambda: (None, LegacyProject(), None)
         out = compound.project_settings("generate_speech", {"speech_generation_settings": {"TextInput": "x"}})
         self.assertIn("error", out)
         self.assertIn("21.0", str(out))
@@ -404,11 +407,11 @@ class Resolve21CapabilityDetectionTest(unittest.TestCase):
 class Resolve21SuperScaleProjectTest(unittest.TestCase):
     def setUp(self):
         self.proj = Project21()
-        self._orig_check = compound._check
-        compound._check = lambda: (None, self.proj, None)
+        self._orig_check = _dom_project_lifecycle._check
+        _dom_project_lifecycle._check = lambda: (None, self.proj, None)
 
     def tearDown(self):
-        compound._check = self._orig_check
+        _dom_project_lifecycle._check = self._orig_check
 
     def test_plain_mode(self):
         out = compound.project_settings("set_super_scale", {"mode": 3})
@@ -447,7 +450,7 @@ class Resolve21SuperScaleProjectTest(unittest.TestCase):
         self.assertEqual(self.proj.calls, [])
 
     def test_legacy_project_guarded(self):
-        compound._check = lambda: (None, LegacyProject(), None)
+        _dom_project_lifecycle._check = lambda: (None, LegacyProject(), None)
         out = compound.project_settings("set_super_scale", {"mode": 2})
         self.assertIn("error", out)
         self.assertIn("21.0", str(out))
@@ -457,14 +460,14 @@ class Resolve21SuperScaleClipTest(unittest.TestCase):
     def setUp(self):
         self.clip = Clip21()
         self.mp = MediaPoolStub(clip=self.clip)
-        self._orig_get_mp = compound._get_mp
-        self._orig_find_clip = compound._find_clip
-        compound._get_mp = lambda: (None, None, self.mp, None)
-        compound._find_clip = lambda root, cid: self.clip
+        self._orig_get_mp = _dom_media_pool_ingest._get_mp
+        self._orig_find_clip = _dom_media_pool_ingest._find_clip
+        _dom_media_pool_ingest._get_mp = lambda: (None, None, self.mp, None)
+        _dom_media_pool_ingest._find_clip = lambda root, cid: self.clip
 
     def tearDown(self):
-        compound._get_mp = self._orig_get_mp
-        compound._find_clip = self._orig_find_clip
+        _dom_media_pool_ingest._get_mp = self._orig_get_mp
+        _dom_media_pool_ingest._find_clip = self._orig_find_clip
 
     def test_plain_mode(self):
         out = compound.media_pool_item("set_clip_super_scale", {"clip_id": "c1", "mode": 4})
@@ -488,7 +491,7 @@ class Resolve21SuperScaleClipTest(unittest.TestCase):
 
     def test_legacy_clip_guarded(self):
         self.clip = LegacyClip()
-        compound._find_clip = lambda root, cid: self.clip
+        _dom_media_pool_ingest._find_clip = lambda root, cid: self.clip
         out = compound.media_pool_item("set_clip_super_scale", {"clip_id": "L1", "mode": 2})
         self.assertIn("error", out)
         self.assertIn("21.0", str(out))

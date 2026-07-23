@@ -8,6 +8,13 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 GRANULAR_DIR = PROJECT_ROOT / "src" / "granular"
 
+# Domain tool functions moved out of server.py in the restructure epic (#52,
+# Phase 3 / #46) into per-domain actions.py files; server.py kept only the 3
+# cross-cutting tools (setup, resolve_control, timeline_versioning). Anything
+# counting @mcp.tool() decorators needs to scan all of these, not just server.py.
+DOMAIN_ACTION_FILES = sorted((PROJECT_ROOT / "src" / "domains").glob("*/actions.py"))
+ALL_COMPOUND_TOOL_FILES = [PROJECT_ROOT / "src" / "server.py"] + DOMAIN_ACTION_FILES
+
 
 def _parse(path: Path) -> ast.AST:
     return ast.parse(path.read_text(encoding="utf-8"))
@@ -98,8 +105,9 @@ def test_utils_syntax():
 
 def test_compound_tool_count():
     # 36 = 33 baseline + edit_engine (Phase E) + auto_edit (auto-edit Phase 2)
-    # + orchestrate (post-conductor Phase 1).
-    assert _count_mcp_tools(PROJECT_ROOT / "src" / "server.py") == 36
+    # + orchestrate (post-conductor Phase 1). Now spread across server.py (3
+    # cross-cutting tools) + 13 domain actions.py files (restructure #52/#46).
+    assert sum(_count_mcp_tools(p) for p in ALL_COMPOUND_TOOL_FILES) == 36
 
 
 def test_prompt_registrations():

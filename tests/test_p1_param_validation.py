@@ -4,6 +4,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.timeline_edit.actions as _dom_timeline_edit
 
 
 class TimelineParamValidationTest(unittest.TestCase):
@@ -18,7 +19,7 @@ class TimelineParamValidationTest(unittest.TestCase):
         fake_tl = mock.Mock()
         fake_proj.GetTimelineByIndex.return_value = fake_tl
         fake_proj.SetCurrentTimeline.return_value = True
-        with mock.patch.object(s, "_check", return_value=(mock.Mock(), fake_proj, None)):
+        with mock.patch.object(_dom_timeline_edit, "_check", return_value=(mock.Mock(), fake_proj, None)):
             out = s.timeline("set_current", {"index": 2})
         self.assertTrue(out.get("success"))
         fake_proj.GetTimelineByIndex.assert_called_once_with(2)

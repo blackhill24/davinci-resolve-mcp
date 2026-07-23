@@ -4,6 +4,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.media_pool_ingest.actions as _dom_media_pool_ingest
 
 
 class AudioTrackProbeEX11Test(unittest.TestCase):
@@ -40,9 +41,9 @@ class DeleteTimelinesReadbackTest(unittest.TestCase):
         fake_mp.DeleteTimelines.return_value = True
         # GetTimelineCount: once to build the list (1), then before(2), then after(1).
         fake_proj.GetTimelineCount.side_effect = [1, 2, 1]
-        with mock.patch.object(s, "_check", return_value=(mock.Mock(), fake_proj, None)), \
-             mock.patch.object(s, "_get_mp", return_value=(mock.Mock(), fake_proj, fake_mp, None)), \
-             mock.patch.object(s, "_confirm_token_required", return_value=False):
+        with mock.patch.object(_dom_media_pool_ingest, "_check", return_value=(mock.Mock(), fake_proj, None)), \
+             mock.patch.object(_dom_media_pool_ingest, "_get_mp", return_value=(mock.Mock(), fake_proj, fake_mp, None)), \
+             mock.patch.object(_dom_media_pool_ingest, "_confirm_token_required", return_value=False):
             fake_mp.GetRootFolder.return_value = mock.Mock()
             out = s.media_pool("delete_timelines", {"timeline_ids": ["tid"]})
         self.assertTrue(out["success"])

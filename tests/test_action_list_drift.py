@@ -17,7 +17,17 @@ import ast
 import pathlib
 import unittest
 
-SERVER = pathlib.Path(__file__).resolve().parent.parent / "src" / "server.py"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+SERVER = ROOT / "src" / "server.py"
+# Domain tool functions moved out of server.py in the restructure epic (#52,
+# Phase 3 / #46); dispatch bodies + their _unknown(...) lists now live across
+# these too. Some list constants also moved to src/core/ (e.g. `timeline`'s
+# _TIMELINE_ACTIONS is in core/tool_kernel.py, imported into timeline_edit) —
+# constants are resolved from a combined pool across all of these files.
+DOMAIN_ACTION_FILES = sorted((ROOT / "src" / "domains").glob("*/actions.py"))
+CORE_FILES = sorted((ROOT / "src" / "core").glob("*.py"))
+ALL_TOOL_SOURCE_FILES = [SERVER] + DOMAIN_ACTION_FILES
+ALL_CONST_SOURCE_FILES = ALL_TOOL_SOURCE_FILES + CORE_FILES
 
 # Intentional aliases: accepted by dispatch but advertised under their
 # canonical name only.
@@ -88,29 +98,33 @@ def _listed_actions(fn, consts):
 
 class ActionListDriftTest(unittest.TestCase):
     def test_unknown_action_lists_match_dispatch(self):
-        tree = ast.parse(SERVER.read_text(encoding="utf-8"))
-        consts = _module_list_constants(tree)
         problems = []
         checked_names = []
-        for node in tree.body:
-            # Async tools (e.g. media_analysis) drifted unchecked for several
-            # releases because only FunctionDef was inspected.
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            listed, resolvable = _listed_actions(node, consts)
-            if listed is None or not resolvable:
-                continue
-            implemented = _implemented_actions(node)
-            if not implemented:
-                continue
-            checked_names.append(node.name)
-            aliases = ALIASES.get(node.name, set())
-            missing = sorted(implemented - listed - aliases)
-            phantom = sorted(listed - implemented)
-            if missing:
-                problems.append(f"{node.name}: implemented but not listed: {missing}")
-            if phantom:
-                problems.append(f"{node.name}: listed but not implemented: {phantom}")
+        combined_consts = {}
+        for path in ALL_CONST_SOURCE_FILES:
+            combined_consts.update(_module_list_constants(ast.parse(path.read_text(encoding="utf-8"))))
+        for path in ALL_TOOL_SOURCE_FILES:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            consts = combined_consts
+            for node in tree.body:
+                # Async tools (e.g. media_analysis) drifted unchecked for several
+                # releases because only FunctionDef was inspected.
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                listed, resolvable = _listed_actions(node, consts)
+                if listed is None or not resolvable:
+                    continue
+                implemented = _implemented_actions(node)
+                if not implemented:
+                    continue
+                checked_names.append(node.name)
+                aliases = ALIASES.get(node.name, set())
+                missing = sorted(implemented - listed - aliases)
+                phantom = sorted(listed - implemented)
+                if missing:
+                    problems.append(f"{node.name}: implemented but not listed: {missing}")
+                if phantom:
+                    problems.append(f"{node.name}: listed but not implemented: {phantom}")
         self.assertGreater(len(checked_names), 10, "drift checker found too few tools — parser broken?")
         # timeline's list is a module constant (_TIMELINE_ACTIONS); fail loudly if
         # it ever stops resolving instead of silently dropping from coverage.
@@ -124,7 +138,6 @@ class ActionListDriftTest(unittest.TestCase):
         because of exactly this — the panel proxied to the helpers directly,
         which masked it. Guard the whole class.
         """
-        tree = ast.parse(SERVER.read_text(encoding="utf-8"))
         problems = []
 
         def membership_set(test):
@@ -147,7 +160,9 @@ class ActionListDriftTest(unittest.TestCase):
                     return values
             return None
 
-        for fn in ast.walk(tree):
+        for path in ALL_TOOL_SOURCE_FILES:
+          tree = ast.parse(path.read_text(encoding="utf-8"))
+          for fn in ast.walk(tree):
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             for node in ast.walk(fn):

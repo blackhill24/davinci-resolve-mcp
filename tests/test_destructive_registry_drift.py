@@ -17,7 +17,11 @@ from src.core.destructive_hook import DESTRUCTIVE_ACTIONS_BY_TOOL
 
 import src.server as s
 
-SERVER = pathlib.Path(__file__).resolve().parent.parent / "src" / "server.py"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+SERVER = ROOT / "src" / "server.py"
+# Domain tool functions moved out of server.py in the restructure epic (#52,
+# Phase 3 / #46); @_destructive_op-decorated tools now live across these too.
+DOMAIN_ACTION_FILES = sorted((ROOT / "src" / "domains").glob("*/actions.py"))
 
 
 def _implemented_actions(fn):
@@ -47,20 +51,21 @@ def _implemented_actions(fn):
 
 def _destructive_op_tools():
     """Map @_destructive_op("tool") -> set of implemented action strings."""
-    tree = ast.parse(SERVER.read_text(encoding="utf-8"))
     out = {}
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        for dec in node.decorator_list:
-            if (
-                isinstance(dec, ast.Call)
-                and isinstance(dec.func, ast.Name)
-                and dec.func.id == "_destructive_op"
-                and dec.args
-                and isinstance(dec.args[0], ast.Constant)
-            ):
-                out[dec.args[0].value] = _implemented_actions(node)
+    for path in [SERVER] + DOMAIN_ACTION_FILES:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for dec in node.decorator_list:
+                if (
+                    isinstance(dec, ast.Call)
+                    and isinstance(dec.func, ast.Name)
+                    and dec.func.id == "_destructive_op"
+                    and dec.args
+                    and isinstance(dec.args[0], ast.Constant)
+                ):
+                    out[dec.args[0].value] = _implemented_actions(node)
     return out
 
 

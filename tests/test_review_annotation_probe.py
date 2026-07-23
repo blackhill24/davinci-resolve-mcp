@@ -9,6 +9,7 @@ from src.server import (
     _probe_annotations,
     _sync_marker_custom_data,
 )
+import src.domains.review_annotation.actions as _dom_review_annotation
 
 
 class AnnotationTargetStub:
@@ -126,7 +127,7 @@ class ReviewAnnotationProbeTest(unittest.TestCase):
         timeline = TimelineStub()
         target = AnnotationTargetStub("Item")
 
-        with patch("src.server._get_item", return_value=(timeline, target, None)):
+        with patch.object(_dom_review_annotation, "_get_item", return_value=(timeline, target, None)):
             result = _copy_annotations(
                 timeline,
                 {"source": {"scope": "timeline"}, "target": {"scope": "timeline_item"}},

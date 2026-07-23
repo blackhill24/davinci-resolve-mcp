@@ -7,6 +7,9 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.project_lifecycle.actions as _dom_project_lifecycle
+import src.domains.media_pool_ingest.actions as _dom_media_pool_ingest
+import src.domains.timeline_edit.actions as _dom_timeline_edit
 
 
 class FakeProj:
@@ -39,7 +42,7 @@ class FakeTL:
 class ExportStillGuardTest(unittest.TestCase):
     def _call(self, params):
         proj = FakeProj()
-        with mock.patch.object(s, "_check", return_value=(None, proj, None)):
+        with mock.patch.object(_dom_project_lifecycle, "_check", return_value=(None, proj, None)):
             return s.project_settings("export_frame_as_still", params), proj
 
     def test_empty_path_rejected(self):
@@ -66,8 +69,8 @@ class ClipMarkGuardTest(unittest.TestCase):
     def _call(self, params):
         mp = mock.Mock()
         clip = FakeClip()
-        with mock.patch.object(s, "_get_mp", return_value=(None, None, mp, None)), \
-             mock.patch.object(s, "_find_clip", return_value=clip):
+        with mock.patch.object(_dom_media_pool_ingest, "_get_mp", return_value=(None, None, mp, None)), \
+             mock.patch.object(_dom_media_pool_ingest, "_find_clip", return_value=clip):
             return s.media_pool_item("set_mark_in_out", params), clip
 
     def test_inverted_rejected(self):
@@ -90,7 +93,7 @@ class TimelineMarkGuardTest(unittest.TestCase):
         tl = FakeTL()
         proj = mock.Mock()
         proj.GetCurrentTimeline.return_value = tl
-        with mock.patch.object(s, "_check", return_value=(None, proj, None)):
+        with mock.patch.object(_dom_timeline_edit, "_check", return_value=(None, proj, None)):
             return s.timeline("set_mark_in_out", params), tl
 
     def test_inverted_rejected(self):

@@ -2,6 +2,8 @@
 import unittest
 
 import src.server as compound
+import src.domains.color_grade.actions as _dom_color_grade
+import src.core.tool_kernel as _core_tool_kernel
 
 
 class _TimelineItemStub:
@@ -115,11 +117,11 @@ class BulkMatchToHeroDryRunTest(unittest.TestCase):
         self.target_a = _TimelineItemStub("a-1", name="ShotA")
         self.target_b = _TimelineItemStub("b-1", name="ShotB")
         self.tl = _TimelineStub({1: [self.hero, self.target_a, self.target_b]})
-        self.original_get_tl = compound._get_tl
-        compound._get_tl = lambda: (object(), self.tl, None)
+        self.original_get_tl = _dom_color_grade._get_tl
+        _dom_color_grade._get_tl = lambda: (object(), self.tl, None)
 
     def tearDown(self):
-        compound._get_tl = self.original_get_tl
+        _dom_color_grade._get_tl = self.original_get_tl
 
     def test_copy_grade_dry_run_returns_proposals(self):
         out = compound._bulk_match_to_hero(
@@ -175,12 +177,12 @@ class BulkMatchToHeroExecuteTest(unittest.TestCase):
         self.hero = _TimelineItemStub("hero-1", name="Hero")
         self.target_a = _TimelineItemStub("a-1", name="ShotA")
         self.tl = _TimelineStub({1: [self.hero, self.target_a]})
-        self.original_get_tl = compound._get_tl
-        compound._get_tl = lambda: (object(), self.tl, None)
-        compound._CONFIRM_TOKENS.clear()
+        self.original_get_tl = _dom_color_grade._get_tl
+        _dom_color_grade._get_tl = lambda: (object(), self.tl, None)
+        _core_tool_kernel._CONFIRM_TOKENS.clear()
 
     def tearDown(self):
-        compound._get_tl = self.original_get_tl
+        _dom_color_grade._get_tl = self.original_get_tl
 
     def test_execute_without_token_returns_confirm_required(self):
         out = compound._bulk_match_to_hero(

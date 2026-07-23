@@ -9,6 +9,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.timeline_edit.actions as _dom_timeline_edit
 
 
 class FakeResolveExport:
@@ -36,8 +37,8 @@ class TimelineExportActionTest(unittest.TestCase):
         fake_tl.Export.return_value = True
         fake_proj = mock.Mock()
         fake_proj.GetCurrentTimeline.return_value = fake_tl
-        with mock.patch.object(s, "_check", return_value=(mock.Mock(), fake_proj, None)), \
-             mock.patch.object(s, "get_resolve", return_value=FakeResolveExport()):
+        with mock.patch.object(_dom_timeline_edit, "_check", return_value=(mock.Mock(), fake_proj, None)), \
+             mock.patch.object(_dom_timeline_edit, "get_resolve", return_value=FakeResolveExport()):
             out = s.timeline("export", params)
         return out, fake_tl
 

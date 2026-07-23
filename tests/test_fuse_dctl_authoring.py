@@ -28,6 +28,7 @@ if PROJECT_ROOT not in sys.path:
 
 from src.domains.extension_authoring.utils import fuse_templates, dctl_templates  # noqa: E402
 from src.server import fuse_plugin, dctl  # noqa: E402
+import src.domains.extension_authoring.actions as _dom_extension_authoring  # noqa: E402
 
 
 def _luac_path() -> Optional[str]:
@@ -496,7 +497,7 @@ class TestRoundtripFilesystem(unittest.TestCase):
             'aces_idt_dir': os.path.join(cls.tmpdir, 'ACES', 'IDT'),
             'aces_odt_dir': os.path.join(cls.tmpdir, 'ACES', 'ODT'),
         }
-        cls._patcher = patch('src.server.get_resolve_plugin_paths',
+        cls._patcher = patch.object(_dom_extension_authoring, 'get_resolve_plugin_paths',
                               return_value=cls.fake_paths)
         cls._patcher.start()
 

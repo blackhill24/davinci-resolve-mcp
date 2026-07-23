@@ -95,19 +95,20 @@ class GradeEvidenceBaseVersionExtractionTest(unittest.TestCase):
         original_probe = None
         try:
             import src.server as compound
+            import src.domains.color_grade.actions as _dom_color_grade
 
-            original_snap = compound._grade_version_snapshot
-            original_probe = compound._probe_color_node_graph
-            compound._grade_version_snapshot = lambda item, p: {"current": current_version}
-            compound._probe_color_node_graph = lambda proj, item, p: {
+            original_snap = _dom_color_grade._grade_version_snapshot
+            original_probe = _dom_color_grade._probe_color_node_graph
+            _dom_color_grade._grade_version_snapshot = lambda item, p: {"current": current_version}
+            _dom_color_grade._probe_color_node_graph = lambda proj, item, p: {
                 "available": True, "num_nodes": 1, "nodes": []
             }
             return _grade_evidence_base(object(), _Item(), {"include_coverage": False})
         finally:
             if original_snap is not None:
-                compound._grade_version_snapshot = original_snap
+                _dom_color_grade._grade_version_snapshot = original_snap
             if original_probe is not None:
-                compound._probe_color_node_graph = original_probe
+                _dom_color_grade._probe_color_node_graph = original_probe
 
     def test_camelcase_versionname_extracted(self):
         out = self._build({"versionName": "Version 3", "versionType": 0})

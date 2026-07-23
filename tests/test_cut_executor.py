@@ -8,6 +8,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.timeline_edit.actions as _dom_timeline_edit
 from src.server import _apply_cuts_skip_reason
 
 
@@ -37,8 +38,8 @@ class ApplyCutsSkipReasonTest(unittest.TestCase):
 
 class ApplyCutsDryRunTest(unittest.TestCase):
     def _call(self, params):
-        with mock.patch.object(s, "get_resolve", return_value=None), \
-             mock.patch.object(s, "_check", return_value=(None, _proj_with_tl(), None)):
+        with mock.patch.object(_dom_timeline_edit, "get_resolve", return_value=None), \
+             mock.patch.object(_dom_timeline_edit, "_check", return_value=(None, _proj_with_tl(), None)):
             return s.timeline("apply_cuts", params)
 
     def test_dry_run_default_no_mutation(self):
@@ -84,10 +85,10 @@ class ApplyCutsApplyTest(unittest.TestCase):
             calls.append(rp)
             return {"success": True, "deleted": 1}
 
-        with mock.patch.object(s, "get_resolve", return_value=None), \
-             mock.patch.object(s, "_check", return_value=(None, _proj_with_tl(), None)), \
-             mock.patch.object(s, "_confirm_token_required", return_value=False), \
-             mock.patch.object(s, "_timeline_lift_range_impl", side_effect=fake_lift):
+        with mock.patch.object(_dom_timeline_edit, "get_resolve", return_value=None), \
+             mock.patch.object(_dom_timeline_edit, "_check", return_value=(None, _proj_with_tl(), None)), \
+             mock.patch.object(_dom_timeline_edit, "_confirm_token_required", return_value=False), \
+             mock.patch.object(_dom_timeline_edit, "_timeline_lift_range_impl", side_effect=fake_lift):
             out = s.timeline("apply_cuts", {"cuts": cuts, "dry_run": False})
 
         self.assertTrue(out["success"])
@@ -104,19 +105,19 @@ class ApplyCutsApplyTest(unittest.TestCase):
             {"action": "lift", "span": {"start": 0, "end": 10}},
             {"action": "keep", "span": {"start": 20, "end": 30}},
         ]
-        with mock.patch.object(s, "get_resolve", return_value=None), \
-             mock.patch.object(s, "_check", return_value=(None, _proj_with_tl(), None)), \
-             mock.patch.object(s, "_confirm_token_required", return_value=False), \
-             mock.patch.object(s, "_timeline_lift_range_impl",
+        with mock.patch.object(_dom_timeline_edit, "get_resolve", return_value=None), \
+             mock.patch.object(_dom_timeline_edit, "_check", return_value=(None, _proj_with_tl(), None)), \
+             mock.patch.object(_dom_timeline_edit, "_confirm_token_required", return_value=False), \
+             mock.patch.object(_dom_timeline_edit, "_timeline_lift_range_impl",
                                return_value={"success": True, "deleted": 1}):
             out = s.timeline("apply_cuts", {"cuts": cuts, "dry_run": False})
         self.assertEqual(out["applied"], 1)
         self.assertEqual([s_["index"] for s_ in out["skipped"]], [1])
 
     def test_issues_confirm_token_when_required(self):
-        with mock.patch.object(s, "get_resolve", return_value=None), \
-             mock.patch.object(s, "_check", return_value=(None, _proj_with_tl(), None)), \
-             mock.patch.object(s, "_confirm_token_required", return_value=True):
+        with mock.patch.object(_dom_timeline_edit, "get_resolve", return_value=None), \
+             mock.patch.object(_dom_timeline_edit, "_check", return_value=(None, _proj_with_tl(), None)), \
+             mock.patch.object(_dom_timeline_edit, "_confirm_token_required", return_value=True):
             out = s.timeline("apply_cuts", {
                 "cuts": [
                     {"action": "lift", "span": {"start": 0, "end": 10}},

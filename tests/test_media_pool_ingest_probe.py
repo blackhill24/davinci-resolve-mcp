@@ -21,6 +21,7 @@ from src.server import (
     _set_clip_marks,
 )
 from src.core.readback import reset_verification_stats, verification_stats
+import src.domains.media_pool_ingest.actions as _dom_media_pool_ingest
 
 
 class MediaPoolItemStub:
@@ -354,7 +355,7 @@ class MediaPoolIngestProbeTest(unittest.TestCase):
             "audio": {"sample_rate": "48000", "channels": 2},
         }
 
-        with patch("src.server._probe_media_file", return_value=proxy_probe):
+        with patch.object(_dom_media_pool_ingest, "_probe_media_file", return_value=proxy_probe):
             result = _check_proxy_media_compatibility(
                 MediaPoolItemStub(),
                 "/tmp/proxy.mov",
@@ -382,7 +383,7 @@ class MediaPoolIngestProbeTest(unittest.TestCase):
             "audio": {"sample_rate": "44100"},
         }
 
-        with patch("src.server._probe_media_file", return_value=proxy_probe):
+        with patch.object(_dom_media_pool_ingest, "_probe_media_file", return_value=proxy_probe):
             result = _check_proxy_media_compatibility(
                 MediaPoolItemStub(),
                 "/tmp/proxy.mp4",
@@ -414,7 +415,7 @@ class MediaPoolIngestProbeTest(unittest.TestCase):
             "audio": {"sample_rate": "48000"},
         }
 
-        with patch("src.server._probe_media_file", return_value=proxy_probe):
+        with patch.object(_dom_media_pool_ingest, "_probe_media_file", return_value=proxy_probe):
             result = _check_proxy_media_compatibility(MediaPoolItemStub(), "/tmp/proxy.mov")
 
         self.assertTrue(result["success"])
@@ -437,8 +438,8 @@ class MediaPoolIngestProbeTest(unittest.TestCase):
             "audio": {"sample_rate": "48000"},
         }
 
-        with tempfile.NamedTemporaryFile(suffix=".mov") as proxy_file, patch(
-            "src.server._probe_media_file", return_value=proxy_probe
+        with tempfile.NamedTemporaryFile(suffix=".mov") as proxy_file, patch.object(
+            _dom_media_pool_ingest, "_probe_media_file", return_value=proxy_probe
         ):
             result = _link_proxy_checked(
                 mp.root,
@@ -475,8 +476,8 @@ class MediaPoolIngestProbeTest(unittest.TestCase):
             "audio": {"sample_rate": "48000"},
         }
 
-        with tempfile.NamedTemporaryFile(suffix=".mp4") as proxy_file, patch(
-            "src.server._probe_media_file", return_value=proxy_probe
+        with tempfile.NamedTemporaryFile(suffix=".mp4") as proxy_file, patch.object(
+            _dom_media_pool_ingest, "_probe_media_file", return_value=proxy_probe
         ):
             result = _link_proxy_checked(
                 mp.root,

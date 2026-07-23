@@ -2,6 +2,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.media_pool_ingest.actions as _dom_media_pool_ingest
 from src.core.readback import reset_verification_stats, verification_stats
 
 
@@ -93,7 +94,7 @@ class MediaPoolAppendVerificationTest(unittest.TestCase):
         project = ProjectStub(timeline)
         media_pool = MediaPoolStub(FolderStub([clip]), timeline)
 
-        with mock.patch.object(s, "_get_mp", return_value=(None, project, media_pool, None)):
+        with mock.patch.object(_dom_media_pool_ingest, "_get_mp", return_value=(None, project, media_pool, None)):
             result = s.media_pool("append_to_timeline", {"clip_ids": ["clip-1"]})
 
         self.assertTrue(result["success"])
@@ -118,7 +119,7 @@ class MediaPoolAppendVerificationTest(unittest.TestCase):
         project = ProjectStub(timeline)
         media_pool = MediaPoolStub(FolderStub([clip]), timeline)
 
-        with mock.patch.object(s, "_get_mp", return_value=(None, project, media_pool, None)):
+        with mock.patch.object(_dom_media_pool_ingest, "_get_mp", return_value=(None, project, media_pool, None)):
             result = s.media_pool(
                 "append_to_timeline",
                 {

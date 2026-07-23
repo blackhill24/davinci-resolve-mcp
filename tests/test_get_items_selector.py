@@ -4,6 +4,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.timeline_edit.actions as _dom_timeline_edit
 
 
 def _item(name="clip", uid="ti-1", start=0, end=100, duration=100):
@@ -21,7 +22,7 @@ def _dispatch(action, params, track_items=()):
     tl.GetItemListInTrack.return_value = list(track_items)
     proj = mock.Mock()
     proj.GetCurrentTimeline.return_value = tl
-    with mock.patch.object(s, "_check", return_value=(mock.Mock(), proj, None)):
+    with mock.patch.object(_dom_timeline_edit, "_check", return_value=(mock.Mock(), proj, None)):
         return s.timeline(action, params), tl
 
 

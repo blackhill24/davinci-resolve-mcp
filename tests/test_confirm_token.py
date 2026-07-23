@@ -2,11 +2,12 @@
 import unittest
 
 import src.server as compound
+import src.core.tool_kernel as _core_tool_kernel
 
 
 class ConfirmTokenLifecycleTest(unittest.TestCase):
     def setUp(self):
-        compound._CONFIRM_TOKENS.clear()
+        _core_tool_kernel._CONFIRM_TOKENS.clear()
 
     def test_fingerprint_stable_across_calls(self):
         fp1 = compound._confirm_token_fingerprint("act", {"path": "/x", "k": 1})
@@ -72,7 +73,7 @@ class ConfirmTokenLifecycleTest(unittest.TestCase):
         issued = compound._issue_confirm_token(action="x", params={"k": 1}, preview={})
         token = issued["confirm_token"]
         # Force expiry
-        compound._CONFIRM_TOKENS[token]["expires_at"] = 0
+        _core_tool_kernel._CONFIRM_TOKENS[token]["expires_at"] = 0
         blocked = compound._consume_confirm_token(action="x", params={"k": 1, "confirm_token": token})
         self.assertIsNotNone(blocked)
         self.assertEqual(blocked["error"]["code"], "CONFIRM_TOKEN_INVALID")

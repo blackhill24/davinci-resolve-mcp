@@ -153,17 +153,18 @@ class ErrorEnvelopeContractTest(unittest.TestCase):
     def test_get_tl_emits_no_current_timeline(self):
         """Integration smoke: _get_tl emits a precondition error with NO_CURRENT_TIMELINE code."""
         import src.server as compound
+        import src.core.timeline_lookup as _core_timeline_lookup
 
         class _StubProject:
             def GetCurrentTimeline(self):
                 return None
 
-        original_check = compound._check
-        compound._check = lambda: (object(), _StubProject(), None)
+        original_check = _core_timeline_lookup._check
+        _core_timeline_lookup._check = lambda: (object(), _StubProject(), None)
         try:
             _, _, err = compound._get_tl()
         finally:
-            compound._check = original_check
+            _core_timeline_lookup._check = original_check
 
         self.assertIsNotNone(err)
         body = err["error"]

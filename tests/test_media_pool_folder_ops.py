@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.media_pool_ingest.actions as _dom_media_pool_ingest
 
 
 class FakeFolder:
@@ -71,9 +72,9 @@ class MediaPoolFolderActionsTest(unittest.TestCase):
         mp.GetRootFolder.return_value = root
         mp.DeleteFolders.return_value = True
         mp.MoveFolders.return_value = True
-        with mock.patch.object(s, "_get_mp", return_value=(mock.Mock(), mock.Mock(), mp, None)), \
-             mock.patch.object(s, "_confirm_token_required", return_value=False), \
-             mock.patch.object(s, "_consume_confirm_token", return_value=None):
+        with mock.patch.object(_dom_media_pool_ingest, "_get_mp", return_value=(mock.Mock(), mock.Mock(), mp, None)), \
+             mock.patch.object(_dom_media_pool_ingest, "_confirm_token_required", return_value=False), \
+             mock.patch.object(_dom_media_pool_ingest, "_consume_confirm_token", return_value=None):
             return mp, s.media_pool(action, params)
 
     def test_delete_folders_resolves_nested_id(self):

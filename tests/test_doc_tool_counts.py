@@ -41,7 +41,9 @@ def _advanced_count() -> int:
 
 class DocToolCountsDriftTest(unittest.TestCase):
     def test_doc_counts_match_reality(self):
-        comp = _count_decorators("src/server.py")
+        # server.py kept only 3 cross-cutting tools after the restructure epic
+        # (#52, Phase 3 / #46); the rest live in src/domains/*/actions.py.
+        comp = _count_decorators("src/server.py", "src/domains/*/actions.py")
         gran = _count_decorators("src/granular/*.py")
         adv = _advanced_count()
 

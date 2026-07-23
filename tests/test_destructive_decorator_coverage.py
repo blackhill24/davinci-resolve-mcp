@@ -14,20 +14,23 @@ from __future__ import annotations
 import os
 import re
 import unittest
+from pathlib import Path
 
 from src.core.destructive_hook import DESTRUCTIVE_ACTIONS_BY_TOOL
 
-SERVER_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "src", "server.py",
-)
+ROOT = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SERVER_PATH = ROOT / "src" / "server.py"
+# Domain tool functions moved out of server.py in the restructure epic (#52,
+# Phase 3 / #46); the decorator wiring now lives across all of these files.
+DOMAIN_ACTION_FILES = sorted((ROOT / "src" / "domains").glob("*/actions.py"))
 
 
 class DestructiveDecoratorCoverage(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        with open(SERVER_PATH, "r", encoding="utf-8") as fh:
-            cls.source = fh.read()
+        cls.source = "\n".join(
+            p.read_text(encoding="utf-8") for p in [SERVER_PATH] + DOMAIN_ACTION_FILES
+        )
 
     def test_every_registered_tool_is_decorated(self) -> None:
         missing: list[str] = []

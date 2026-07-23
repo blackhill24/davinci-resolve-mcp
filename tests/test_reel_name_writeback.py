@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.media_pool_ingest.actions as _dom_media_pool_ingest
 
 
 class FakeClip:
@@ -93,8 +94,8 @@ class VerifierHelpers(unittest.TestCase):
 class DispatcherIntegration(unittest.TestCase):
     def _run(self, action, params, clip):
         fake_mp = mock.Mock()
-        with mock.patch.object(s, "_get_mp", return_value=(None, None, fake_mp, None)), \
-             mock.patch.object(s, "_find_clip", return_value=clip):
+        with mock.patch.object(_dom_media_pool_ingest, "_get_mp", return_value=(None, None, fake_mp, None)), \
+             mock.patch.object(_dom_media_pool_ingest, "_find_clip", return_value=clip):
             return s.media_pool_item(action, params)
 
     def test_set_clip_property_reel_name_reports_failure(self):
@@ -134,7 +135,7 @@ class DispatcherIntegration(unittest.TestCase):
         fake_root = object()
         fake_mp = mock.Mock()
         fake_mp.GetRootFolder.return_value = fake_root
-        with mock.patch.object(s, "_clips_from_params", return_value=(([clip], []), None)):
+        with mock.patch.object(_dom_media_pool_ingest, "_clips_from_params", return_value=(([clip], []), None)):
             res = s._normalize_metadata(None, fake_mp, {
                 "clip_ids": ["clip-1"],
                 "metadata": {"Reel Name": "TOPDOWN-C001"},

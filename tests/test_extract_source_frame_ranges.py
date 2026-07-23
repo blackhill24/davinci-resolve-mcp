@@ -1,6 +1,7 @@
 import unittest
 
 import src.server as compound
+import src.domains.timeline_edit.actions as _dom_timeline_edit
 
 
 class MediaPoolItemStub:
@@ -76,15 +77,15 @@ class ProjectStub:
 
 class ExtractSourceFrameRangesTest(unittest.TestCase):
     def setUp(self):
-        self.original_check = compound._check
+        self.original_check = _dom_timeline_edit._check
 
     def tearDown(self):
-        compound._check = self.original_check
+        _dom_timeline_edit._check = self.original_check
 
     def _install_timeline(self, items):
         timeline = TimelineStub(items)
         project = ProjectStub(timeline)
-        compound._check = lambda: (None, project, None)
+        _dom_timeline_edit._check = lambda: (None, project, None)
         return timeline
 
     def test_handles_zero_keeps_inclusive_end_on_last_used_frame(self):

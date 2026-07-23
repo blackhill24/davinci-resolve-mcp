@@ -13,6 +13,7 @@ import tempfile
 import unittest
 
 import src.server as s
+import src.domains.auto_edit.actions as _dom_auto_edit
 from src.domains.auto_edit.utils import auto_edit, cut_ir, edit_engine
 
 
@@ -256,8 +257,7 @@ class FinishActionTest(unittest.TestCase):
 
     def _finish(self, proj, params):
         from unittest import mock
-        with mock.patch.object(
-            s, "_destructive_versioning_provider",
+        with mock.patch.object(_dom_auto_edit, "_destructive_versioning_provider",
             return_value=(None, proj, self.root, "P"),
         ):
             return run(s.auto_edit("finish", params))
@@ -331,8 +331,7 @@ class PolishActionTest(unittest.TestCase):
 
     def _polish(self, proj, params):
         from unittest import mock
-        with mock.patch.object(
-            s, "_destructive_versioning_provider",
+        with mock.patch.object(_dom_auto_edit, "_destructive_versioning_provider",
             return_value=(None, proj, self.root, "P"),
         ):
             return run(s.auto_edit("polish_timeline", params))

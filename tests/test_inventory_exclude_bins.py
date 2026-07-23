@@ -10,6 +10,7 @@ from unittest import mock
 
 import src.analysis_dashboard as dash
 import src.server as s
+import src.core.tool_kernel as _core_tool_kernel
 
 
 class FakeClip:
@@ -104,7 +105,7 @@ class InventoryPreferenceTest(unittest.TestCase):
 
     def test_effective_prefs_clamp_limit_and_normalize_bins(self):
         with mock.patch.object(
-            s,
+            _core_tool_kernel,
             "_read_media_analysis_preferences",
             return_value={"inventory_limit": 99999, "inventory_exclude_bins": " assets , b "},
         ):

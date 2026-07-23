@@ -9,6 +9,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.audio_fairlight.actions as _dom_audio_fairlight
 
 
 class FakeResolve:
@@ -69,7 +70,7 @@ class NormalizeTest(unittest.TestCase):
 class SafeCreateSubtitlesTest(unittest.TestCase):
     def test_dry_run_returns_resolved_settings_and_ignored(self):
         tl = mock.Mock()
-        with mock.patch.object(s, "get_resolve", return_value=FakeResolve()):
+        with mock.patch.object(_dom_audio_fairlight, "get_resolve", return_value=FakeResolve()):
             out = s._safe_create_subtitles(
                 tl, {"settings": {"language": "korean", "bogus": 1}, "dry_run": True}
             )
@@ -84,7 +85,7 @@ class SafeCreateSubtitlesTest(unittest.TestCase):
 
         tl.GetTrackCount.side_effect = lambda kind: {"subtitle": next(counts)}[kind]
         tl.CreateSubtitlesFromAudio.return_value = True
-        with mock.patch.object(s, "get_resolve", return_value=FakeResolve()):
+        with mock.patch.object(_dom_audio_fairlight, "get_resolve", return_value=FakeResolve()):
             out = s._safe_create_subtitles(
                 tl, {"settings": {"language": "english"}, "dry_run": False}
             )
@@ -101,7 +102,7 @@ class SafeCreateSubtitlesTest(unittest.TestCase):
         tl = mock.Mock()
         tl.GetTrackCount.return_value = 2  # unchanged before/after
         tl.CreateSubtitlesFromAudio.return_value = True
-        with mock.patch.object(s, "get_resolve", return_value=FakeResolve()):
+        with mock.patch.object(_dom_audio_fairlight, "get_resolve", return_value=FakeResolve()):
             out = s._safe_create_subtitles(tl, {"settings": {}, "dry_run": False})
         self.assertTrue(out["success"])
         self.assertFalse(out["verified"])

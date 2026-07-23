@@ -7,6 +7,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.core.tool_kernel as _core_tool_kernel
 
 
 class SpecHookNoShellTest(unittest.TestCase):
@@ -61,7 +62,7 @@ class ConfirmTokenLockTest(unittest.TestCase):
             self.assertIn("error", again)
 
     def test_lock_exists(self):
-        self.assertTrue(hasattr(s, "_CONFIRM_TOKENS_LOCK"))
+        self.assertTrue(hasattr(_core_tool_kernel, "_CONFIRM_TOKENS_LOCK"))
 
 
 class SafeIntTest(unittest.TestCase):

@@ -1,6 +1,7 @@
 import unittest
 
 import src.server as compound
+import src.domains.review_annotation.actions as _dom_review_annotation
 from tests._error_envelope_helpers import err_message
 
 
@@ -75,14 +76,14 @@ class FiveArgMarkerStub:
 
 class TimelineMarkerParamTest(unittest.TestCase):
     def setUp(self):
-        self.original_get_tl = compound._get_tl
+        self.original_get_tl = _dom_review_annotation._get_tl
         self.original_is_destructive = compound._destructive_hook.is_destructive
         self.timeline = TimelineStub()
-        compound._get_tl = lambda: (None, self.timeline, None)
+        _dom_review_annotation._get_tl = lambda: (None, self.timeline, None)
         compound._destructive_hook.is_destructive = lambda *args, **kwargs: False
 
     def tearDown(self):
-        compound._get_tl = self.original_get_tl
+        _dom_review_annotation._get_tl = self.original_get_tl
         compound._destructive_hook.is_destructive = self.original_is_destructive
 
     def test_add_accepts_frame_id_alias_and_defaults_name_duration(self):

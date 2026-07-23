@@ -20,6 +20,14 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.orchestration.actions as _dom_orchestration
+import src.domains.render_deliver.actions as _dom_render_deliver
+import src.domains.media_pool_ingest.actions as _dom_media_pool_ingest
+import src.domains.auto_edit.actions as _dom_auto_edit
+import src.domains.media_analysis.actions as _dom_media_analysis
+import src.domains.color_grade.actions as _dom_color_grade
+import src.domains.review_annotation.actions as _dom_review_annotation
+import src.domains.timeline_edit.actions as _dom_timeline_edit
 from src.domains.orchestration.utils import orchestrate
 
 
@@ -57,8 +65,7 @@ class OrchestrateRunStageBase(unittest.TestCase):
                 orchestrate.capture_stage_fingerprint(self.root, job_id, stage, fingerprints[stage])
 
     def _call(self, action, params):
-        with mock.patch.object(
-            s, "_destructive_versioning_provider",
+        with mock.patch.object(_dom_orchestration, "_destructive_versioning_provider",
             return_value=(None, self.proj, self.root, "P"),
         ):
             return run(s.orchestrate(action, params))
@@ -94,8 +101,8 @@ class RunStageIngestTests(OrchestrateRunStageBase):
 
     def test_successful_import_marks_done(self):
         job_id = self._start_job()
-        with mock.patch.object(s, "_ensure_folder_path", return_value=(mock.MagicMock(), None)), \
-             mock.patch.object(s, "_safe_import_media", return_value={"success": True, "imported": 1}):
+        with mock.patch.object(_dom_media_pool_ingest, "_ensure_folder_path", return_value=(mock.MagicMock(), None)), \
+             mock.patch.object(_dom_media_pool_ingest, "_safe_import_media", return_value={"success": True, "imported": 1}):
             out = self._run_stage({"job_id": job_id, "stage": "ingest"})
         self.assertTrue(out.get("success"), out)
         job = orchestrate.load_job(self.root, job_id)
@@ -105,8 +112,8 @@ class RunStageIngestTests(OrchestrateRunStageBase):
 
     def test_import_error_fails_stage(self):
         job_id = self._start_job()
-        with mock.patch.object(s, "_ensure_folder_path", return_value=(mock.MagicMock(), None)), \
-             mock.patch.object(s, "_safe_import_media", return_value={"error": {"message": "boom"}}):
+        with mock.patch.object(_dom_media_pool_ingest, "_ensure_folder_path", return_value=(mock.MagicMock(), None)), \
+             mock.patch.object(_dom_media_pool_ingest, "_safe_import_media", return_value={"error": {"message": "boom"}}):
             out = self._run_stage({"job_id": job_id, "stage": "ingest"})
         self.assertIn("error", out)
         job = orchestrate.load_job(self.root, job_id)
@@ -118,7 +125,7 @@ class RunStageAnalysisTests(OrchestrateRunStageBase):
         job_id = self._start_job(genre="talking_head")
         self._advance_to_done(job_id, ["ingest"])
         started = {"success": True, "brief_id": "b1", "analysis_job_id": "aj1"}
-        with mock.patch.object(s, "auto_edit", mock.AsyncMock(return_value=started)):
+        with mock.patch.object(_dom_auto_edit, "auto_edit", mock.AsyncMock(return_value=started)):
             out = self._run_stage({"job_id": job_id, "stage": "analysis"})
         self.assertTrue(out.get("success"), out)
         self.assertEqual(out.get("waiting_on"), "analysis")
@@ -132,8 +139,8 @@ class RunStageAnalysisTests(OrchestrateRunStageBase):
         job_id = self._start_job(genre="montage")
         self._advance_to_done(job_id, ["ingest"])
         started = {"success": True, "brief_id": "b1", "analysis_job_id": "aj1"}
-        with mock.patch.object(s, "auto_edit", mock.AsyncMock(return_value=started)) as mocked_auto_edit, \
-             mock.patch.object(s, "media_analysis", mock.AsyncMock()) as mocked_media_analysis:
+        with mock.patch.object(_dom_auto_edit, "auto_edit", mock.AsyncMock(return_value=started)) as mocked_auto_edit, \
+             mock.patch.object(_dom_media_analysis, "media_analysis", mock.AsyncMock()) as mocked_media_analysis:
             out = self._run_stage({"job_id": job_id, "stage": "analysis"})
         self.assertTrue(out.get("success"), out)
         self.assertEqual(out.get("waiting_on"), "analysis")
@@ -144,7 +151,7 @@ class RunStageAnalysisTests(OrchestrateRunStageBase):
         job_id = self._start_job(genre="documentary")
         self._advance_to_done(job_id, ["ingest"])
         started = {"success": True, "job_id": "batch-1"}
-        with mock.patch.object(s, "media_analysis", mock.AsyncMock(return_value=started)):
+        with mock.patch.object(_dom_media_analysis, "media_analysis", mock.AsyncMock(return_value=started)):
             out = self._run_stage({"job_id": job_id, "stage": "analysis"})
         self.assertTrue(out.get("success"), out)
         self.assertEqual(out.get("waiting_on"), "analysis")
@@ -157,7 +164,7 @@ class RunStageAnalysisTests(OrchestrateRunStageBase):
         self._advance_to_done(job_id, ["ingest"])
         orchestrate.set_stage_foreign_keys(self.root, job_id, "analysis", batch_job_id="batch-1")
         status = {"success": True, "status": "completed"}
-        with mock.patch.object(s, "media_analysis", mock.AsyncMock(return_value=status)):
+        with mock.patch.object(_dom_media_analysis, "media_analysis", mock.AsyncMock(return_value=status)):
             out = self._run_stage({"job_id": job_id, "stage": "analysis"})
         self.assertTrue(out.get("success"), out)
         job = orchestrate.load_job(self.root, job_id)
@@ -195,7 +202,7 @@ class RunStageEditTests(OrchestrateRunStageBase):
         # only needs one auto_edit("get_cut_summary", ...) call.
         orchestrate.set_stage_foreign_keys(self.root, job_id, "edit", brief_id="b1", plan_id="p1")
         summary_response = {"success": True, "plan_id": "p1", "summary": "# Cut list"}
-        with mock.patch.object(s, "auto_edit", mock.AsyncMock(return_value=summary_response)):
+        with mock.patch.object(_dom_auto_edit, "auto_edit", mock.AsyncMock(return_value=summary_response)):
             out = self._run_stage({"job_id": job_id, "stage": "edit"})
         self.assertTrue(out.get("success"), out)
         self.assertEqual(out.get("waiting_on"), "G1_approval")
@@ -208,7 +215,7 @@ class RunStageEditTests(OrchestrateRunStageBase):
         self._to_edit(job_id)
         orchestrate.set_stage_foreign_keys(self.root, job_id, "edit", brief_id="b1", plan_id="p1")
         summary_response = {"success": True, "plan_id": "p1", "summary": "# Montage cut list"}
-        with mock.patch.object(s, "auto_edit", mock.AsyncMock(return_value=summary_response)):
+        with mock.patch.object(_dom_auto_edit, "auto_edit", mock.AsyncMock(return_value=summary_response)):
             out = self._run_stage({"job_id": job_id, "stage": "edit"})
         self.assertTrue(out.get("success"), out)
         self.assertEqual(out.get("waiting_on"), "G1_approval")
@@ -223,7 +230,7 @@ class RunStageConformTests(OrchestrateRunStageBase):
         self._to_conform(job_id)
         clean = {"gap_count": 0, "overlap_count": 0}
         missing = {"missing_count": 0}
-        with mock.patch.object(s, "timeline", side_effect=[clean, missing]):
+        with mock.patch.object(_dom_timeline_edit, "timeline", side_effect=[clean, missing]):
             out = self._run_stage({"job_id": job_id, "stage": "conform"})
         self.assertTrue(out.get("success"), out)
         job = orchestrate.load_job(self.root, job_id)
@@ -234,7 +241,7 @@ class RunStageConformTests(OrchestrateRunStageBase):
         self._to_conform(job_id)
         gaps = {"gap_count": 2, "overlap_count": 0}
         missing = {"missing_count": 0}
-        with mock.patch.object(s, "timeline", side_effect=[gaps, missing]):
+        with mock.patch.object(_dom_timeline_edit, "timeline", side_effect=[gaps, missing]):
             out = self._run_stage({"job_id": job_id, "stage": "conform"})
         self.assertIn("error", out)
         job = orchestrate.load_job(self.root, job_id)
@@ -245,7 +252,7 @@ class RunStageConformTests(OrchestrateRunStageBase):
         self._to_conform(job_id)
         gaps = {"gap_count": 2, "overlap_count": 0}
         missing = {"missing_count": 0}
-        with mock.patch.object(s, "timeline", side_effect=[gaps, missing]):
+        with mock.patch.object(_dom_timeline_edit, "timeline", side_effect=[gaps, missing]):
             out = self._run_stage({"job_id": job_id, "stage": "conform", "accept_gaps": True})
         self.assertTrue(out.get("success"), out)
 
@@ -266,7 +273,7 @@ class RunStageGradeTests(OrchestrateRunStageBase):
         job_id = self._start_job()
         self._to_grade(job_id)
         applied = {"success": True, "path": "/tmp/x.drx"}
-        with mock.patch.object(s, "timeline_item_color", return_value=applied) as mocked:
+        with mock.patch.object(_dom_color_grade, "timeline_item_color", return_value=applied) as mocked:
             out = self._run_stage({"job_id": job_id, "stage": "grade",
                                     "grade": {"drx_path": "/tmp/x.drx"}})
         self.assertTrue(out.get("success"), out)
@@ -277,7 +284,7 @@ class RunStageGradeTests(OrchestrateRunStageBase):
         job_id = self._start_job()
         self._to_grade(job_id)
         applied = {"success": True}
-        with mock.patch.object(s, "timeline_item_color", return_value=applied) as mocked:
+        with mock.patch.object(_dom_color_grade, "timeline_item_color", return_value=applied) as mocked:
             out = self._run_stage({"job_id": job_id, "stage": "grade",
                                     "grade": {"cdl": {"slope": [1, 1, 1]}}})
         self.assertTrue(out.get("success"), out)
@@ -287,7 +294,7 @@ class RunStageGradeTests(OrchestrateRunStageBase):
         job_id = self._start_job()
         self._to_grade(job_id)
         pending = {"status": "confirmation_required", "confirm_token": "tok"}
-        with mock.patch.object(s, "timeline_item_color", return_value=pending):
+        with mock.patch.object(_dom_color_grade, "timeline_item_color", return_value=pending):
             out = self._run_stage({"job_id": job_id, "stage": "grade",
                                     "grade": {"drx_path": "/tmp/x.drx"}})
         self.assertEqual(out.get("status"), "confirmation_required")
@@ -299,7 +306,7 @@ class RunStageGradeTests(OrchestrateRunStageBase):
         self._to_grade(job_id)
         pending = {"status": "confirmation_required", "confirm_token": "tok"}
         applied = {"success": True}
-        with mock.patch.object(s, "timeline_item_color", side_effect=[pending, applied]):
+        with mock.patch.object(_dom_color_grade, "timeline_item_color", side_effect=[pending, applied]):
             self._run_stage({"job_id": job_id, "stage": "grade", "grade": {"drx_path": "/tmp/x.drx"}})
             self._run_stage({"job_id": job_id, "stage": "grade",
                               "grade": {"drx_path": "/tmp/x.drx"}, "confirm_token": "tok"})
@@ -310,7 +317,7 @@ class RunStageGradeTests(OrchestrateRunStageBase):
         job_id = self._start_job()
         self._to_grade(job_id)
         failed = {"success": False, "error": "grade blew up"}
-        with mock.patch.object(s, "timeline_item_color", return_value=failed):
+        with mock.patch.object(_dom_color_grade, "timeline_item_color", return_value=failed):
             out = self._run_stage({"job_id": job_id, "stage": "grade",
                                     "grade": {"drx_path": "/tmp/x.drx"}})
         self.assertFalse(out.get("success"))
@@ -325,7 +332,7 @@ class RunStageGradeTests(OrchestrateRunStageBase):
                                                  "warnings": []}}
         applied = {"success": True}
         with mock.patch.object(s._advanced_bridge, "run_drx_compute", return_value=computed) as mocked_compute, \
-             mock.patch.object(s, "timeline_item_color", return_value=applied) as mocked_apply:
+             mock.patch.object(_dom_color_grade, "timeline_item_color", return_value=applied) as mocked_apply:
             out = self._run_stage({"job_id": job_id, "stage": "grade", "grade": {
                 "compute": {"action": "level_clips",
                             "clips": [{"id": "a", "png": "/tmp/a.png", "group": "cam1"}],
@@ -345,7 +352,7 @@ class RunStageGradeTests(OrchestrateRunStageBase):
         self._to_grade(job_id)
         computed = {"success": False, "error": "Node.js not found on PATH"}
         with mock.patch.object(s._advanced_bridge, "run_drx_compute", return_value=computed), \
-             mock.patch.object(s, "timeline_item_color") as mocked_apply:
+             mock.patch.object(_dom_color_grade, "timeline_item_color") as mocked_apply:
             out = self._run_stage({"job_id": job_id, "stage": "grade", "grade": {
                 "compute": {"action": "level_clips", "clips": [], "outDir": "/tmp/grades"},
             }})
@@ -385,7 +392,7 @@ class RunStageAudioReviewTests(OrchestrateRunStageBase):
         job_id = self._start_job()
         self._advance_to_done(job_id, ["ingest", "analysis", "edit", "conform", "grade"])
         fp = _fp()
-        with mock.patch.object(s, "_orchestrate_capture_fingerprint", return_value=fp):
+        with mock.patch.object(_dom_orchestration, "_orchestrate_capture_fingerprint", return_value=fp):
             self._approve_g2(job_id, fp)
             out = self._run_stage({"job_id": job_id, "stage": "audio"})
         self.assertTrue(out.get("success"), out)
@@ -398,9 +405,9 @@ class RunStageAudioReviewTests(OrchestrateRunStageBase):
         self._advance_to_done(job_id, ["ingest", "analysis", "edit", "conform", "grade"])
         fp = _fp()
         applied = {"success": True}
-        with mock.patch.object(s, "_orchestrate_capture_fingerprint", return_value=fp):
+        with mock.patch.object(_dom_orchestration, "_orchestrate_capture_fingerprint", return_value=fp):
             self._approve_g2(job_id, fp)
-            with mock.patch.object(s, "timeline", return_value=applied) as mocked:
+            with mock.patch.object(_dom_timeline_edit, "timeline", return_value=applied) as mocked:
                 out = self._run_stage({"job_id": job_id, "stage": "audio",
                                         "audio": {"track_index": 1, "volume_db": -3}})
         self.assertTrue(out.get("success"), out)
@@ -411,7 +418,7 @@ class RunStageAudioReviewTests(OrchestrateRunStageBase):
         self._advance_to_done(
             job_id, ["ingest", "analysis", "edit", "conform", "grade", "audio", "deliver"])
         report = {"path": "/tmp/report.json"}
-        with mock.patch.object(s, "timeline_markers", return_value=report):
+        with mock.patch.object(_dom_review_annotation, "timeline_markers", return_value=report):
             out = self._run_stage({"job_id": job_id, "stage": "review"})
         self.assertTrue(out.get("success"), out)
         job = orchestrate.load_job(self.root, job_id)
@@ -447,9 +454,9 @@ class RunStageDeliverTests(OrchestrateRunStageBase):
             prepared = {"success": True, "job_id": "render-1"}
             # Gate validity re-probes "now" — pin the probe to the fingerprint
             # the gate was approved against so it reads as still-valid.
-            with mock.patch.object(s, "_orchestrate_capture_fingerprint", return_value=fp), \
-                 mock.patch.object(s, "_prepare_render_job", return_value=prepared), \
-                 mock.patch.object(s, "_run_maybe_background",
+            with mock.patch.object(_dom_orchestration, "_orchestrate_capture_fingerprint", return_value=fp), \
+                 mock.patch.object(_dom_render_deliver, "_prepare_render_job", return_value=prepared), \
+                 mock.patch.object(_dom_orchestration, "_run_maybe_background",
                                     return_value={"success": True, "job_id": "render-1",
                                                   "output_path": out_file}):
                 out = self._run_stage({"job_id": job_id, "stage": "deliver",
@@ -470,9 +477,9 @@ class RunStageDeliverTests(OrchestrateRunStageBase):
             with open(out_file, "wb"):
                 pass
             qc_result = {"success": True, "result": {"pass": True, "fields": []}}
-            with mock.patch.object(s, "_orchestrate_capture_fingerprint", return_value=fp), \
-                 mock.patch.object(s, "_prepare_render_job", return_value={"success": True, "job_id": "render-1"}), \
-                 mock.patch.object(s, "_run_maybe_background",
+            with mock.patch.object(_dom_orchestration, "_orchestrate_capture_fingerprint", return_value=fp), \
+                 mock.patch.object(_dom_render_deliver, "_prepare_render_job", return_value={"success": True, "job_id": "render-1"}), \
+                 mock.patch.object(_dom_orchestration, "_run_maybe_background",
                                     return_value={"success": True, "job_id": "render-1", "output_path": out_file}), \
                  mock.patch.object(s._advanced_bridge, "run_advanced_tool", return_value=qc_result) as mocked_qc:
                 out = self._run_stage({"job_id": job_id, "stage": "deliver",
@@ -494,9 +501,9 @@ class RunStageDeliverTests(OrchestrateRunStageBase):
             out_file = os.path.join(target_dir, "orchestrate_" + job_id + ".mov")
             with open(out_file, "wb"):
                 pass
-            with mock.patch.object(s, "_orchestrate_capture_fingerprint", return_value=fp), \
-                 mock.patch.object(s, "_prepare_render_job", return_value={"success": True, "job_id": "render-1"}), \
-                 mock.patch.object(s, "_run_maybe_background",
+            with mock.patch.object(_dom_orchestration, "_orchestrate_capture_fingerprint", return_value=fp), \
+                 mock.patch.object(_dom_render_deliver, "_prepare_render_job", return_value={"success": True, "job_id": "render-1"}), \
+                 mock.patch.object(_dom_orchestration, "_run_maybe_background",
                                     return_value={"success": True, "job_id": "render-1", "output_path": out_file}), \
                  mock.patch.object(s._advanced_bridge, "run_advanced_tool") as mocked_qc:
                 out = self._run_stage({"job_id": job_id, "stage": "deliver",
@@ -511,8 +518,8 @@ class RunStageDeliverTests(OrchestrateRunStageBase):
         self._to_deliver(job_id, gate_fp=fp)
         orchestrate.record_gate_approval(
             self.root, job_id, "G3", {"fingerprint": fp, "mode": "standard", "adopted": False, "forced": False})
-        with mock.patch.object(s, "_orchestrate_capture_fingerprint", return_value=fp), \
-             mock.patch.object(s, "_prepare_render_job",
+        with mock.patch.object(_dom_orchestration, "_orchestrate_capture_fingerprint", return_value=fp), \
+             mock.patch.object(_dom_render_deliver, "_prepare_render_job",
                                 return_value={"success": False, "error": "bad settings"}):
             out = self._run_stage({"job_id": job_id, "stage": "deliver",
                                     "render": {"target_dir": "/tmp"}})

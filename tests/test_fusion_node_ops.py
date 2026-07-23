@@ -7,6 +7,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.fusion_composition.actions as _dom_fusion_composition
 
 
 class FakeFlow:
@@ -100,7 +101,7 @@ class FakeComp:
 
 
 def _dispatch(comp, action, params):
-    with mock.patch.object(s, "_resolve_fusion_comp", return_value=(comp, None)):
+    with mock.patch.object(_dom_fusion_composition, "_resolve_fusion_comp", return_value=(comp, None)):
         return s.fusion_comp(action, params)
 
 

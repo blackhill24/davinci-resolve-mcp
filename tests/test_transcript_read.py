@@ -3,6 +3,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.media_pool_ingest.actions as _dom_media_pool_ingest
 
 
 class IsTruncatedTest(unittest.TestCase):
@@ -39,8 +40,8 @@ class FakeClip:
 class GetTranscriptionTest(unittest.TestCase):
     def _call(self, clip):
         mp = mock.Mock()
-        with mock.patch.object(s, "_get_mp", return_value=(None, None, mp, None)), \
-             mock.patch.object(s, "_find_clip", return_value=clip):
+        with mock.patch.object(_dom_media_pool_ingest, "_get_mp", return_value=(None, None, mp, None)), \
+             mock.patch.object(_dom_media_pool_ingest, "_find_clip", return_value=clip):
             return s.media_pool_item("get_transcription", {"clip_id": "x"})
 
     def test_full_text(self):

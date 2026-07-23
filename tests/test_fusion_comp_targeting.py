@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src import server
+import src.domains.fusion_composition.actions as _dom_fusion_composition
 
 
 class FakeFusion:
@@ -127,7 +128,7 @@ class FakeFusionComp:
 
 class FusionAddKeyframeTests(unittest.TestCase):
     def _run(self, comp, params):
-        with patch.object(server, "_resolve_fusion_comp", return_value=(comp, None)):
+        with patch.object(_dom_fusion_composition, "_resolve_fusion_comp", return_value=(comp, None)):
             return server.fusion_comp("add_keyframe", params)
 
     def test_attaches_bezierspline_on_virgin_input(self):
@@ -194,7 +195,7 @@ class FusionGetKeyframesTests(unittest.TestCase):
         tool = FakeFusionTool({"Size": inp})
         comp = FakeFusionComp({"Transform1": tool})
 
-        with patch.object(server, "_resolve_fusion_comp", return_value=(comp, None)):
+        with patch.object(_dom_fusion_composition, "_resolve_fusion_comp", return_value=(comp, None)):
             result = server.fusion_comp(
                 "get_keyframes", {"tool_name": "Transform1", "input_name": "Size"}
             )
@@ -209,7 +210,7 @@ class FusionGetKeyframesTests(unittest.TestCase):
         tool = FakeFusionTool({"Size": inp})
         comp = FakeFusionComp({"Transform1": tool})
 
-        with patch.object(server, "_resolve_fusion_comp", return_value=(comp, None)):
+        with patch.object(_dom_fusion_composition, "_resolve_fusion_comp", return_value=(comp, None)):
             result = server.fusion_comp(
                 "get_keyframes", {"tool_name": "Transform1", "input_name": "Size"}
             )
@@ -221,8 +222,8 @@ class FusionCompTargetingTests(unittest.TestCase):
     def test_active_comp_fallback_does_not_require_timeline(self):
         active_comp = object()
 
-        with patch.object(server, "get_resolve", return_value=FakeResolve(active_comp)), patch.object(
-            server,
+        with patch.object(_dom_fusion_composition, "get_resolve", return_value=FakeResolve(active_comp)), patch.object(
+            _dom_fusion_composition,
             "_get_tl",
             side_effect=AssertionError("_get_tl should not be called without timeline scope"),
         ):
@@ -233,7 +234,7 @@ class FusionCompTargetingTests(unittest.TestCase):
 
     def test_bulk_set_inputs_requires_timeline_scope_per_op(self):
         with patch.object(
-            server,
+            _dom_fusion_composition,
             "_resolve_fusion_comp",
             side_effect=AssertionError("_resolve_fusion_comp should not be called for unscoped bulk ops"),
         ):

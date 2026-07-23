@@ -8,6 +8,7 @@ import unittest
 from unittest import mock
 
 import src.server as compound
+import src.core.tool_kernel as _core_tool_kernel
 from src.core import actor_identity, resolve_ai_ledger, timeline_brain_db
 
 
@@ -77,13 +78,13 @@ class GovernanceEnforceGateTest(unittest.TestCase):
     }
 
     def test_advisory_mode_never_blocks(self):
-        with mock.patch.object(compound, "_ai_governance_mode", return_value="advisory"), \
-             mock.patch.object(compound, "_ai_governance_check", return_value=self.EXCEEDED):
+        with mock.patch.object(_core_tool_kernel, "_ai_governance_mode", return_value="advisory"), \
+             mock.patch.object(_core_tool_kernel, "_ai_governance_check", return_value=self.EXCEEDED):
             self.assertIsNone(compound._ai_governance_gate("remove_motion_blur", {}))
 
     def test_enforce_mode_blocks_when_exceeded(self):
-        with mock.patch.object(compound, "_ai_governance_mode", return_value="enforce"), \
-             mock.patch.object(compound, "_ai_governance_check", return_value=self.EXCEEDED):
+        with mock.patch.object(_core_tool_kernel, "_ai_governance_mode", return_value="enforce"), \
+             mock.patch.object(_core_tool_kernel, "_ai_governance_check", return_value=self.EXCEEDED):
             out = compound._ai_governance_gate("remove_motion_blur", {})
         self.assertIsNotNone(out)
         envelope = out["error"]
@@ -95,21 +96,21 @@ class GovernanceEnforceGateTest(unittest.TestCase):
 
     def test_enforce_mode_allows_within_tier(self):
         ok = dict(self.EXCEEDED, exceeded=False, warnings=[])
-        with mock.patch.object(compound, "_ai_governance_mode", return_value="enforce"), \
-             mock.patch.object(compound, "_ai_governance_check", return_value=ok):
+        with mock.patch.object(_core_tool_kernel, "_ai_governance_mode", return_value="enforce"), \
+             mock.patch.object(_core_tool_kernel, "_ai_governance_check", return_value=ok):
             self.assertIsNone(compound._ai_governance_gate("generate_speech", {}))
 
     def test_override_governance_bypasses_enforce(self):
-        with mock.patch.object(compound, "_ai_governance_mode", return_value="enforce"), \
-             mock.patch.object(compound, "_ai_governance_check", return_value=self.EXCEEDED):
+        with mock.patch.object(_core_tool_kernel, "_ai_governance_mode", return_value="enforce"), \
+             mock.patch.object(_core_tool_kernel, "_ai_governance_check", return_value=self.EXCEEDED):
             self.assertIsNone(
                 compound._ai_governance_gate("remove_motion_blur", {"override_governance": True})
             )
 
     def test_non_governed_op_never_blocks(self):
         not_applicable = {"applies": False, "exceeded": False}
-        with mock.patch.object(compound, "_ai_governance_mode", return_value="enforce"), \
-             mock.patch.object(compound, "_ai_governance_check", return_value=not_applicable):
+        with mock.patch.object(_core_tool_kernel, "_ai_governance_mode", return_value="enforce"), \
+             mock.patch.object(_core_tool_kernel, "_ai_governance_check", return_value=not_applicable):
             self.assertIsNone(compound._ai_governance_gate("perform_audio_classification", {}))
 
 

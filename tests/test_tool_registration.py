@@ -13,7 +13,7 @@ Resolve, and enumerating tools via ``mcp.list_tools()`` touches no live handle.
 import asyncio
 import unittest
 
-from tests.test_import import PROJECT_ROOT, _count_mcp_tools
+from tests.test_import import ALL_COMPOUND_TOOL_FILES, _count_mcp_tools
 
 
 def _registered_tool_names():
@@ -78,7 +78,7 @@ class ToolRegistrationTest(unittest.TestCase):
         """The number of tools the server registers at runtime must equal the
         number of ``@mcp.tool()`` decorators in the source. A mismatch means a
         decorator is decorating the wrong thing (or not taking effect)."""
-        static_count = _count_mcp_tools(PROJECT_ROOT / "src" / "server.py")
+        static_count = sum(_count_mcp_tools(p) for p in ALL_COMPOUND_TOOL_FILES)
         self.assertEqual(
             len(self.names),
             static_count,

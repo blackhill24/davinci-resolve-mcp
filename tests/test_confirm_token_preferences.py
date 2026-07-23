@@ -2,12 +2,13 @@ import unittest
 from unittest.mock import patch
 
 import src.server as compound
+import src.core.tool_kernel as _core_tool_kernel
 
 
 class ConfirmTokenPreferenceTests(unittest.TestCase):
     def test_confirm_token_gate_honors_destructive_preference_false(self):
         with patch.object(
-            compound,
+            _core_tool_kernel,
             "_read_media_analysis_preferences",
             return_value={"destructive": {"require_confirm_token": False}},
         ):

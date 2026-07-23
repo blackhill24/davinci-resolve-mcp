@@ -3,6 +3,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.timeline_edit.actions as _dom_timeline_edit
 from src.server import _find_timeline_by_id
 
 
@@ -35,7 +36,7 @@ class ProjectStub:
 
 
 def _dispatch(proj, params):
-    with mock.patch.object(s, "_check", return_value=(mock.Mock(), proj, None)):
+    with mock.patch.object(_dom_timeline_edit, "_check", return_value=(mock.Mock(), proj, None)):
         return s.timeline("set_current", params)
 
 

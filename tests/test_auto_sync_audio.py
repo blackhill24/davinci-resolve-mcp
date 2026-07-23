@@ -7,6 +7,8 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.core.live_connection as _live_connection
+import src.domains.audio_fairlight.actions as _dom_audio_fairlight
 
 
 class FakeResolve:
@@ -60,9 +62,9 @@ class NormalizeTest(unittest.TestCase):
 class SafeAutoSyncTest(unittest.TestCase):
     def test_dry_run_uses_get_resolve_for_constants(self):
         fake_mp = mock.Mock()
-        with mock.patch.object(s, "get_resolve", return_value=FakeResolve()), \
-             mock.patch.object(s, "_clips_from_params", return_value=((["c1"], []), None)), \
-             mock.patch.object(s, "_clip_summaries", return_value=[]):
+        with mock.patch.object(_dom_audio_fairlight, "get_resolve", return_value=FakeResolve()), \
+             mock.patch.object(_dom_audio_fairlight, "_clips_from_params", return_value=((["c1"], []), None)), \
+             mock.patch.object(_dom_audio_fairlight, "_clip_summaries", return_value=[]):
             out = s._safe_auto_sync_audio(
                 fake_mp, {"settings": {"mode": "waveform"}, "dry_run": True}
             )
@@ -73,9 +75,9 @@ class SafeAutoSyncTest(unittest.TestCase):
         # Issue #70: unsupported keys must be reported back to the caller so a
         # silent rejection is no longer invisible.
         fake_mp = mock.Mock()
-        with mock.patch.object(s, "get_resolve", return_value=FakeResolve()), \
-             mock.patch.object(s, "_clips_from_params", return_value=((["c1"], []), None)), \
-             mock.patch.object(s, "_clip_summaries", return_value=[]):
+        with mock.patch.object(_dom_audio_fairlight, "get_resolve", return_value=FakeResolve()), \
+             mock.patch.object(_dom_audio_fairlight, "_clips_from_params", return_value=((["c1"], []), None)), \
+             mock.patch.object(_dom_audio_fairlight, "_clip_summaries", return_value=[]):
             out = s._safe_auto_sync_audio(
                 fake_mp,
                 {"settings": {"method": "waveform", "group_id": "g"}, "dry_run": True},
@@ -89,8 +91,8 @@ class SafeAutoSyncTest(unittest.TestCase):
         fake_mp.AutoSyncAudio.side_effect = (
             lambda clips, settings: captured.update(settings=settings, clips=clips) or True
         )
-        with mock.patch.object(s, "get_resolve", return_value=FakeResolve()), \
-             mock.patch.object(s, "_clips_from_params", return_value=((["c1"], []), None)):
+        with mock.patch.object(_dom_audio_fairlight, "get_resolve", return_value=FakeResolve()), \
+             mock.patch.object(_dom_audio_fairlight, "_clips_from_params", return_value=((["c1"], []), None)):
             out = s._safe_auto_sync_audio(
                 fake_mp, {"settings": {"mode": "timecode"}, "dry_run": False}
             )
@@ -124,8 +126,8 @@ class SafeAutoSyncTest(unittest.TestCase):
             return True
 
         fake_mp.AutoSyncAudio.side_effect = do_sync
-        with mock.patch.object(s, "get_resolve", return_value=FakeResolve()), \
-             mock.patch.object(s, "_clips_from_params", return_value=((clips, []), None)):
+        with mock.patch.object(_dom_audio_fairlight, "get_resolve", return_value=FakeResolve()), \
+             mock.patch.object(_dom_audio_fairlight, "_clips_from_params", return_value=((clips, []), None)):
             out = s._safe_auto_sync_audio(fake_mp, {"settings": {}, "dry_run": False})
         self.assertEqual(out["newly_linked"], ["v_new"])
         self.assertEqual(out["already_linked"], ["v_old"])
@@ -145,8 +147,8 @@ class SafeAutoSyncTest(unittest.TestCase):
         clips = [SyncClip("v1")]
         fake_mp = mock.Mock()
         fake_mp.AutoSyncAudio.return_value = True  # lies: says success
-        with mock.patch.object(s, "get_resolve", return_value=FakeResolve()), \
-             mock.patch.object(s, "_clips_from_params", return_value=((clips, []), None)):
+        with mock.patch.object(_dom_audio_fairlight, "get_resolve", return_value=FakeResolve()), \
+             mock.patch.object(_dom_audio_fairlight, "_clips_from_params", return_value=((clips, []), None)):
             out = s._safe_auto_sync_audio(fake_mp, {"settings": {}, "dry_run": False})
         # success boolean is True but readback shows nothing actually linked
         self.assertTrue(out["success"])
@@ -157,10 +159,10 @@ class SafeAutoSyncTest(unittest.TestCase):
         # Even if the module global `resolve` is None, the fix routes through
         # get_resolve(), so constants still resolve.
         fake_mp = mock.Mock()
-        with mock.patch.object(s, "resolve", None), \
-             mock.patch.object(s, "get_resolve", return_value=FakeResolve()), \
-             mock.patch.object(s, "_clips_from_params", return_value=((["c1"], []), None)), \
-             mock.patch.object(s, "_clip_summaries", return_value=[]):
+        with mock.patch.object(_live_connection, "resolve", None), \
+             mock.patch.object(_dom_audio_fairlight, "get_resolve", return_value=FakeResolve()), \
+             mock.patch.object(_dom_audio_fairlight, "_clips_from_params", return_value=((["c1"], []), None)), \
+             mock.patch.object(_dom_audio_fairlight, "_clip_summaries", return_value=[]):
             out = s._safe_auto_sync_audio(
                 fake_mp, {"settings": {"mode": "waveform"}, "dry_run": True}
             )

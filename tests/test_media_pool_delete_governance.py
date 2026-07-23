@@ -9,6 +9,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.media_pool_ingest.actions as _dom_media_pool_ingest
 from src.core.destructive_hook import is_destructive, DESTRUCTIVE_ACTIONS_BY_TOOL
 
 
@@ -32,7 +33,7 @@ class GatingWiringEX3Test(unittest.TestCase):
     def test_pending_confirm_check_fires_for_deletes(self):
         # When confirm is required and no token is present, the wrapper must learn
         # the call WILL gate (so it skips archiving the not-yet-mutated state).
-        with mock.patch.object(s, "_confirm_token_required", return_value=True):
+        with mock.patch.object(_dom_media_pool_ingest, "_confirm_token_required", return_value=True):
             self.assertTrue(s._action_will_gate_pending_confirm("media_pool", "delete_clips", {"clip_ids": ["x"]}))
             # With a token present, it will NOT gate (it proceeds to mutate+archive).
             self.assertFalse(s._action_will_gate_pending_confirm("media_pool", "delete_clips", {"clip_ids": ["x"], "confirm_token": "t"}))
@@ -53,10 +54,10 @@ class DeleteClipsIssueTokenTest(unittest.TestCase):
         fake_mp = mock.Mock()
         fake_root = mock.Mock()
         fake_proj = mock.Mock()
-        with mock.patch.object(s, "_confirm_token_required", return_value=True), \
-             mock.patch.object(s, "_check", return_value=(mock.Mock(), fake_proj, None)), \
-             mock.patch.object(s, "_get_mp", return_value=(mock.Mock(), fake_proj, fake_mp, None)), \
-             mock.patch.object(s, "_find_clip", return_value=fake_clip):
+        with mock.patch.object(_dom_media_pool_ingest, "_confirm_token_required", return_value=True), \
+             mock.patch.object(_dom_media_pool_ingest, "_check", return_value=(mock.Mock(), fake_proj, None)), \
+             mock.patch.object(_dom_media_pool_ingest, "_get_mp", return_value=(mock.Mock(), fake_proj, fake_mp, None)), \
+             mock.patch.object(_dom_media_pool_ingest, "_find_clip", return_value=fake_clip):
             fake_mp.GetRootFolder.return_value = fake_root
             out = s.media_pool("delete_clips", {"clip_ids": ["c1", "c2"]})
         self.assertEqual(out.get("status"), "confirmation_required")

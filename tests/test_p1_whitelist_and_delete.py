@@ -3,6 +3,9 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.media_pool_ingest.actions as _dom_media_pool_ingest
+import src.domains.render_deliver.actions as _dom_render_deliver
+import src.domains.project_lifecycle.actions as _dom_project_lifecycle
 
 
 class FilterToKeysTest(unittest.TestCase):
@@ -34,8 +37,8 @@ class ImportTimelineWhitelistTest(unittest.TestCase):
         fake_mp = mock.Mock()
         fake_mp.ImportTimelineFromFile.side_effect = lambda path, opts: captured.update(opts=opts) or fake_tl
         fake_proj = mock.Mock()
-        with mock.patch.object(s, "_check", return_value=(mock.Mock(), fake_proj, None)), \
-             mock.patch.object(s, "_get_mp", return_value=(mock.Mock(), fake_proj, fake_mp, None)):
+        with mock.patch.object(_dom_media_pool_ingest, "_check", return_value=(mock.Mock(), fake_proj, None)), \
+             mock.patch.object(_dom_media_pool_ingest, "_get_mp", return_value=(mock.Mock(), fake_proj, fake_mp, None)):
             fake_mp.GetRootFolder.return_value = mock.Mock()
             out = s.media_pool("import_timeline", {"path": "/tmp/x.aaf",
                                                    "options": {"timelineName": "Cut", "junk": 1}})
@@ -48,14 +51,14 @@ class RenderSettingsWhitelistTest(unittest.TestCase):
         captured = {}
         fake_proj = mock.Mock()
         fake_proj.SetRenderSettings.side_effect = lambda s_: captured.update(s=s_) or True
-        with mock.patch.object(s, "_check", return_value=(mock.Mock(), fake_proj, None)):
+        with mock.patch.object(_dom_render_deliver, "_check", return_value=(mock.Mock(), fake_proj, None)):
             out = s.render("set_settings", {"settings": {"TargetDir": "/tmp", "Nonsense": 9}})
         self.assertEqual(captured["s"], {"TargetDir": "/tmp"})
         self.assertEqual(out.get("ignored_settings"), ["Nonsense"])
 
     def test_set_settings_requires_dict(self):
         fake_proj = mock.Mock()
-        with mock.patch.object(s, "_check", return_value=(mock.Mock(), fake_proj, None)):
+        with mock.patch.object(_dom_render_deliver, "_check", return_value=(mock.Mock(), fake_proj, None)):
             out = s.render("set_settings", {})
         self.assertIn("error", out)
 
@@ -65,7 +68,7 @@ class DeleteProjectRoutingTest(unittest.TestCase):
         fake_pm = mock.Mock()
         fake_resolve = mock.Mock()
         fake_resolve.GetProjectManager.return_value = fake_pm
-        with mock.patch.object(s, "get_resolve", return_value=fake_resolve), \
+        with mock.patch.object(_dom_project_lifecycle, "get_resolve", return_value=fake_resolve), \
              mock.patch("src.domains.project_lifecycle.utils.project_cleanup.delete_project_safely",
                         return_value={"success": True, "attempts": 1, "leftover": None, "detail": ""}) as safe:
             out = s.project_manager("delete", {"name": "Disposable"})
@@ -76,7 +79,7 @@ class DeleteProjectRoutingTest(unittest.TestCase):
     def test_raw_delete_requires_name(self):
         fake_resolve = mock.Mock()
         fake_resolve.GetProjectManager.return_value = mock.Mock()
-        with mock.patch.object(s, "get_resolve", return_value=fake_resolve):
+        with mock.patch.object(_dom_project_lifecycle, "get_resolve", return_value=fake_resolve):
             out = s.project_manager("delete", {})
         self.assertIn("error", out)
         self.assertIn("name", out["error"]["message"].lower())

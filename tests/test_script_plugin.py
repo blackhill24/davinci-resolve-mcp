@@ -371,7 +371,7 @@ class TestRoundtripFilesystem(unittest.TestCase):
             'scripts_categories': ('Edit', 'Color', 'Deliver', 'Comp',
                                    'Tool', 'Utility', 'Views'),
         }
-        cls._patcher = patch('src.server.get_resolve_plugin_paths',
+        cls._patcher = patch('src.domains.extension_authoring.actions.get_resolve_plugin_paths',
                               return_value=cls.fake_paths)
         cls._patcher.start()
 
@@ -515,11 +515,11 @@ class TestScriptExecution(unittest.TestCase):
             'scripts_categories': ('Edit', 'Color', 'Deliver', 'Comp',
                                    'Tool', 'Utility', 'Views'),
         }
-        cls._patcher = patch('src.server.get_resolve_plugin_paths',
+        cls._patcher = patch('src.domains.extension_authoring.actions.get_resolve_plugin_paths',
                               return_value=cls.fake_paths)
         cls._patcher.start()
         # Don't try to launch Resolve from these tests
-        cls._resolve_patcher = patch('src.server.get_resolve',
+        cls._resolve_patcher = patch('src.domains.extension_authoring.actions.get_resolve',
                                       return_value=None)
         cls._resolve_patcher.start()
 
@@ -640,7 +640,7 @@ class TestScriptExecution(unittest.TestCase):
         mock_resolve = type(sys)('resolve_mock')
         mock_resolve.Fusion = lambda: mock_fusion
 
-        with patch('src.server.get_resolve', return_value=mock_resolve):
+        with patch('src.domains.extension_authoring.actions.get_resolve', return_value=mock_resolve):
             r = script_plugin('execute', {
                 'name': 'LuaTest', 'category': 'Utility', 'language': 'lua',
             })
@@ -656,7 +656,7 @@ class TestScriptExecution(unittest.TestCase):
         mock_resolve = type(sys)('resolve_mock')
         mock_resolve.Fusion = lambda: mock_fusion
 
-        with patch('src.server.get_resolve', return_value=mock_resolve):
+        with patch('src.domains.extension_authoring.actions.get_resolve', return_value=mock_resolve):
             r = script_plugin('execute', {
                 'name': 'LuaFail', 'category': 'Utility', 'language': 'lua',
             })
@@ -729,7 +729,7 @@ class TestScriptExecution(unittest.TestCase):
         class MockResolve:
             def Fusion(self_inner): return MockFusion()
 
-        with patch('src.server.get_resolve', return_value=MockResolve()):
+        with patch('src.domains.extension_authoring.actions.get_resolve', return_value=MockResolve()):
             r = script_plugin('run_inline', {
                 'source': 'return 42', 'language': 'lua',
             })

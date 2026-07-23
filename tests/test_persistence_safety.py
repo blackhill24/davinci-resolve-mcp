@@ -13,6 +13,9 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.media_pool_ingest.actions as _dom_media_pool_ingest
+import src.domains.media_analysis.actions as _dom_media_analysis
+import src.core.tool_kernel as _core_tool_kernel
 
 
 class ReadJsonStrictTest(unittest.TestCase):
@@ -53,7 +56,7 @@ class PreferencesClobberGuardTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = self._corrupt_prefs(d)
             before = open(p).read()
-            with mock.patch.object(s, "_media_analysis_preferences_path", return_value=p):
+            with mock.patch.object(_core_tool_kernel, "_media_analysis_preferences_path", return_value=p):
                 out = s._setup_set_media_analysis_defaults({"vision_default": "off"}, dry_run=False)
             self.assertIn("error", out)
             # The corrupt file must be left untouched, not clobbered.
@@ -63,7 +66,7 @@ class PreferencesClobberGuardTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = self._corrupt_prefs(d)
             before = open(p).read()
-            with mock.patch.object(s, "_media_analysis_preferences_path", return_value=p):
+            with mock.patch.object(_core_tool_kernel, "_media_analysis_preferences_path", return_value=p):
                 out = s.media_pool_item("set_ai_governance", {"preset": "trusted"})
             self.assertIn("error", out)
             self.assertEqual(open(p).read(), before)
@@ -73,7 +76,7 @@ class PreferencesClobberGuardTest(unittest.TestCase):
             p = os.path.join(d, "media-analysis-preferences.json")
             with open(p, "w") as fh:
                 json.dump({"vision_default": "on", "keep_me": "yes"}, fh)
-            with mock.patch.object(s, "_media_analysis_preferences_path", return_value=p):
+            with mock.patch.object(_core_tool_kernel, "_media_analysis_preferences_path", return_value=p):
                 out = s._setup_set_media_analysis_defaults({"vision_default": "off"}, dry_run=False)
             self.assertNotIn("error", out)
             saved = json.load(open(p))
@@ -108,7 +111,7 @@ class CorrectionsClobberGuardTest(unittest.TestCase):
             with open(corr, "w") as fh:
                 fh.write('{ "current": { "clip:x:visual.shot_size": ... ')  # corrupt
             before = open(corr).read()
-            with mock.patch.object(s, "_v2_corrections_path_for_clip", return_value=corr):
+            with mock.patch.object(_dom_media_analysis, "_v2_corrections_path_for_clip", return_value=corr):
                 out = s._v2_update_field(
                     d,
                     {"clip_id": "x", "entity_uuid": "x", "field_path": "visual.shot_size", "new_value": "CU"},

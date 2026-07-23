@@ -3,6 +3,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.core.timeline_lookup as _core_timeline_lookup
 
 
 class FakeClip:
@@ -79,7 +80,7 @@ class ProjectSummaryTest(unittest.TestCase):
     def test_inventory(self):
         fake_r = mock.Mock()
         fake_r.GetCurrentPage.return_value = "edit"
-        with mock.patch.object(s, "get_resolve", return_value=fake_r):
+        with mock.patch.object(_core_timeline_lookup, "get_resolve", return_value=fake_r):
             out = s._project_summary(self._proj(), include_clips=True)
         self.assertEqual(out["project"], "proj")
         self.assertEqual(out["current_page"], "edit")
@@ -91,14 +92,14 @@ class ProjectSummaryTest(unittest.TestCase):
         self.assertEqual(len(out["clips"]), 3)
 
     def test_clip_limit_and_exclude(self):
-        with mock.patch.object(s, "get_resolve", return_value=None):
+        with mock.patch.object(_core_timeline_lookup, "get_resolve", return_value=None):
             out = s._project_summary(self._proj(), include_clips=False)
         self.assertIsNone(out["clips"])
         self.assertIsNone(out["current_page"])
 
     def test_empty_media_pool(self):
         proj = FakeProj(FakeMP(FakeFolder([])), 0, None)
-        with mock.patch.object(s, "get_resolve", return_value=None):
+        with mock.patch.object(_core_timeline_lookup, "get_resolve", return_value=None):
             out = s._project_summary(proj)
         self.assertEqual(out["media_pool"]["clip_count"], 0)
         self.assertEqual(out["media_pool"]["folder_count"], 1)  # just root

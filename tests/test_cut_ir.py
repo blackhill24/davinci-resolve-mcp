@@ -3,6 +3,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+import src.domains.timeline_edit.actions as _dom_timeline_edit
 from src.domains.auto_edit.utils import cut_ir
 
 
@@ -61,7 +62,7 @@ class ProposeCutsActionTest(unittest.TestCase):
     def _call(self, params):
         proj = mock.Mock()
         proj.GetCurrentTimeline.return_value = mock.Mock()
-        with mock.patch.object(s, "_check", return_value=(None, proj, None)):
+        with mock.patch.object(_dom_timeline_edit, "_check", return_value=(None, proj, None)):
             return s.timeline("propose_cuts", params)
 
     def test_provided_cues(self):

@@ -13,13 +13,10 @@ from urllib.parse import parse_qs, unquote, urlparse
 from src.core import brain_edits as _brain_edits
 from src.core import timeline_versioning as _timeline_versioning
 from src.domains.media_analysis.utils.analysis_memory import read_panel_state, write_panel_state
-from src.domains.media_analysis.utils.media_analysis import (
-    analysis_index_status,
-    analysis_root_coverage,
-    build_analysis_index,
-    detect_capabilities,
-    query_analysis_index,
-)
+from src.domains.media_analysis.utils.analysis_index_query import analysis_index_status, query_analysis_index
+from src.domains.media_analysis.utils.reports import analysis_root_coverage
+from src.domains.media_analysis.utils.analysis_index_build import build_analysis_index
+from src.domains.media_analysis.utils.capabilities_and_planning import detect_capabilities
 from src.domains.media_analysis.utils.media_analysis_jobs import (
     batch_job_status,
     cancel_batch_job,
@@ -607,7 +604,7 @@ class Handler(BaseHTTPRequestHandler):
                 from src.server import (
                     _media_analysis_effective_preferences as _ma_eff_prefs,
                 )
-                from src.domains.media_analysis.utils import media_analysis as _ma_mod
+                from src.domains.media_analysis.utils import caps_gating as _ma_mod
                 _ma_prefs = _ma_eff_prefs()
                 params["sampling_mode"] = (
                     body.get("sampling_mode")

@@ -16,7 +16,7 @@ import src.granular.common as granular_common
 import src.server as server
 import src.core.live_connection as live_connection
 import src.core.app_control as app_control
-import src.domains.media_analysis.utils.media_analysis as media_analysis
+import src.domains.media_analysis.utils.technical_probe as media_analysis
 from src.core.proc import preload_audit, resolve_spawn_env, sanitized_spawn_env
 
 NXEGL = "/usr/NX/lib/libnxegl.so"

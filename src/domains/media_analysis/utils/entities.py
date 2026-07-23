@@ -58,9 +58,16 @@ def _now() -> str:
 
 
 def _ma():
-    from src.domains.media_analysis.utils import media_analysis
+    """Lazy import (avoids a circular import: media_analysis's caps_gating calls into here)."""
+    from src.domains.media_analysis.utils import caps_gating
 
-    return media_analysis
+    return caps_gating
+
+
+def _clip_ident():
+    from src.domains.media_analysis.utils import clip_identity_registry
+
+    return clip_identity_registry
 
 
 class _UnionFind:
@@ -127,7 +134,7 @@ def _representative(vectors: List[List[float]], members: List[int]) -> Tuple[int
 
 
 def _entity_uuid_for(frame_refs: Sequence[str]) -> str:
-    return _ma().short_hash("entity:" + ",".join(sorted(frame_refs)), 12)
+    return _clip_ident().short_hash("entity:" + ",".join(sorted(frame_refs)), 12)
 
 
 def _detection_state_path(project_root: str) -> str:
@@ -303,7 +310,7 @@ def detect_entities(
             entity_uuids,
         )
 
-    vision_token = _ma().short_hash("entities:" + ",".join(sorted(entity_uuids)), 16)
+    vision_token = _clip_ident().short_hash("entities:" + ",".join(sorted(entity_uuids)), 16)
     _write_detection_state(project_root, vision_token, entity_uuids)
     return {
         "success": True,
@@ -506,7 +513,7 @@ def prepare_bin_briefing(project_root: str) -> Dict[str, Any]:
         }
         for e in listed.get("entities") or []
     ]
-    token = _ma().short_hash(
+    token = _clip_ident().short_hash(
         "briefing:" + ",".join(sorted(c["clip_uuid"] for c in clips)), 16
     )
     return {
@@ -546,7 +553,7 @@ def commit_bin_summary(
         return {"success": False, "error": "commit_bin_summary requires `briefing` (markdown text)"}
     conn = timeline_brain_db.connect(project_root)
     clips = [str(r["clip_uuid"]) for r in conn.execute("SELECT clip_uuid FROM clips ORDER BY clip_name").fetchall()]
-    expected = _ma().short_hash("briefing:" + ",".join(sorted(clips)), 16)
+    expected = _clip_ident().short_hash("briefing:" + ",".join(sorted(clips)), 16)
     if briefing_token and str(briefing_token) != expected:
         return {
             "success": False,

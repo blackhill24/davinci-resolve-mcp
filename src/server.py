@@ -64,27 +64,37 @@ from src.core.update_check import (
     update_prompt_decision,
     update_state_path,
 )
-from src.domains.media_analysis.utils.media_analysis import (
+from src.domains.media_analysis.utils.caps_gating import (
     HOST_CHAT_PATHS_PROVIDER,
     HOST_CHAT_VISION_PROVIDERS,
     DEFAULT_VISION_ANALYSIS_PROMPT,
     VISION_SCHEMA_REFERENCE,
-    analysis_index_status,
-    build_plan as build_media_analysis_plan,
-    build_coverage_report as build_media_analysis_coverage_report,
-    build_analysis_index,
-    cleanup_artifacts as cleanup_media_analysis_artifacts,
-    commit_visual_analysis,
-    detect_capabilities as detect_media_analysis_capabilities,
-    execute_plan_async as execute_media_analysis_plan_async,
-    install_guidance as media_analysis_install_guidance,
-    load_report as load_media_analysis_report,
-    plan_requires_capabilities as media_analysis_plan_requires_capabilities,
-    query_analysis_index,
+)
+from src.domains.media_analysis.utils.clip_identity_registry import (
     resolve_output_root as resolve_media_analysis_output_root,
     short_hash,
     slugify,
+)
+from src.domains.media_analysis.utils.capabilities_and_planning import (
+    build_plan as build_media_analysis_plan,
+    detect_capabilities as detect_media_analysis_capabilities,
+    install_guidance as media_analysis_install_guidance,
+)
+from src.domains.media_analysis.utils.execute_engine import (
+    execute_plan_async as execute_media_analysis_plan_async,
+    plan_requires_capabilities as media_analysis_plan_requires_capabilities,
+)
+from src.domains.media_analysis.utils.reports import (
+    build_coverage_report as build_media_analysis_coverage_report,
+    cleanup_artifacts as cleanup_media_analysis_artifacts,
+    commit_visual_analysis,
+    load_report as load_media_analysis_report,
     summarize_reports as summarize_media_analysis_reports,
+)
+from src.domains.media_analysis.utils.analysis_index_build import build_analysis_index
+from src.domains.media_analysis.utils.analysis_index_query import (
+    analysis_index_status,
+    query_analysis_index,
 )
 from src.domains.media_analysis.utils.sync_detection import detect_sync_events_for_records as detect_media_sync_events
 from src.core import actor_identity, background_jobs, resolve_busy
@@ -1125,7 +1135,8 @@ _destructive_hook.register_pending_confirm_check(_action_will_gate_pending_confi
 # Lazy import to avoid touching media_analysis at module-init time (it imports
 # our destructive-hook + analysis_caps modules already, but the providers we
 # register here read media-analysis preferences which the server owns).
-from src.domains.media_analysis.utils import media_analysis as _media_analysis_module
+from src.domains.media_analysis.utils import caps_gating as _media_analysis_module
+from src.domains.media_analysis.utils.clip_identity_registry import normalize_sampling_mode as _normalize_sampling_mode
 # _caps_preset_provider/_caps_overrides_provider moved to
 # src.domains.media_analysis.actions (Phase 3, #46) — registered after the
 # domain action imports further down, once those names are available.
@@ -2390,7 +2401,7 @@ def _setup_set_media_analysis_defaults(media_defaults: Dict[str, Any], dry_run: 
                 next_preferences.pop("sampling_mode_default_updated_at", None)
                 updates[key] = {"before": before.get(key), "after": None, "cleared": True}
             else:
-                normalized = _media_analysis_module.normalize_sampling_mode(raw_value, default=None)
+                normalized = _normalize_sampling_mode(raw_value, default=None)
                 if normalized is None:
                     return _err(
                         "Unsupported sampling_mode_default. Use ask, fixed/economy, "

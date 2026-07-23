@@ -71,11 +71,25 @@ def _dumps(value: Any) -> str:
     return json.dumps(value, sort_keys=True, default=str)
 
 
-def _ma():
-    """Lazy import of media_analysis helpers (avoids a circular import)."""
-    from src.domains.media_analysis.utils import media_analysis
+def _clip_identity():
+    """Lazy import (avoids a circular import: this module is called from the write path)."""
+    from src.domains.media_analysis.utils import clip_identity_registry
 
-    return media_analysis
+    return clip_identity_registry
+
+
+def _technical_probe():
+    """Lazy import (avoids a circular import: this module is called from the write path)."""
+    from src.domains.media_analysis.utils import technical_probe
+
+    return technical_probe
+
+
+def _execute_engine():
+    """Lazy import (avoids a circular import: this module is called from the write path)."""
+    from src.domains.media_analysis.utils import execute_engine
+
+    return execute_engine
 
 
 def shot_uuid_for(clip_uuid: str, start: Any, end: Any) -> str:
@@ -92,7 +106,7 @@ def shot_uuid_for(clip_uuid: str, start: Any, end: Any) -> str:
         end_r = int(round(float(end)))
     except (TypeError, ValueError):
         end_r = -1
-    return _ma().short_hash(f"shot:{clip_uuid}:{start_r}:{end_r}", 12)
+    return _clip_identity().short_hash(f"shot:{clip_uuid}:{start_r}:{end_r}", 12)
 
 
 def _flatten_fields(value: Any, prefix: str, out: Dict[str, Any]) -> None:
@@ -139,7 +153,7 @@ def clip_identity(report: Dict[str, Any], *, clip_dir: Optional[str] = None) -> 
     aliases cover legacy hashes, clip_id, media_id, raw/normalized file path,
     and the report folder's name + embedded hash.
     """
-    ma = _ma()
+    ma = _clip_identity()
     record = report.get("clip") if isinstance(report.get("clip"), dict) else {}
     hashes = ma.stable_clip_match_hashes(record)
     aliases: List[Tuple[str, str]] = []
@@ -185,14 +199,14 @@ def resolve_clip_uuid(conn: sqlite3.Connection, ref: Any) -> Optional[str]:
     # Folder names carry the hash as a suffix; absolute paths reduce to basename.
     base = os.path.basename(candidate.rstrip("/\\"))
     if base != candidate:
-        for probe in (base, _ma().clip_directory_hash(base) or ""):
+        for probe in (base, _clip_identity().clip_directory_hash(base) or ""):
             if not probe:
                 continue
             row = conn.execute("SELECT clip_uuid FROM clip_aliases WHERE alias = ?", (probe,)).fetchone()
             if row:
                 return str(row["clip_uuid"])
     else:
-        probe = _ma().clip_directory_hash(base)
+        probe = _clip_identity().clip_directory_hash(base)
         if probe:
             row = conn.execute("SELECT clip_uuid FROM clip_aliases WHERE alias = ?", (probe,)).fetchone()
             if row:
@@ -210,7 +224,7 @@ def resolve_clip_uuid_ingesting(
     clip_uuid = resolve_clip_uuid(conn, clip_ref)
     if clip_uuid:
         return clip_uuid
-    ma = _ma()
+    ma = _clip_identity()
     clips_root = os.path.join(project_root, "clips")
     candidate = str(clip_ref or "")
     if not os.path.isdir(clips_root):
@@ -658,7 +672,7 @@ def ingest_report(
 
 def _overlay_human_fields(conn: sqlite3.Connection, clip_uuid: str, report: Dict[str, Any]) -> int:
     """Apply current human subjective rows onto a report dict. Returns count."""
-    ma = _ma()
+    ma = _execute_engine()
     visual = report.get("visual")
     if not isinstance(visual, dict):
         return 0
@@ -752,7 +766,7 @@ def export_report_file(project_root: str, clip_ref: Any, path: str) -> Optional[
     report = export_report(project_root, clip_ref)
     if report is None:
         return None
-    _ma()._write_json(path, report)
+    _technical_probe()._write_json(path, report)
     return path
 
 
@@ -978,7 +992,7 @@ def ingest_project(project_root: str) -> Dict[str, Any]:
 
     The migration entry point for projects analyzed before v9. Idempotent.
     """
-    ma = _ma()
+    ma = _clip_identity()
     root = ma.normalize_path(project_root)
     clips_root = os.path.join(root, "clips")
     ingested: List[Dict[str, Any]] = []

@@ -7,7 +7,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.domains.media_analysis.utils.media_analysis_jobs import project_root_for_dashboard
-from src.domains.media_analysis.utils.media_analysis import resolve_output_root
+from src.domains.media_analysis.utils.clip_identity_registry import resolve_output_root
 from src.dashboard.resolve_helpers import _connect_resolve_read_only, _safe_call, _safe_id, _safe_name, _serialize_resolve
 
 

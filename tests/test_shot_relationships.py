@@ -17,7 +17,7 @@ from unittest import mock
 
 from src.core import timeline_brain_db
 from src.domains.media_analysis.utils import analysis_store, embeddings, shot_relationships
-from src.domains.media_analysis.utils import media_analysis as ma
+from src.domains.media_analysis.utils import caps_gating as ma
 
 from tests.test_analysis_store import make_report
 

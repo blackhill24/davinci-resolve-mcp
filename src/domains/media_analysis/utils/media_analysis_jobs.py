@@ -17,18 +17,16 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from src.domains.media_analysis.utils.media_analysis import (
-    ANALYSIS_VERSION,
-    build_analysis_index,
-    build_plan,
-    detect_capabilities,
-    execute_plan,
+from src.domains.media_analysis.utils.caps_gating import ANALYSIS_VERSION
+from src.domains.media_analysis.utils.clip_identity_registry import (
     normalize_path,
-    plan_requires_capabilities,
     resolve_output_root,
     stable_clip_directory,
-    summarize_reports,
 )
+from src.domains.media_analysis.utils.capabilities_and_planning import build_plan, detect_capabilities
+from src.domains.media_analysis.utils.execute_engine import execute_plan, plan_requires_capabilities
+from src.domains.media_analysis.utils.analysis_index_build import build_analysis_index
+from src.domains.media_analysis.utils.reports import summarize_reports
 
 
 JOBS_DB_FILENAME = "jobs.sqlite"

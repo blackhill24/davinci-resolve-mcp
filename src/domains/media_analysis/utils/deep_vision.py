@@ -107,9 +107,22 @@ DEEP_SHOT_PROMPT = (
 
 
 def _ma():
-    from src.domains.media_analysis.utils import media_analysis
+    """Lazy import (avoids a circular import: media_analysis's caps_gating calls into here)."""
+    from src.domains.media_analysis.utils import caps_gating
 
-    return media_analysis
+    return caps_gating
+
+
+def _clip_ident():
+    from src.domains.media_analysis.utils import clip_identity_registry
+
+    return clip_identity_registry
+
+
+def _tech_probe():
+    from src.domains.media_analysis.utils import technical_probe
+
+    return technical_probe
 
 
 def deep_shot_schema() -> Dict[str, Any]:
@@ -171,7 +184,7 @@ def _extract_frame(source: str, time_seconds: float, out_path: str) -> Optional[
     """Extract one frame with ffmpeg (read-only on source). None on failure."""
     ma = _ma()
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    code, _out, _err = ma._run_command([
+    code, _out, _err = _tech_probe()._run_command([
         "ffmpeg", "-y", "-ss", f"{max(0.0, time_seconds):.3f}", "-i", source,
         "-frames:v", "1", "-q:v", "3", out_path,
     ])
@@ -188,11 +201,11 @@ def _extract_frame(source: str, time_seconds: float, out_path: str) -> Optional[
 
 
 def _confirm_token_for(clip_uuid: str, shot_uuids: List[str]) -> str:
-    return _ma().short_hash(f"deepen:{clip_uuid}:{','.join(sorted(shot_uuids))}", 16)
+    return _clip_ident().short_hash(f"deepen:{clip_uuid}:{','.join(sorted(shot_uuids))}", 16)
 
 
 def _vision_token_for(clip_uuid: str, shot_uuids: List[str]) -> str:
-    return _ma().short_hash(f"deep_vision:{clip_uuid}:{','.join(sorted(shot_uuids))}", 16)
+    return _clip_ident().short_hash(f"deep_vision:{clip_uuid}:{','.join(sorted(shot_uuids))}", 16)
 
 
 def deepen_clip(
@@ -292,7 +305,7 @@ def deepen_clip(
     for plan in frame_plan:
         indices: List[int] = []
         for row in plan["rows"]:
-            path = ma.normalize_path(str(row["frame_path"]))
+            path = _clip_ident().normalize_path(str(row["frame_path"]))
             if path not in frame_paths:
                 frame_paths.append(path)
                 frame_metadata.append({
@@ -313,7 +326,7 @@ def deepen_clip(
             if not extracted:
                 continue
             synthetic_index += 1
-            path = ma.normalize_path(extracted)
+            path = _clip_ident().normalize_path(extracted)
             frame_paths.append(path)
             frame_metadata.append({
                 "frame_index": synthetic_index,
@@ -542,7 +555,7 @@ def vision_pending_sweep(
     ``expired_host_analysis`` so pendings never linger silently.
     """
     ma = _ma()
-    root = ma.normalize_path(project_root)
+    root = _clip_ident().normalize_path(project_root)
     clips_root = os.path.join(root, "clips")
     now = time.time()
     pending: List[Dict[str, Any]] = []
@@ -591,7 +604,7 @@ def vision_pending_sweep(
                 if ingest.get("success"):
                     analysis_store.export_report_file(root, ingest["clip_uuid"], report_path)
                 else:
-                    ma._write_json(report_path, report)
+                    _tech_probe()._write_json(report_path, report)
                 expired.append(entry)
                 row["expired"] = True
             elif reoffer and frames_present:

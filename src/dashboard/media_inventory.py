@@ -9,7 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.domains.media_analysis.utils.media_analysis import (
+from src.domains.media_analysis.utils.clip_identity_registry import (
     clip_directory_hash,
     load_clip_index,
     stable_clip_directory,

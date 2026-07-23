@@ -65,7 +65,10 @@ def main() -> int:
                           duration=26.0, pattern="smptebars")
 
     import src.server as s
-    from src.domains.media_analysis.utils import media_analysis as ma
+    from src.domains.media_analysis.utils import capabilities_and_planning as _cap
+    from src.domains.media_analysis.utils import execute_engine as _exec
+    from src.domains.media_analysis.utils import reports as _reports
+    from src.domains.media_analysis.utils import clip_identity_registry as _cir
     from src.domains.media_analysis.utils import analysis_store, embeddings
 
     r = s.get_resolve()
@@ -98,7 +101,7 @@ def main() -> int:
                 "fps": 24.0,
             })
         pilot_project_id = proj.GetUniqueId() if hasattr(proj, "GetUniqueId") else None
-        plan = ma.build_plan(
+        plan = _cap.build_plan(
             project_name=PILOT,
             project_id=pilot_project_id,
             records=records,
@@ -107,7 +110,7 @@ def main() -> int:
                     "vision": {"enabled": False}},
         )
         check("analysis plan", plan.get("success"), str(plan.get("error") or ""))
-        manifest = asyncio.run(ma.execute_plan_async(plan, params={
+        manifest = asyncio.run(_exec.execute_plan_async(plan, params={
             "depth": "standard", "transcription": {"enabled": True, "allow_model_download": True}}))
         check("analysis executed", manifest.get("success"),
               f"clips={manifest.get('successful_clip_count')}")
@@ -139,7 +142,7 @@ def main() -> int:
                                   "best_moment": None, "pacing": "moderate"},
                 }],
             }
-            commit = ma.commit_visual_analysis(
+            commit = _reports.commit_visual_analysis(
                 project_root=out_root, visual=visual, clip_id=record["clip_id"])
             check(f"vision committed: {record['clip_name']}", commit.get("success"),
                   str(commit.get("error") or ""))
@@ -177,7 +180,7 @@ def main() -> int:
 
         # ── E2: tighten (talk clip has dead air after ~5s of speech) ──
         # Build a dedicated timeline with just the talk clip.
-        talk_item = by_path[clip_talk if clip_talk in by_path else ma.normalize_path(clip_talk)]
+        talk_item = by_path[clip_talk if clip_talk in by_path else _cir.normalize_path(clip_talk)]
         tl2 = mp.CreateTimelineFromClips("Pilot Tighten Base", [talk_item])
         check("tighten base timeline", tl2 is not None)
         proj.SetCurrentTimeline(tl2)

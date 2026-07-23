@@ -17,7 +17,9 @@ import tempfile
 import unittest
 
 from src.core import timeline_brain_db
-from src.domains.media_analysis.utils import analysis_caps, media_analysis
+from src.domains.media_analysis.utils import analysis_caps
+from src.domains.media_analysis.utils import caps_gating as media_analysis
+from src.domains.media_analysis.utils import vision_prompt
 
 
 class PreCallRefusal(unittest.TestCase):
@@ -164,7 +166,7 @@ class VisionAnalysisRefusalPropagation(unittest.TestCase):
         }
         capabilities = {"vision": {"provider": "host_chat_paths"}}
 
-        payload = media_analysis._vision_analysis(record, motion, options, artifacts, capabilities)
+        payload = vision_prompt._vision_analysis(record, motion, options, artifacts, capabilities)
 
         # Pre-fix this was {success: False, status: "skipped", reason: "No sampled..."}.
         # Post-fix the refusal envelope from build_host_chat_paths_payload propagates.

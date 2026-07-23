@@ -42,41 +42,59 @@ from src.dashboard.clip_review import (
 from src.dashboard.timeline_versions import read_clip_corrections
 from src.dashboard.media_inventory import _analysis_status_by_clip
 from src.core import update_check
-from src.domains.media_analysis.utils.media_analysis import (
+from src.domains.media_analysis.utils.caps_gating import (
     HOST_CHAT_PATHS_PROVIDER,
     VISION_SCHEMA_REFERENCE,
-    analysis_request_signature,
-    analysis_index_status,
-    analysis_root_coverage,
-    build_analysis_index,
-    build_coverage_report,
-    build_host_chat_paths_payload,
-    build_plan,
-    cleanup_artifacts,
-    commit_visual_analysis,
-    _cut_boundary_analysis,
-    detect_capabilities,
-    execute_plan,
-    execute_plan_async,
-    executing_clips,
-    plan_requires_capabilities,
-    load_report,
-    mark_registry_stale_for_clip,
-    query_analysis_index,
-    registry_entry_superseded_info,
-    resolve_output_root,
-    _sample_times,
-    summarize_reports,
+)
+from src.domains.media_analysis.utils.clip_identity_registry import (
     build_clip_index,
     clip_directory_hash,
     clip_index_path,
     load_clip_index,
+    mark_registry_stale_for_clip,
+    registry_entry_superseded_info,
     resolve_clip_directory,
+    resolve_output_root,
     stable_clip_directory,
     stable_clip_hash,
     stable_clip_match_hashes,
     update_analysis_registry,
+)
+from src.domains.media_analysis.utils.capabilities_and_planning import (
+    analysis_request_signature,
+    build_plan,
+    detect_capabilities,
     vision_is_pending_host_analysis,
+)
+from src.domains.media_analysis.utils.technical_probe import (
+    _cut_boundary_analysis,
+)
+from src.domains.media_analysis.utils.sampling_and_frames import (
+    _sample_times,
+)
+from src.domains.media_analysis.utils.vision_prompt import (
+    build_host_chat_paths_payload,
+)
+from src.domains.media_analysis.utils.execute_engine import (
+    execute_plan,
+    execute_plan_async,
+    executing_clips,
+    plan_requires_capabilities,
+)
+from src.domains.media_analysis.utils.reports import (
+    analysis_root_coverage,
+    build_coverage_report,
+    cleanup_artifacts,
+    commit_visual_analysis,
+    load_report,
+    summarize_reports,
+)
+from src.domains.media_analysis.utils.analysis_index_build import (
+    build_analysis_index,
+)
+from src.domains.media_analysis.utils.analysis_index_query import (
+    analysis_index_status,
+    query_analysis_index,
 )
 from src.domains.media_analysis.utils.media_analysis_jobs import (
     batch_job_status,
@@ -517,7 +535,7 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
                 "file_path": "/Volumes/Media/c0001.mp4",
             }
             # Legacy folder name: slug + hash(clip_id) (pre-canonical scheme).
-            from src.domains.media_analysis.utils.media_analysis import short_hash
+            from src.domains.media_analysis.utils.clip_identity_registry import short_hash
             legacy_dir = os.path.join(
                 project_root, "clips", f"c0001.mp4-{short_hash('clip-123', 12)}"
             )
@@ -731,7 +749,7 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
         # pip console scripts land next to the interpreter; a venv-installed
         # whisper must be found even when the venv bin dir is not on PATH
         # (server started as `.venv/bin/python …` without activation).
-        from src.domains.media_analysis.utils.media_analysis import _which_tool
+        from src.domains.media_analysis.utils.capabilities_and_planning import _which_tool
 
         with tempfile.TemporaryDirectory() as tmp:
             tool = os.path.join(tmp, "faketool-which-test")
@@ -3541,9 +3559,9 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
         from tests.test_analysis_store import make_report
         from src.core import timeline_brain_db
         from src.domains.media_analysis.utils import analysis_store
-        from src.domains.media_analysis.utils.media_analysis import (
-            build_analysis_index, query_analysis_index, summarize_reports,
-        )
+        from src.domains.media_analysis.utils.analysis_index_build import build_analysis_index
+        from src.domains.media_analysis.utils.analysis_index_query import query_analysis_index
+        from src.domains.media_analysis.utils.reports import summarize_reports
 
         def _normalized(summary):
             out = json.loads(json.dumps(summary))
@@ -3603,7 +3621,7 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
         from tests.test_analysis_store import make_report
         from src.core import timeline_brain_db
         from src.domains.media_analysis.utils import analysis_store
-        from src.domains.media_analysis.utils.media_analysis import summarize_reports
+        from src.domains.media_analysis.utils.reports import summarize_reports
 
         with tempfile.TemporaryDirectory() as tmp:
             root = os.path.join(tmp, "analysis-root")
@@ -3627,7 +3645,7 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
 
     def test_summarize_pre_v9_root_uses_json(self):
         from tests.test_analysis_store import make_report
-        from src.domains.media_analysis.utils.media_analysis import summarize_reports
+        from src.domains.media_analysis.utils.reports import summarize_reports
 
         with tempfile.TemporaryDirectory() as tmp:
             root = os.path.join(tmp, "analysis-root")

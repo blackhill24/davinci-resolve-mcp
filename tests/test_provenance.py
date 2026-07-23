@@ -10,7 +10,7 @@ import os
 import tempfile
 import unittest
 
-from src.domains.media_analysis.utils.media_analysis import summarize_reports
+from src.domains.media_analysis.utils.reports import summarize_reports
 
 
 def _write_report(clip_dir: str, *, signature: str = None, clip_id: str = "c-1",

@@ -14,11 +14,11 @@ import sys
 import time
 from typing import Any, Dict, List, Optional
 
-from src.domains.media_analysis.utils.media_analysis import (
+from src.domains.media_analysis.utils.capabilities_and_planning import (
     build_plan,
     detect_capabilities,
-    plan_requires_capabilities,
 )
+from src.domains.media_analysis.utils.execute_engine import plan_requires_capabilities
 from src.domains.media_analysis.utils.media_analysis_jobs import (
     batch_job_status,
     cancel_batch_job,

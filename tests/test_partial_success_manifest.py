@@ -7,7 +7,7 @@ analyze_* path produces. We test it in isolation here.
 """
 import unittest
 
-from src.domains.media_analysis.utils.media_analysis import _annotate_partial_success
+from src.domains.media_analysis.utils.caps_gating import _annotate_partial_success
 
 
 def _row(clip_id: str, success: bool, vision_status=None, error=None) -> dict:

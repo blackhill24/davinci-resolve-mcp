@@ -17,7 +17,7 @@ import logging
 from src.core.platform import get_resolve_paths
 from src.core.proc import resolve_spawn_env
 from src.core import destructive_hook as _destructive_hook
-from src.domains.media_analysis.utils.media_analysis import (
+from src.domains.media_analysis.utils.clip_identity_registry import (
     resolve_output_root as resolve_media_analysis_output_root,
 )
 from typing import Any, Optional, Tuple

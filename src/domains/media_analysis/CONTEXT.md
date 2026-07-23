@@ -13,7 +13,6 @@ in Phase 7 (#49) once `server.py`'s tool functions also move here (Phase 3,
 - `utils/deep_vision.py`
 - `utils/embeddings.py`
 - `utils/entities.py`
-- `utils/media_analysis.py`
 - `utils/media_analysis_jobs.py`
 - `utils/shot_relationships.py`
 - `utils/strata.py`
@@ -22,6 +21,11 @@ in Phase 7 (#49) once `server.py`'s tool functions also move here (Phase 3,
 - `utils/strata_queries.py`
 - `utils/strata_story.py`
 - `utils/sync_detection.py`
+- `utils/media_analysis.py` split (Phase 5 / #50) into 13 files under the cap:
+  `caps_gating.py`, `clip_identity_registry.py`, `capabilities_and_planning.py`,
+  `technical_probe.py`, `sampling_and_frames.py`, `subtitles_and_reuse.py`,
+  `transcription.py`, `vision_prompt.py`, `marker_plan.py`, `execute_engine.py`,
+  `reports.py`, `analysis_index_build.py`, `analysis_index_query.py`
 
 ## Depth
 

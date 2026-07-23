@@ -45,27 +45,37 @@ from src.core.update_check import (
     update_prompt_decision,
     update_state_path,
 )
-from src.domains.media_analysis.utils.media_analysis import (
+from src.domains.media_analysis.utils.caps_gating import (
     HOST_CHAT_PATHS_PROVIDER,
     HOST_CHAT_VISION_PROVIDERS,
     DEFAULT_VISION_ANALYSIS_PROMPT,
     VISION_SCHEMA_REFERENCE,
-    analysis_index_status,
-    build_plan as build_media_analysis_plan,
-    build_coverage_report as build_media_analysis_coverage_report,
-    build_analysis_index,
-    cleanup_artifacts as cleanup_media_analysis_artifacts,
-    commit_visual_analysis,
-    detect_capabilities as detect_media_analysis_capabilities,
-    execute_plan_async as execute_media_analysis_plan_async,
-    install_guidance as media_analysis_install_guidance,
-    load_report as load_media_analysis_report,
-    plan_requires_capabilities as media_analysis_plan_requires_capabilities,
-    query_analysis_index,
+)
+from src.domains.media_analysis.utils.clip_identity_registry import (
     resolve_output_root as resolve_media_analysis_output_root,
     short_hash,
     slugify,
+)
+from src.domains.media_analysis.utils.capabilities_and_planning import (
+    build_plan as build_media_analysis_plan,
+    detect_capabilities as detect_media_analysis_capabilities,
+    install_guidance as media_analysis_install_guidance,
+)
+from src.domains.media_analysis.utils.execute_engine import (
+    execute_plan_async as execute_media_analysis_plan_async,
+    plan_requires_capabilities as media_analysis_plan_requires_capabilities,
+)
+from src.domains.media_analysis.utils.reports import (
+    build_coverage_report as build_media_analysis_coverage_report,
+    cleanup_artifacts as cleanup_media_analysis_artifacts,
+    commit_visual_analysis,
+    load_report as load_media_analysis_report,
     summarize_reports as summarize_media_analysis_reports,
+)
+from src.domains.media_analysis.utils.analysis_index_build import build_analysis_index
+from src.domains.media_analysis.utils.analysis_index_query import (
+    analysis_index_status,
+    query_analysis_index,
 )
 from src.domains.media_analysis.utils.sync_detection import detect_sync_events_for_records as detect_media_sync_events
 from src.core import actor_identity, background_jobs, resolve_busy
@@ -114,7 +124,6 @@ from src.core.destructive_hook import destructive_op as _destructive_op
 import uuid as _ledger_uuid
 from src.core import resolve_ai_ledger as _resolve_ai_ledger
 from src.core import resolve_ai_governance as _resolve_ai_governance
-from src.domains.media_analysis.utils import media_analysis as _media_analysis_module
 import hashlib as _hashlib
 import time as _time
 import uuid as _uuid

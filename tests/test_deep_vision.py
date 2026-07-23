@@ -18,7 +18,9 @@ from unittest import mock
 
 from src.core import timeline_brain_db
 from src.domains.media_analysis.utils import analysis_store, deep_vision
-from src.domains.media_analysis.utils import media_analysis as ma
+from src.domains.media_analysis.utils import caps_gating as ma
+from src.domains.media_analysis.utils import vision_prompt
+from src.domains.media_analysis.utils import execute_engine
 
 from tests.test_analysis_store import make_report
 
@@ -274,13 +276,13 @@ class DeepDepthAnalyzeFlowTests(DeepVisionBase):
         }
         artifacts = {"clip_dir": self.clip_dir}
         options = {"vision": {"enabled": True, "provider": "host_chat_paths"}, "depth": "deep"}
-        payload = ma.build_host_chat_paths_payload(record, motion, options, artifacts)
+        payload = vision_prompt.build_host_chat_paths_payload(record, motion, options, artifacts)
         self.assertEqual(payload["status"], "pending_host_analysis")
         self.assertIn("deep_shot_schema", payload)
         self.assertIn("DEEP PASS", payload["instructions"])
 
         options_std = {"vision": {"enabled": True, "provider": "host_chat_paths"}, "depth": "standard"}
-        payload_std = ma.build_host_chat_paths_payload(record, motion, options_std, artifacts)
+        payload_std = vision_prompt.build_host_chat_paths_payload(record, motion, options_std, artifacts)
         self.assertNotIn("deep_shot_schema", payload_std)
 
     def test_execute_plan_deep_requires_confirmation(self) -> None:
@@ -297,14 +299,14 @@ class DeepDepthAnalyzeFlowTests(DeepVisionBase):
             ],
         }
         params = {"vision": {"enabled": True, "provider": "host_chat_paths"}}
-        result = asyncio.run(ma.execute_plan_async(plan, params=params))
+        result = asyncio.run(execute_engine.execute_plan_async(plan, params=params))
         self.assertEqual(result["status"], "confirmation_required")
         self.assertEqual(result["reason"], "deep_depth_cost_estimate")
         self.assertEqual(result["estimate"]["estimated_frames"], 24)
         # confirm_deep proceeds past the gate (and then fails on the missing file,
         # which proves the gate no longer blocks).
         params["confirm_deep"] = True
-        result = asyncio.run(ma.execute_plan_async(plan, params=params))
+        result = asyncio.run(execute_engine.execute_plan_async(plan, params=params))
         self.assertNotEqual(result.get("status"), "confirmation_required")
 
 

@@ -8,7 +8,7 @@ import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.core import timeline_brain_db as _timeline_brain_db
-from src.domains.media_analysis.utils.media_analysis import _write_json as _atomic_write_json
+from src.domains.media_analysis.utils.technical_probe import _write_json as _atomic_write_json
 
 
 def _v2_iter_clip_dirs(project_root: str) -> List[Tuple[str, str]]:
@@ -433,10 +433,8 @@ def regenerate_clip_transcript(
     if not source_file or not os.path.isfile(str(source_file)):
         return {"success": False, "error": f"source file not found on disk: {source_file!r}"}
     try:
-        from src.domains.media_analysis.utils.media_analysis import (
-            _transcribe,
-            detect_capabilities,
-        )
+        from src.domains.media_analysis.utils.transcription import _transcribe
+        from src.domains.media_analysis.utils.capabilities_and_planning import detect_capabilities
     except Exception as exc:
         return {"success": False, "error": f"transcription helpers unavailable: {exc}"}
     artifacts = {

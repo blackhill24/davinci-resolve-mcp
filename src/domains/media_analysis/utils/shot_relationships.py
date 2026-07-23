@@ -78,9 +78,16 @@ def _now_precise() -> str:
 
 
 def _ma():
-    from src.domains.media_analysis.utils import media_analysis
+    """Lazy import (avoids a circular import: media_analysis's caps_gating calls into here)."""
+    from src.domains.media_analysis.utils import caps_gating
 
-    return media_analysis
+    return caps_gating
+
+
+def _clip_ident():
+    from src.domains.media_analysis.utils import clip_identity_registry
+
+    return clip_identity_registry
 
 
 def _state_path(project_root: str) -> str:
@@ -286,7 +293,7 @@ def detect_shot_relationships(
             "similarity": candidate["similarity"],
         })
 
-    vision_token = ma.short_hash(
+    vision_token = _clip_ident().short_hash(
         "relationships:" + ",".join(f"{r['source_shot_uuid']}>{r['target_shot_uuid']}" for r in state_rows), 16,
     )
     # Candidates live ONLY here until committed — re-detect overwrites the

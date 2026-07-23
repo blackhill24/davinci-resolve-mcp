@@ -62,7 +62,7 @@ def _ensure_tool_path() -> None:
     """GUI-launched processes get launchd's bare PATH; reuse media_analysis's
     augmentation so shutil.which finds Homebrew/MacPorts ffmpeg."""
     try:
-        from src.domains.media_analysis.utils.media_analysis import _ensure_path_includes_standard_tool_dirs
+        from src.domains.media_analysis.utils.caps_gating import _ensure_path_includes_standard_tool_dirs
 
         _ensure_path_includes_standard_tool_dirs()
     except Exception:  # pragma: no cover - best effort

@@ -19,7 +19,7 @@ import statistics
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.domains.media_analysis.utils.media_analysis import _ffmpeg_stderr_filter, _parse_loudness, _run_command
+from src.domains.media_analysis.utils.technical_probe import _ffmpeg_stderr_filter, _parse_loudness, _run_command
 from src.core.proc import safe_run
 
 # Broadcast-style dialogue programs sit near -23 LUFS; a music bed reads well

@@ -34,6 +34,15 @@ Bridges delivery *craft* to this repo's *tools*.
 - `safe_quick_export` forces `EnableUpload=False` and needs `allow_render=True`
   before it actually renders.
 
+**Granular (`--full`).** `render`'s planning/validation actions (`probe_render_matrix`,
+`validate_render_settings`, `prepare_render_job`, …) are kernel-only — no
+one-per-method granular twin, same posture as `resolve-timeline-conform-interchange`.
+`render_presets` does have one: `src/granular/resolve_control.py`
+(`import_render_preset`, `export_render_preset`, `import_burn_in_preset`,
+layout-preset CRUD). **Prompts** — `delivery_workflow`, `prep_color_handoff`
+(`src/server.py`). **Resources** — `status://current_project`,
+`capabilities://installed_tools` (ffmpeg/ffprobe gate, see Gotchas).
+
 ## Offline deliverable QC (`deliverable` actions)
 
 Report-only, **`gate: review` — never auto-pass-clear.** Run these on the finished

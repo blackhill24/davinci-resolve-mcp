@@ -141,5 +141,96 @@ class FinishJobTests(OrchestrateBase):
         self.assertFalse(result["success"])
 
 
+class _FakeItem:
+    """Timeline item whose AddVersion succeeds only if it is `gradeable`.
+
+    Mirrors the live behaviour: a title/generator refuses AddVersion with a bare
+    False, exposing no reason and no version list.
+    """
+
+    def __init__(self, name: str, gradeable: bool = True):
+        self.name = name
+        self.gradeable = gradeable
+        self.versions: list = []
+
+    def GetName(self):
+        return self.name
+
+    def AddVersion(self, label, _type):
+        if not self.gradeable:
+            return False
+        self.versions.append(label)
+        return True
+
+    def GetVersionNameList(self, _type):
+        return list(self.versions) if self.gradeable else None
+
+
+class _FakeTimeline:
+    def __init__(self, items, current=None):
+        self.items = items
+        self.current = current
+        self.duplicated_as = None
+
+    def GetCurrentVideoItem(self):
+        return self.current
+
+    def GetItemListInTrack(self, track_type, index):
+        return list(self.items) if (track_type, index) == ("video", 1) else []
+
+    def DuplicateTimeline(self, label):
+        self.duplicated_as = label
+        return object()
+
+
+class _FakeProject:
+    def __init__(self, timeline):
+        self.timeline = timeline
+
+    def GetCurrentTimeline(self):
+        return self.timeline
+
+
+class GradeSnapshotPickerTests(unittest.TestCase):
+    """`grade_version` snapshots must not silently lose rollback cover to a
+    title card sitting first on V1 (the shape auto_edit builds)."""
+
+    def _take(self, timeline):
+        import src.server  # noqa: F401  (actions imports back through it)
+        from src.domains.orchestration.actions import _orchestrate_take_snapshot
+
+        return _orchestrate_take_snapshot(_FakeProject(timeline), job_id="job1", stage="grade")
+
+    def test_skips_ungradeable_item_and_uses_the_next(self):
+        title, footage = _FakeItem("Text", gradeable=False), _FakeItem("shot_01.mov")
+        snap = self._take(_FakeTimeline([title, footage]))
+        self.assertTrue(snap["success"], snap)
+        self.assertEqual(snap["kind"], "grade_version")
+        self.assertEqual(snap["snapshot_id"], "_orch_job1_grade")
+        self.assertEqual(footage.versions, ["_orch_job1_grade"])
+
+    def test_playhead_item_is_tried_first(self):
+        under_playhead, other = _FakeItem("shot_02.mov"), _FakeItem("shot_01.mov")
+        snap = self._take(_FakeTimeline([other], current=under_playhead))
+        self.assertTrue(snap["success"], snap)
+        self.assertEqual(under_playhead.versions, ["_orch_job1_grade"])
+        self.assertEqual(other.versions, [])
+
+    def test_falls_back_to_a_timeline_duplicate_when_nothing_is_gradeable(self):
+        timeline = _FakeTimeline([_FakeItem("Text", gradeable=False),
+                                  _FakeItem("Solid", gradeable=False)])
+        snap = self._take(timeline)
+        self.assertTrue(snap["success"], snap)
+        self.assertEqual(snap["kind"], "timeline_duplicate")
+        self.assertEqual(snap["downgraded_from"], "grade_version")
+        self.assertIn("Text", snap["note"])
+        self.assertEqual(timeline.duplicated_as, "_orch_job1_grade")
+
+    def test_no_video_item_at_all_is_an_error(self):
+        snap = self._take(_FakeTimeline([]))
+        self.assertFalse(snap["success"], snap)
+        self.assertIn("no video item", snap["error"])
+
+
 if __name__ == "__main__":
     unittest.main()

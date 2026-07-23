@@ -1647,7 +1647,17 @@ def generate_speech(text_input: str, voice_model: str = "", timecode: str = "",
             settings["AudioTrack"] = audio_track
     new_item = current_project.GenerateSpeech(settings, timecode or "")
     if not new_item:
-        return {"success": False, "error": "GenerateSpeech returned no media item"}
+        # The method exists (checked above) and the call returned nil rather than
+        # raising. Resolve exposes no way to enumerate installed voice models, so
+        # this cannot be told apart from a genuine failure at the API level — say
+        # what is known and name the likeliest cause without asserting it.
+        return {"success": False, "unavailable": True,
+                "error": "GenerateSpeech accepted the call and returned no media item. "
+                         "Most likely the AI Speech Generator Extra / voice models are not "
+                         "installed for this Resolve build — the API offers no way to query "
+                         "voice-model availability, so this is not distinguishable from a "
+                         "generation failure. Verify in Resolve that a voice model is "
+                         "downloaded and selectable."}
     return {"success": True, "new": new_item.GetName(), "new_id": new_item.GetUniqueId()}
 
 

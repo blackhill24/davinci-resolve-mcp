@@ -59,6 +59,28 @@ def _record_tool_result(
     recorder.record(category, name, expected_status or "supported", evidence=result)
 
 
+def _confirm_and_retry(call, action: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Drive a destructive action through both halves of its confirm-token gate.
+
+    The guard answers the first call with CONFIRMATION_REQUIRED plus a one-shot
+    token, and only does the work on the re-call. A probe that stops at the gate
+    records the guard *working* as an error, so run both halves and report the
+    second — keeping the gate's preview attached as evidence that it did fire.
+    """
+    first = call(action, params)
+    if not isinstance(first, dict):
+        return first
+    token = first.get("confirm_token")
+    error = first.get("error")
+    code = error.get("code") if isinstance(error, dict) else None
+    if not token or code != "CONFIRMATION_REQUIRED":
+        return first
+    second = call(action, {**params, "confirm_token": token})
+    if isinstance(second, dict):
+        return {**second, "confirm_gate": {"code": code, "preview": first.get("preview")}}
+    return second
+
+
 def _run_ffmpeg(args: list[str]) -> None:
     subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", *args], check=True)
 
@@ -284,7 +306,9 @@ def run_probe(server, output_dir: Path, keep_open: bool = False) -> Dict[str, An
                 recorder,
                 "copy",
                 "safe_copy_grade",
-                server.timeline_item_color("safe_copy_grade", {**scope, "target_ids": [target_id]}),
+                _confirm_and_retry(
+                    server.timeline_item_color, "safe_copy_grade", {**scope, "target_ids": [target_id]}
+                ),
             )
         else:
             recorder.record("copy", "safe_copy_grade", "not_applicable", details={"reason": "No second video item"})

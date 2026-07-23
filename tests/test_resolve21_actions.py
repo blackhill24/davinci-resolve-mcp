@@ -380,6 +380,19 @@ class Resolve21GenerateSpeechTest(unittest.TestCase):
         self.assertIn("error", out)
         self.assertIn("21.0", str(out))
 
+    def test_nil_return_says_why_instead_of_a_bare_false(self):
+        # Resolve returns nil when the Speech Generator Extra is not installed —
+        # indistinguishable from a generation failure, so the result has to name
+        # both rather than leave the caller with success:False and nothing else.
+        self.proj.GenerateSpeech = lambda settings, timecode: None
+        params = {"speech_generation_settings": {"TextInput": "Hello"}}
+        pending = compound.project_settings("generate_speech", params)
+        out = compound.project_settings(
+            "generate_speech", dict(params, confirm_token=pending["confirm_token"]))
+        self.assertFalse(out["success"])
+        self.assertTrue(out["unavailable"])
+        self.assertIn("Speech Generator Extra", out["error"])
+
 
 class Resolve21CapabilityDetectionTest(unittest.TestCase):
     def test_capability_block_reports_new_flags(self):

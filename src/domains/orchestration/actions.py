@@ -348,6 +348,20 @@ def _orchestrate_capture_fingerprint(proj) -> Dict[str, Any]:
         "media_path_set_hash": media_path_set_hash,
     }
 
+def _orchestrate_snapshot_timeline(proj, label: str) -> Dict[str, Any]:
+    """Duplicate the current timeline under ``label``."""
+    try:
+        tl = proj.GetCurrentTimeline()
+        if tl is None:
+            return {"success": False, "error": "no current timeline to snapshot"}
+        dup = tl.DuplicateTimeline(label)
+        if not dup:
+            return {"success": False, "error": "DuplicateTimeline failed"}
+        return {"success": True, "kind": "timeline_duplicate", "snapshot_id": label}
+    except Exception as exc:
+        return {"success": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
 def _orchestrate_take_snapshot(proj, *, job_id: str, stage: str) -> Dict[str, Any]:
     """Live pre-stage snapshot per SNAPSHOT_KIND_BY_STAGE. Best-effort: a
     failed snapshot is reported, never raised — the caller decides whether to
@@ -358,27 +372,46 @@ def _orchestrate_take_snapshot(proj, *, job_id: str, stage: str) -> Dict[str, An
                 "note": f"stage {stage!r} needs no pre-stage snapshot"}
     label = _orchestrate_mod.snapshot_label(job_id, stage)
     if kind == "timeline_duplicate":
+        return _orchestrate_snapshot_timeline(proj, label)
+    if kind == "grade_version":
         try:
             tl = proj.GetCurrentTimeline()
             if tl is None:
                 return {"success": False, "error": "no current timeline to snapshot"}
-            dup = tl.DuplicateTimeline(label)
-            if not dup:
-                return {"success": False, "error": "DuplicateTimeline failed"}
-            return {"success": True, "kind": kind, "snapshot_id": label}
-        except Exception as exc:
-            return {"success": False, "error": f"{type(exc).__name__}: {exc}"}
-    if kind == "grade_version":
-        try:
-            tl = proj.GetCurrentTimeline()
-            item = tl.GetCurrentVideoItem() if tl and hasattr(tl, "GetCurrentVideoItem") else None
-            if item is None:
-                items = tl.GetItemListInTrack("video", 1) if tl else []
-                item = items[0] if items else None
-            if item is None:
+            # Not every video item can carry a grade version — a title/generator
+            # (auto_edit puts one first on V1) refuses AddVersion outright. Try the
+            # playhead's item first, then every V1 item, and take the first that
+            # accepts; a bare `items[0]` silently loses rollback cover on any
+            # timeline that opens on a title card.
+            candidates = []
+            try:
+                current = tl.GetCurrentVideoItem() if hasattr(tl, "GetCurrentVideoItem") else None
+            except Exception:
+                current = None
+            if current is not None:
+                candidates.append(current)
+            candidates.extend(tl.GetItemListInTrack("video", 1) or [])
+            if not candidates:
                 return {"success": False, "error": "no video item to snapshot a grade version for"}
-            ok = bool(item.AddVersion(label, 0))
-            return {"success": ok, "kind": kind, "snapshot_id": label if ok else None}
+            refused = []
+            for item in candidates:
+                try:
+                    if item.AddVersion(label, 0):
+                        return {"success": True, "kind": kind, "snapshot_id": label}
+                    refused.append(item.GetName())
+                except Exception as exc:
+                    refused.append(f"{item.GetName()} ({type(exc).__name__}: {exc})")
+            # No gradeable item at all. Duplicating the timeline still gives
+            # rollback_stage something real to restore, and it restores strictly
+            # more than one item's version would — so cover the stage rather than
+            # run it bare, and name the downgrade in the result.
+            fallback = _orchestrate_snapshot_timeline(proj, label)
+            note = f"no V1 item accepted a grade version (refused: {refused!r})"
+            if fallback.get("success"):
+                return {**fallback, "downgraded_from": kind, "note": note}
+            return {"success": False, "kind": kind, "snapshot_id": None,
+                    "error": f"{note}; timeline-duplicate fallback also failed: "
+                             f"{fallback.get('error')}"}
         except Exception as exc:
             return {"success": False, "error": f"{type(exc).__name__}: {exc}"}
     return {"success": False, "error": f"unknown snapshot kind {kind!r}"}
@@ -521,14 +554,25 @@ async def _orchestrate_execute_reversible_stage(project_root, job_id, stage, pro
     explicit rollback_stage action; a failure here just stops and leaves the
     snapshot in place for it). A pending confirm-token isn't a failure — the
     stage stays "running" so a retry with the token can complete it, and no
-    second snapshot is taken on that retry."""
+    second snapshot is taken on that retry.
+
+    A snapshot that could not be taken is reported, not swallowed: the stage runs
+    on without rollback cover either way, but the job record has to say so — a
+    later rollback_stage failing with "no recorded snapshot" is unreadable unless
+    the reason it was never taken is written down where it happened."""
     job = _orchestrate_mod.load_job(project_root, job_id)
     already_has_snapshot = bool((job.get("stages", {}).get(stage) or {}).get("snapshot_ids"))
     _orchestrate_mod.advance_stage(project_root, job_id, stage, "running")
+    snapshot_error = None
     if not already_has_snapshot:
         snap = _orchestrate_take_snapshot(proj, job_id=job_id, stage=stage)
         if snap.get("snapshot_id"):
             _orchestrate_mod.record_snapshot(project_root, job_id, stage, snap["snapshot_id"], kind=snap["kind"])
+        elif not snap.get("success"):
+            snapshot_error = str(snap.get("error"))
+            _orchestrate_mod.advance_stage(
+                project_root, job_id, stage, "running",
+                notes=[f"no rollback cover: pre-stage snapshot failed — {snapshot_error}"])
     try:
         result = await mutate_fn()
     except Exception as exc:
@@ -536,9 +580,12 @@ async def _orchestrate_execute_reversible_stage(project_root, job_id, stage, pro
     if isinstance(result, dict) and result.get("status") == "confirmation_required":
         return result
     if not (isinstance(result, dict) and result.get("success")):
-        _orchestrate_mod.advance_stage(
-            project_root, job_id, stage, "failed",
-            notes=[str((result or {}).get("error") if isinstance(result, dict) else result)])
+        notes = [str((result or {}).get("error") if isinstance(result, dict) else result)]
+        if snapshot_error:
+            notes.append(f"no rollback cover: pre-stage snapshot failed — {snapshot_error}")
+        _orchestrate_mod.advance_stage(project_root, job_id, stage, "failed", notes=notes)
+        if isinstance(result, dict) and snapshot_error:
+            result = dict(result, snapshot_error=snapshot_error)
         return result
     fp = _orchestrate_capture_fingerprint(proj)
     _orchestrate_mod.advance_stage(project_root, job_id, stage, "done", fingerprint=fp)

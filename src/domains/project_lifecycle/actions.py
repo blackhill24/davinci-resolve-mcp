@@ -1290,7 +1290,15 @@ def project_settings(action: str, params: Optional[Dict[str, Any]] = None) -> Di
                 _rec.output_path = path
                 _rec.output_bytes = nbytes
         if not new_item:
-            return {"success": False}
+            # Nil return, no exception. Resolve exposes no voice-model listing, so
+            # "Extra not installed" and "generation failed" are indistinguishable
+            # here — report both possibilities instead of a bare success:False.
+            return {"success": False, "unavailable": True,
+                    "error": "GenerateSpeech accepted the call and returned no media item. "
+                             "Most likely the AI Speech Generator Extra / voice models are not "
+                             "installed for this Resolve build — the API offers no way to query "
+                             "voice-model availability, so this is not distinguishable from a "
+                             "generation failure."}
         return {"success": True, "new": new_item.GetName(), "new_id": new_item.GetUniqueId(),
                 "output_path": _rec.output_path, "output_bytes": _rec.output_bytes}
     elif action == "set_super_scale":

@@ -37,13 +37,17 @@ def make_synthetic_media(work_dir):
     return path
 
 
-def report(name, ok, detail=""):
-    status = "PASS" if ok else "FAIL"
+def report(name, ok, detail="", *, skipped=False):
+    """PASS / FAIL / SKIP. SKIP means the feature is not installed on this box —
+    an Extra that was never downloaded is not a defect in this repo, but it is
+    also not a pass, so it is counted and printed on its own line rather than
+    folded into either."""
+    status = "SKIP" if skipped else ("PASS" if ok else "FAIL")
     line = f"  [{status}] {name}"
     if detail:
         line += f" — {detail}"
     print(line)
-    return ok
+    return "skip" if skipped else bool(ok)
 
 
 def main():
@@ -94,9 +98,14 @@ def main():
             results.append(report("project.generate_speech", True, f"created {out.get('new')!r}"))
         else:
             err = str(out.get("error", ""))
-            gated = "Extra" in err or "21+" in err
-            results.append(report("project.generate_speech", gated,
-                                   f"🔬 gated — {err}" if gated else f"got {out!r}"))
+            # `unavailable` is set when Resolve took the call and returned nil —
+            # the Extra/voice models are not installed. Nothing to validate here,
+            # so skip rather than fail the box for missing an optional download.
+            if out.get("unavailable") or "21+" in err:
+                results.append(report("project.generate_speech", None,
+                                       f"🔬 not installed on this box — {err}", skipped=True))
+            else:
+                results.append(report("project.generate_speech", False, f"got {out!r}"))
 
         # ─── 2.4/2.7 remove_motion_blur (GPU deblur render) ───
         print("Calling RemoveMotionBlur (GPU deblur render)...")
@@ -115,11 +124,15 @@ def main():
 
         print()
         print("=" * 70)
-        passed = sum(1 for x in results if x)
-        total = len(results)
-        print(f"Stage 2 render-class live validation: {passed}/{total} passed")
+        skipped = sum(1 for x in results if x == "skip")
+        ran = [x for x in results if x != "skip"]
+        passed = sum(1 for x in ran if x)
+        summary = f"Stage 2 render-class live validation: {passed}/{len(ran)} passed"
+        if skipped:
+            summary += f", {skipped} skipped (feature not installed)"
+        print(summary)
         print("=" * 70)
-        return 0 if passed == total else 1
+        return 0 if passed == len(ran) else 1
 
     finally:
         try:

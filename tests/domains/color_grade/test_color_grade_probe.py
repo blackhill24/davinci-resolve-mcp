@@ -226,5 +226,50 @@ class ColorGradeProbeTest(unittest.TestCase):
         self.assertIn("color_groups", _grade_boundary_report(project, item, {"include_timeline_graph": False}))
 
 
+class ConfirmAndRetryTests(unittest.TestCase):
+    """The live probe has to drive BOTH halves of a confirm-token gate — stopping
+    at the gate records the guard working as a probe error."""
+
+    def setUp(self):
+        from src.domains.color_grade.utils.color_grade_live_probe import _confirm_and_retry
+
+        self.call_log = []
+        self.retry = _confirm_and_retry
+
+    def _gated_call(self, action, params):
+        self.call_log.append(params)
+        if not params.get("confirm_token"):
+            return {"status": "confirmation_required", "confirm_token": "tok-1",
+                    "preview": {"operation": action, "target_count": 1},
+                    "error": {"code": "CONFIRMATION_REQUIRED", "message": "destructive"}}
+        return {"success": True, "applied": params["confirm_token"]}
+
+    def test_re_calls_with_the_issued_token(self):
+        out = self.retry(self._gated_call, "safe_copy_grade", {"target_ids": ["a"]})
+        self.assertTrue(out["success"], out)
+        self.assertEqual(out["applied"], "tok-1")
+        self.assertEqual([p.get("confirm_token") for p in self.call_log], [None, "tok-1"])
+
+    def test_keeps_the_gate_preview_as_evidence(self):
+        out = self.retry(self._gated_call, "safe_copy_grade", {"target_ids": ["a"]})
+        self.assertEqual(out["confirm_gate"]["code"], "CONFIRMATION_REQUIRED")
+        self.assertEqual(out["confirm_gate"]["preview"]["operation"], "safe_copy_grade")
+
+    def test_ungated_call_passes_straight_through(self):
+        out = self.retry(lambda a, p: {"success": True, "n": 1}, "x", {})
+        self.assertEqual(out, {"success": True, "n": 1})
+
+    def test_a_real_error_is_not_retried(self):
+        calls = []
+
+        def failing(action, params):
+            calls.append(params)
+            return {"error": {"code": "DRX_NOT_FOUND", "message": "nope"}}
+
+        out = self.retry(failing, "safe_apply_drx", {"path": "/nope.drx"})
+        self.assertEqual(out["error"]["code"], "DRX_NOT_FOUND")
+        self.assertEqual(len(calls), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2990,7 +2990,13 @@ def resolve_control(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
     if action == "launch":
         r = get_resolve()  # auto-launches if not running
         if r is not None:
-            return _ok(message="DaVinci Resolve is running and connected.")
+            # Surface a bypassed launch shim here rather than leaving it to
+            # whoever thinks to call launch_shim_status: this runs before any
+            # render, which is where the bypass would otherwise show up as a
+            # wedge. Absent when there is nothing wrong.
+            advisory = _launch_shim.launch_advisory()
+            extra = {"launch_shim": advisory} if advisory else {}
+            return _ok(message="DaVinci Resolve is running and connected.", **extra)
         return _err("Could not connect to DaVinci Resolve. Check that Resolve Studio is installed and 'External scripting using' is set to Local in Preferences.")
 
     r = get_resolve()  # auto-launches if not running

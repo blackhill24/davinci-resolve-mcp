@@ -105,6 +105,22 @@ def collect_status() -> dict:
     return status
 
 
+def _launch_shim_advisory() -> "dict | None":
+    """Bypassed-launch-shim warning, or None when there is nothing to report.
+
+    A shim that is installed but shadowed on PATH means terminal-launched
+    Resolve instances silently lose the Fairlight ALSA config and can wedge
+    mid-render — precisely the wedge state this module already gates on. Report
+    it before the render rather than after.
+    """
+    try:
+        from src.core.launch_shim import launch_advisory
+
+        return launch_advisory()
+    except Exception:  # noqa: BLE001 — an advisory must never block a live run
+        return None
+
+
 def gate(require: str = "open") -> dict:
     """Import-and-call preflight for live_* harnesses.
 
@@ -148,6 +164,15 @@ def gate(require: str = "open") -> dict:
         print("[preflight] NOT READY — a render is in progress (possibly wedged; see")
         print("[preflight] memory/resolve-headless-render-hang). Wait or restart Resolve.")
         sys.exit(EXIT_NOT_READY)
+
+    # Warn, never block: a bypassed shim only risks a wedge, and video-only
+    # renders still complete without the ALSA config.
+    advisory = _launch_shim_advisory()
+    if advisory:
+        print("[preflight] WARNING — launch shim is installed but bypassed:")
+        for warning in advisory.get("warnings", []):
+            print(f"[preflight]   {warning}")
+        print("[preflight]   Renders from a terminal-launched Resolve may wedge (see #93/#95).")
     if require == "timeline" and not status["timeline"]:
         print("[preflight] NOT READY — this harness needs a current timeline; aborting live run.")
         sys.exit(EXIT_NOT_READY)
@@ -186,6 +211,9 @@ def main() -> int:
 
     status["require"] = args.require
     status["ready"] = code == EXIT_READY
+    advisory = _launch_shim_advisory()
+    if advisory:
+        status["launch_shim"] = advisory
 
     if args.json:
         print(json.dumps(status, indent=2))

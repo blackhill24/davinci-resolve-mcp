@@ -183,6 +183,47 @@ def status() -> Dict[str, Any]:
     }
 
 
+def launch_advisory() -> Optional[Dict[str, Any]]:
+    """Warn only when an *installed* shim has been silently bypassed.
+
+    The shim's terminal half wins only if ``~/.local/bin`` beats ``/opt/resolve/bin``
+    on PATH, and nothing enforces that — a Resolve reinstall or a shell-profile
+    edit can quietly undo it. Left to `launch_shim_status`, the realistic
+    discovery path is "run a render, watch it wedge", which is the cost the shim
+    existed to remove. So `resolve_control(action="launch")` — which already runs
+    before anything renders — carries this.
+
+    Returns None when there is nothing to say: not Linux, shim not installed
+    (declining the shim is a legitimate choice, not a defect to nag about), or
+    installed and effective. Never raises: an advisory must not be able to fail
+    a launch.
+    """
+    try:
+        if not _is_linux():
+            return None
+        state = status()
+        if not state.get("shim", {}).get("installed"):
+            return None
+        resolved = state.get("resolve_on_path")
+        shim = shim_path()
+        effective = bool(resolved) and os.path.realpath(resolved) == os.path.realpath(shim)
+        if effective:
+            return None
+        return {
+            "installed": True,
+            "effective": False,
+            "resolve_on_path": resolved,
+            "warnings": state.get("warnings", []),
+            "impact": (
+                "Terminal `resolve` launches bypass the shim and lose the Fairlight "
+                "ALSA config, so renders started from such an instance can wedge "
+                "mid-run. Desktop-launcher starts are unaffected."
+            ),
+        }
+    except Exception:  # noqa: BLE001 — advisory must never break launch
+        return None
+
+
 def install() -> Dict[str, Any]:
     """Write the shim and the user-level desktop override. Idempotent."""
     if not _is_linux():

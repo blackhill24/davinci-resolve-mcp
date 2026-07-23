@@ -48,6 +48,13 @@ they drift and are guarded by `tests/test_doc_tool_counts.py`.
 - **Missing optional dependency** (ffmpeg, better-sqlite3, sharp, …) — read
   the `capabilities://install_guidance` resource, or the advanced server's
   `capabilities` tool for the offline-side equivalent.
+- **Renders wedge mid-run on Linux** — Resolve needs the raw-hw ALSA config
+  from `resolve_spawn_env()`, which only applies when *this connector* spawns
+  it. `resolve_control(action="install_launch_shim")` extends it to
+  desktop-launcher and terminal starts; `launch_shim_status` reports whether an
+  installed shim is actually being used (it loses to `/opt/resolve/bin` earlier
+  on `PATH`). `launch` surfaces a `launch_shim` key when it has been bypassed.
+  A wedged render can't be cleared via the API — only SIGKILL and relaunch.
 - **"Did my last guarded action actually land?"** — `timeline_versioning`
   (`list_versions`, `diff_versions`, `rollback`) is the snapshot/rollback
   layer other domains' reversible-stage guarantees are built on

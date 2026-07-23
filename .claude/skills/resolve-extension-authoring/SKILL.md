@@ -19,6 +19,13 @@ Thin router; depth stays in the kernel.
 There is no offline authoring path for this domain yet — extensions are
 generated and installed directly through the live lifecycle layer.
 
+**Granular (`--full`).** `script_plugin` is kernel-only — no one-per-method
+granular twin; `src/granular/resolve_control.py` carries adjacent
+layout/preset CRUD but not extension install/validate itself. **Prompt** —
+`extension_authoring_workflow` (`src/server.py`). **Resource** —
+`capabilities://installed_tools` (native-dep/build-tool detection for DCTL
+compile checks).
+
 ## Lifecycle Map
 
 | Surface | Install Target | Live Pickup | Restart |

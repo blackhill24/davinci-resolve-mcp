@@ -201,7 +201,7 @@ Use these to answer "what changed between v3 and v4" or to hand a conform an
 accurate change list without opening either timeline. For conforming/relinking
 that change list, see the Timeline Conform / Interchange kernel and the
 `resolve-timeline-conform-interchange` skill; for the edit ↔ offline routing, see the `resolve-timeline-edit`
-skill (`.claude/skills/timeline-edit.md`).
+skill (`.claude/skills/resolve-timeline-edit/SKILL.md`).
 
 ### Stage 3.1 UI-gap workarounds (issue #21)
 

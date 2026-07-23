@@ -32,6 +32,8 @@ live. Node never drives Resolve.
 | Audio / Fairlight (tracks, buses, loudness) | `resolve-audio-fairlight` | `audio-fairlight-kernel.md` | `/audio_workflow` |
 | Media pool ingest / organize / multicam | `resolve-media-pool-ingest` | `media-pool-ingest-kernel.md` | `/media_pool_workflow` |
 | Reading/analyzing source media | `resolve-media-analysis` | `media-analysis-guide.md` | `/analyze_media` |
+| Brief-to-rendered-video pipeline (talking-head, montage) | `resolve-auto-edit` | `auto-edit-kernel.md` | `/auto_edit_workflow` |
+| Multi-domain, resumable ingest-to-deliver conductor | `resolve-orchestration` | `orchestration-kernel.md` | `/orchestrate_workflow` |
 | Project/database/archive lifecycle, presets | `resolve-project-lifecycle` | `project-lifecycle-kernel.md` | `/project_lifecycle_workflow` |
 | Markers, flags, clip color, review reports | `resolve-review-annotation` | `review-annotation-kernel.md` | `/review_annotation_workflow` |
 | Fuse/DCTL/script extension authoring | `resolve-extension-authoring` | `extension-authoring-kernel.md` | `/extension_authoring_workflow` |

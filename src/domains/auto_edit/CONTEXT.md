@@ -34,4 +34,4 @@ with one approval checkpoint. Prompt: `/auto_edit_workflow`.
 > Upkeep: when files here change (add/remove/rename), fix the table above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root.
 > Kernel: `docs/kernels/auto-edit-kernel.md` + `docs/guides/editorial-decision-guide.md`.
-> Skill: `.claude/skills/auto-edit.md`. Keep this file ≲40 lines.
+> Skill: `.claude/skills/resolve-auto-edit/SKILL.md`. Keep this file ≲40 lines.

@@ -30,4 +30,4 @@ CDLs, DRX grades, or copied grades. Prompt: `/color_grade_workflow`.
 > Upkeep: when files here change (add/remove/rename), fix the table above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root.
 > Kernel: `docs/kernels/color-grade-kernel.md` + `docs/guides/color-decision-guide.md`.
-> Skill: `.claude/skills/color-grade.md`. Keep this file ≲40 lines.
+> Skill: `.claude/skills/resolve-color-grade/SKILL.md`. Keep this file ≲40 lines.

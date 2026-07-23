@@ -33,4 +33,4 @@ count — the former `media_analysis.py` monolith (7.7k lines) is now 13 files
 > Upkeep: when files here change (add/remove/rename), fix the table above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root.
 > Depth: `docs/kernels/README.md` + `docs/guides/media-analysis-guide.md`.
-> Skill: `.claude/skills/media-analysis.md`. Keep this file ≲40 lines.
+> Skill: `.claude/skills/resolve-media-analysis/SKILL.md`. Keep this file ≲40 lines.

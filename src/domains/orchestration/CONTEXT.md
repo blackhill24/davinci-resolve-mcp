@@ -29,5 +29,5 @@ a context reset across sessions — a full ingest-to-delivery post job. Prompt:
 
 > Upkeep: when files here change (add/remove/rename), fix the table above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root.
-> Kernel: `docs/kernels/orchestration-kernel.md`. Skill: `.claude/skills/orchestration.md`.
+> Kernel: `docs/kernels/orchestration-kernel.md`. Skill: `.claude/skills/resolve-orchestration/SKILL.md`.
 > Keep this file ≲40 lines.

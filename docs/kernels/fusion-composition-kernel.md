@@ -119,7 +119,7 @@ running**, via the `fusion` tool:
 Rule of thumb: author and verify the comp offline, then apply it live with
 `fusion_comp` `safe_add_tool` → `safe_set_inputs` → `safe_connect_tools` (the
 `to_api_calls` output maps directly onto those). See the `resolve-fusion-composition` skill
-(`.claude/skills/fusion-composition.md`) and the `/fusion_workflow` prompt.
+(`.claude/skills/resolve-fusion-composition/SKILL.md`) and the `/fusion_workflow` prompt.
 
 ## Live Probe
 

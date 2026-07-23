@@ -32,5 +32,5 @@ imports and dispatches into this file's helpers (e.g. `_timeline_set_clip_volume
 
 > Upkeep: when files here change (add/remove/rename), fix the table above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root.
-> Kernel: `docs/kernels/audio-fairlight-kernel.md`. Skill: `.claude/skills/audio-fairlight.md`.
+> Kernel: `docs/kernels/audio-fairlight-kernel.md`. Skill: `.claude/skills/resolve-audio-fairlight/SKILL.md`.
 > Keep this file ≲40 lines.

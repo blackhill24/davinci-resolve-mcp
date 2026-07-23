@@ -137,7 +137,7 @@ actions):
 Rule of thumb: verify and inventory the card offline *before* importing, then
 import/organize live. `media` also serves the delivery side (see the
 `resolve-render-deliver` skill). See the `resolve-media-pool-ingest` skill
-(`.claude/skills/media-pool-ingest.md`) and the `/media_pool_workflow` prompt. Never
+(`.claude/skills/resolve-media-pool-ingest/SKILL.md`) and the `/media_pool_workflow` prompt. Never
 rename or derive camera originals without explicit approval.
 
 ## Live Evidence

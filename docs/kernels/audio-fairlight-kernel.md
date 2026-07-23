@@ -88,7 +88,7 @@ patches audio **offline, no Resolve running**:
 
 Rule of thumb: plan/measure offline, apply mix/track changes live; use
 `fairlight` for bus work the scripting API can't reach. See the `resolve-audio-fairlight`
-skill (`.claude/skills/audio-fairlight.md`) and the `/audio_workflow` prompt.
+skill (`.claude/skills/resolve-audio-fairlight/SKILL.md`) and the `/audio_workflow` prompt.
 
 ### Stage 3.2 clip-level UI-gap workarounds (issue #22)
 

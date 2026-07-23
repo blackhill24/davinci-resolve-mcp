@@ -33,5 +33,5 @@ annotation/review report. Prompt: `/review_annotation_workflow`.
 
 > Upkeep: when files here change (add/remove/rename), fix the table above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root.
-> Kernel: `docs/kernels/review-annotation-kernel.md`. Skill: `.claude/skills/review-annotation.md`.
+> Kernel: `docs/kernels/review-annotation-kernel.md`. Skill: `.claude/skills/resolve-review-annotation/SKILL.md`.
 > Keep this file ≲40 lines.

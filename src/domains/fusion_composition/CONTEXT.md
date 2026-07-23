@@ -20,5 +20,5 @@ trackers. Prompt: `/fusion_workflow`.
 
 > Upkeep: when files here change (add/remove/rename), fix the table above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root.
-> Kernel: `docs/kernels/fusion-composition-kernel.md`. Skill: `.claude/skills/fusion-composition.md`.
+> Kernel: `docs/kernels/fusion-composition-kernel.md`. Skill: `.claude/skills/resolve-fusion-composition/SKILL.md`.
 > Keep this file ≲40 lines.

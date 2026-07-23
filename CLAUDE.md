@@ -29,6 +29,7 @@ method). Per-domain depth: `AGENTS.md` → Domain Routing + `docs/kernels/`. Liv
 | Workspace | Path | Purpose | Open when |
 |-----------|------|---------|-----------|
 | live-server | `src/` | Python live MCP (compound + granular) driving Resolve | Editing Resolve-facing tools, utils, servers |
+| dashboard | `src/dashboard/` | Local browser control-panel UI + backend (no Resolve required to serve it) | Editing the control panel's HTTP handler, panel UI, or its endpoints |
 | advanced-server | `resolve-advanced/` | Node beyond-API file/DB authoring | Editing `.drp/.drt/.drx` codecs or offline tools |
 | docs | `docs/` | Kernels, guides, reference, process | Writing/finding domain depth or process docs |
 | tests | `tests/` | ~170 Python tests (offline + live) | Adding/running validation |

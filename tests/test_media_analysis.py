@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import os
 import shutil
@@ -29,17 +30,17 @@ from src.server import (
     setup,
 )
 from mcp import types as mcp_types
-from src.analysis_dashboard import (
-    DashboardState,
-    HTML,
-    discover_project_contexts,
+from src.dashboard.state import DashboardState
+from src.dashboard.handler import HTML
+from src.dashboard.project_context import discover_project_contexts
+from src.dashboard.clip_review import (
     list_analyzed_clips,
     get_analyzed_clip,
     get_analyzed_clip_shot,
     get_clip_frame_path,
-    read_clip_corrections,
-    _analysis_status_by_clip,
 )
+from src.dashboard.timeline_versions import read_clip_corrections
+from src.dashboard.media_inventory import _analysis_status_by_clip
 from src.core import update_check
 from src.domains.media_analysis.utils.media_analysis import (
     HOST_CHAT_PATHS_PROVIDER,
@@ -4489,7 +4490,7 @@ class PathExistenceProbeTests(unittest.TestCase):
     """Parallel/cached file-existence probing for the Resolve media inventory."""
 
     def setUp(self):
-        from src import analysis_dashboard as dash
+        from src.dashboard import media_inventory as dash
         self.dash = dash
         dash._PATH_EXISTS_CACHE.clear()
 
@@ -4547,7 +4548,7 @@ class InventoryCacheReuseTests(unittest.TestCase):
     """Background-poll reuse of the cached Resolve walk + analysis overlay."""
 
     def setUp(self):
-        from src import analysis_dashboard as dash
+        from src.dashboard import media_inventory as dash
         self.dash = dash
         dash._INVENTORY_CACHE.clear()
 
@@ -4585,11 +4586,21 @@ class InventoryCacheReuseTests(unittest.TestCase):
 
     def _without_resolve(self):
         # Make the Resolve probe deterministically absent so these tests pass
-        # whether or not a live Resolve instance happens to be running.
-        return unittest.mock.patch.object(
+        # whether or not a live Resolve instance happens to be running. Two
+        # patch targets: resolve_media_inventory's own imported copy (used for
+        # its direct connect) and resolve_helpers' copy (used internally by
+        # _current_resolve_project_id, which resolve_media_inventory also calls).
+        from src.dashboard import resolve_helpers
+        stack = contextlib.ExitStack()
+        stack.enter_context(unittest.mock.patch.object(
             self.dash, "_connect_resolve_read_only",
             return_value=(None, "Resolve unavailable (stubbed for test)"),
-        )
+        ))
+        stack.enter_context(unittest.mock.patch.object(
+            resolve_helpers, "_connect_resolve_read_only",
+            return_value=(None, "Resolve unavailable (stubbed for test)"),
+        ))
+        return stack
 
     def test_reuse_cached_serves_from_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4609,7 +4620,8 @@ class InventoryCacheReuseTests(unittest.TestCase):
     def test_resolve_identity_lock_is_reentrant(self):
         # _resolve_identity is lock-decorated and calls _connect (same RLock):
         # must return, not deadlock, when Resolve is absent.
-        ident = self.dash._resolve_identity()
+        from src.dashboard import resolve_helpers
+        ident = resolve_helpers._resolve_identity()
         self.assertIn("available", ident)
 
     def test_reuse_serves_cache_when_project_id_matches(self):

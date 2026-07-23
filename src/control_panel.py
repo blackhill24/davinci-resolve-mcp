@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from src.analysis_dashboard import main
+from src.dashboard.main import main
 
 
 if __name__ == "__main__":

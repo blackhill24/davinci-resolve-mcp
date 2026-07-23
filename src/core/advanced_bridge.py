@@ -1,7 +1,7 @@
 """Advanced-server bridge — invoke resolve-advanced (Node) ops from the live server.
 
 Generalizes the one-shot Node subprocess pattern that used to live privately as
-``analysis_dashboard._run_advanced_bridge``. Two bridges sit on top of the shared
+``src.dashboard.state._run_advanced_bridge``. Two bridges sit on top of the shared
 runner here:
 
 * ``panel-bridge.mjs`` — READ-ONLY inspection (capabilities, lineage). The control

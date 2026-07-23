@@ -8,7 +8,7 @@ pass-through for the media-creating ops).
 import unittest
 
 import src.server as server
-import src.analysis_dashboard as dash
+import src.dashboard.resolve_helpers as dash
 
 
 class AiConsoleDispatchTest(unittest.TestCase):

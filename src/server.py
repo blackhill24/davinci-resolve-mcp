@@ -2842,7 +2842,7 @@ def resolve_control(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
       set_high_priority() -> {success}
       disable_background_tasks_for_current_session() -> {success}  — Resolve 21+
       open_control_panel(port?, host?, open_browser?) -> {success, url, pid, port, status}
-        — Launches the analysis control panel (src/analysis_dashboard.py) as a background process.
+        — Launches the analysis control panel (src/dashboard/) as a background process.
           Idempotent: returns the existing URL if already running.
       control_panel_status() -> {running, pid, port, url}
       close_control_panel() -> {success, was_running}
@@ -3261,7 +3261,7 @@ def _open_control_panel(p: Dict[str, Any]) -> Dict[str, Any]:
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     python_exe, python_source = _pick_dashboard_python(repo_root)
     cmd = [
-        python_exe, "-m", "src.analysis_dashboard",
+        python_exe, "-m", "src.dashboard.main",
         "--host", str(host),
         "--port", str(port),
         "--project-name", str(project_name),

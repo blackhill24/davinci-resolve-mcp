@@ -3,7 +3,7 @@ import shutil
 import unittest
 from unittest import mock
 
-from src.analysis_dashboard import (
+from src.dashboard.state import (
     _advanced_capabilities_payload,
     _advanced_lineage_payload,
     _advanced_root,

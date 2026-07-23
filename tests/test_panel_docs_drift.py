@@ -3,7 +3,7 @@
 docs/guides/control-panel.md is hand-written prose; nothing regenerates it
 when the panel UI changes, and it once drifted six surfaces behind the code.
 This test extracts the panel's navigation structure (PANEL_LABELS and
-SUBPAGE_LABELS in src/analysis_dashboard.py) and fails when a section or
+SUBPAGE_LABELS in src/dashboard/static/panel.html) and fails when a section or
 subpage isn't mentioned in the guide, or when the guide's screenshots are
 missing or orphaned. Update the prose (and rerun
 scripts/regen_panel_screenshots.py) when this fires.
@@ -15,7 +15,7 @@ import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DASHBOARD = ROOT / "src" / "analysis_dashboard.py"
+DASHBOARD = ROOT / "src" / "dashboard" / "static" / "panel.html"
 GUIDE = ROOT / "docs" / "guides" / "control-panel.md"
 IMAGES = ROOT / "docs" / "images" / "control-panel"
 
@@ -26,7 +26,7 @@ SKIP_SUBPAGE_SCOPES = {"docs"}
 
 def _extract_label_block(source: str, const_name: str) -> str:
     match = re.search(rf"const {const_name} = \{{(.*?)\n    \}};", source, re.S)
-    assert match, f"could not find {const_name} in analysis_dashboard.py"
+    assert match, f"could not find {const_name} in panel.html"
     return match.group(1)
 
 

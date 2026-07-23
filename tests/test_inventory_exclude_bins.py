@@ -8,7 +8,8 @@ to excluding nothing.
 import unittest
 from unittest import mock
 
-import src.analysis_dashboard as dash
+import src.dashboard.media_inventory as dash
+import src.dashboard.state as _dash_state
 import src.server as s
 import src.core.tool_kernel as _core_tool_kernel
 
@@ -121,7 +122,7 @@ class InventoryPreferenceTest(unittest.TestCase):
             "_media_analysis_effective_preferences",
             return_value={"inventory_limit": 250, "inventory_exclude_bins": "assets, broll"},
         ):
-            limit, exclude = dash._inventory_prefs()
+            limit, exclude = _dash_state._inventory_prefs()
         self.assertEqual(limit, 250)
         self.assertEqual(exclude, {"assets", "broll"})
 
@@ -131,7 +132,7 @@ class InventoryPreferenceTest(unittest.TestCase):
             "_media_analysis_effective_preferences",
             return_value={"inventory_limit": 500, "inventory_exclude_bins": ""},
         ):
-            limit, exclude = dash._inventory_prefs()
+            limit, exclude = _dash_state._inventory_prefs()
         self.assertEqual(limit, 500)
         self.assertIsNone(exclude)
 

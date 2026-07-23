@@ -1,7 +1,7 @@
 """Tests for dashboard transport status/start/stop helpers."""
 import unittest
 
-import src.analysis_dashboard as dash
+import src.dashboard.state as dash
 from src.core import mcp_transport as T
 
 

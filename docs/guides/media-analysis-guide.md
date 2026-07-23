@@ -526,7 +526,7 @@ that behavior.
 Standalone local dashboard:
 
 ```bash
-venv/bin/python -m src.analysis_dashboard --analysis-root ~/Documents/davinci-resolve-mcp-analysis --open
+venv/bin/python -m src.dashboard.main --analysis-root ~/Documents/davinci-resolve-mcp-analysis --open
 ```
 
 The dashboard can create file/folder jobs without Resolve open, run one clip

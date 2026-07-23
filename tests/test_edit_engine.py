@@ -493,14 +493,14 @@ class PanelPlanApiTests(EditEngineBase):
         self.assertEqual(rows["plans"][0]["plan_id"], self.plan["plan_id"])
 
     def test_panel_list_payload(self) -> None:
-        from src import analysis_dashboard as dash
+        from src.dashboard import timeline_versions as dash
         payload = dash.list_edit_plans_payload(self.root)
         self.assertTrue(payload["success"], payload)
         self.assertEqual(len(payload["plans"]), 1)
         self.assertEqual(payload["plans"][0]["kind"], "selects")
 
     def test_panel_detail_enriches_decisions_for_thumbnails(self) -> None:
-        from src import analysis_dashboard as dash
+        from src.dashboard import timeline_versions as dash
         payload = dash.get_edit_plan_payload(self.root, self.plan["plan_id"])
         self.assertTrue(payload["success"], payload)
         self.assertFalse(payload["corrupt"])
@@ -514,14 +514,14 @@ class PanelPlanApiTests(EditEngineBase):
         self.assertEqual(by_shot[3]["thumb_frame_index"], 3)
 
     def test_panel_detail_corrupt_plan(self) -> None:
-        from src import analysis_dashboard as dash
+        from src.dashboard import timeline_versions as dash
         self._tamper(self.plan["plan_id"])
         payload = dash.get_edit_plan_payload(self.root, self.plan["plan_id"])
         self.assertTrue(payload["success"])
         self.assertTrue(payload["corrupt"])
 
     def test_panel_detail_missing_plan(self) -> None:
-        from src import analysis_dashboard as dash
+        from src.dashboard import timeline_versions as dash
         payload = dash.get_edit_plan_payload(self.root, "nope-nope")
         self.assertFalse(payload["success"])
         self.assertIn("not found", payload["error"])

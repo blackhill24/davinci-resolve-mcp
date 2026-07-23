@@ -98,11 +98,11 @@ class RestartMarker(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_no_marker_means_not_needed(self) -> None:
-        from src.analysis_dashboard import _read_restart_marker
+        from src.dashboard.state import _read_restart_marker
         self.assertEqual(_read_restart_marker(self.tmp), {"needed": False})
 
     def test_write_and_read_marker(self) -> None:
-        from src.analysis_dashboard import _write_restart_marker, _read_restart_marker
+        from src.dashboard.state import _write_restart_marker, _read_restart_marker
         _write_restart_marker(self.tmp, {
             "from_version": "1.0", "to_version": "1.1",
             "from_sha": "aaa", "to_sha": "bbb",
@@ -113,7 +113,7 @@ class RestartMarker(unittest.TestCase):
         self.assertEqual(marker["to_version"], "1.1")
 
     def test_clear_marker(self) -> None:
-        from src.analysis_dashboard import _write_restart_marker, _read_restart_marker, _clear_restart_marker
+        from src.dashboard.state import _write_restart_marker, _read_restart_marker, _clear_restart_marker
         _write_restart_marker(self.tmp, {"from_version": "x", "to_version": "y"})
         self.assertTrue(_read_restart_marker(self.tmp)["needed"])
         clear_result = _clear_restart_marker(self.tmp)
@@ -121,12 +121,12 @@ class RestartMarker(unittest.TestCase):
         self.assertEqual(_read_restart_marker(self.tmp), {"needed": False})
 
     def test_clear_when_not_present(self) -> None:
-        from src.analysis_dashboard import _clear_restart_marker
+        from src.dashboard.state import _clear_restart_marker
         result = _clear_restart_marker(self.tmp)
         self.assertFalse(result["success"])
 
     def test_marker_handles_corrupt_json(self) -> None:
-        from src.analysis_dashboard import _read_restart_marker
+        from src.dashboard.state import _read_restart_marker
         os.makedirs(os.path.join(self.tmp, "logs"), exist_ok=True)
         with open(os.path.join(self.tmp, "logs", ".mcp_restart_needed"), "w") as fh:
             fh.write("not json")
@@ -145,7 +145,7 @@ class ActiveJobLockHelper(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_no_base_root_returns_empty(self) -> None:
-        from src.analysis_dashboard import _list_active_batch_jobs
+        from src.dashboard.state import _list_active_batch_jobs
         # project_root with no sibling directories under its base → no jobs.
         empty_project = os.path.join(self.tmp, "isolated_project")
         os.makedirs(empty_project, exist_ok=True)
@@ -153,7 +153,7 @@ class ActiveJobLockHelper(unittest.TestCase):
         self.assertEqual(active, [])
 
     def test_none_project_root_returns_empty(self) -> None:
-        from src.analysis_dashboard import _list_active_batch_jobs
+        from src.dashboard.state import _list_active_batch_jobs
         self.assertEqual(_list_active_batch_jobs(""), [])
 
 

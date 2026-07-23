@@ -1,4 +1,4 @@
-"""Tests for the long-Resolve-operation busy gate (src/utils/resolve_busy.py)."""
+"""Tests for the long-Resolve-operation busy gate (src/core/resolve_busy.py)."""
 from __future__ import annotations
 
 import json
@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest import mock
 
-from src.utils import resolve_busy
+from src.core import resolve_busy
 
 
 class _SidecarIsolation(unittest.TestCase):

@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
-from src.utils.destructive_hook import is_destructive, DESTRUCTIVE_ACTIONS_BY_TOOL
+from src.core.destructive_hook import is_destructive, DESTRUCTIVE_ACTIONS_BY_TOOL
 
 
 class RegistryEX2Test(unittest.TestCase):

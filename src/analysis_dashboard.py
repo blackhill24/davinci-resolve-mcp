@@ -43,11 +43,11 @@ from src.utils.media_analysis_jobs import (
     resume_batch_job,
     run_batch_job_slice,
 )
-from src.utils.platform import setup_environment
+from src.core.platform import setup_environment
 from src.utils.analysis_memory import read_panel_state, write_panel_state
-from src.utils import brain_edits as _brain_edits
-from src.utils import timeline_versioning as _timeline_versioning
-from src.utils import timeline_brain_db as _timeline_brain_db
+from src.core import brain_edits as _brain_edits
+from src.core import timeline_versioning as _timeline_versioning
+from src.core import timeline_brain_db as _timeline_brain_db
 
 
 HTML = r"""<!doctype html>
@@ -13047,7 +13047,8 @@ def _v2_semantic_search(project_root: str, q: str, *, limit: int = 20) -> Dict[s
     if not text:
         return {"success": True, "results": []}
     try:
-        from src.utils import embeddings, timeline_brain_db as tbd
+        from src.core import timeline_brain_db as tbd
+        from src.utils import embeddings
 
         found = embeddings.find_similar(project_root, text=text, kind="text", limit=limit)
         if not found.get("success"):
@@ -14404,7 +14405,7 @@ def _mcp_status_payload() -> Dict[str, Any]:
 def _transport_status() -> Dict[str, Any]:
     """Live networked-transport status (or local-only) for the MCP diagnostics card."""
     try:
-        from src.utils.mcp_transport import read_transport_state
+        from src.core.mcp_transport import read_transport_state
     except Exception:
         return {"networked": False, "mode": "stdio (local)"}
     state = read_transport_state()
@@ -14424,7 +14425,7 @@ def _transport_status() -> Dict[str, Any]:
 def _transport_start() -> Dict[str, Any]:
     """Spawn a networked MCP instance (streamable-http, loopback + token)."""
     import subprocess as _sp
-    from src.utils.mcp_transport import read_transport_state
+    from src.core.mcp_transport import read_transport_state
     if read_transport_state():
         return {"success": False, "error": "A networked transport instance is already running."}
     paths = _resolve_mcp_paths()
@@ -14450,7 +14451,7 @@ def _transport_start() -> Dict[str, Any]:
 def _transport_stop() -> Dict[str, Any]:
     """Stop the running networked MCP instance via its state-file PID."""
     import signal as _sig
-    from src.utils.mcp_transport import read_transport_state, clear_transport_state
+    from src.core.mcp_transport import read_transport_state, clear_transport_state
     state = read_transport_state()
     if not state:
         return {"success": True, "note": "No networked transport running."}
@@ -14746,7 +14747,7 @@ def _update_status_payload(project_root: Optional[str], *, force: bool = False) 
     # share cache instead of running independent checks.
     update_project_dir = _repo_root()
     try:
-        from src.utils.update_check import (
+        from src.core.update_check import (
             check_for_updates,
             get_cached_update_status,
         )
@@ -15222,7 +15223,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/runs":
             try:
-                from src.utils import analysis_runs as _ar
+                from src.core import analysis_runs as _ar
                 limit = int((query.get("limit") or ["50"])[0])
                 self._json({
                     "success": True,
@@ -15248,7 +15249,7 @@ class Handler(BaseHTTPRequestHandler):
             # Ledger of Resolve-local 21.0 AI ops (read straight from this
             # project's brain DB — no Resolve round-trip needed).
             try:
-                from src.utils import resolve_ai_ledger as _ledger
+                from src.core import resolve_ai_ledger as _ledger
                 root = self.state.project_root
                 self._json({
                     "success": True,
@@ -15586,7 +15587,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"success": False, "error": "Loopback only."}, HTTPStatus.FORBIDDEN)
                 return
             try:
-                from src.utils import analysis_runs as _ar
+                from src.core import analysis_runs as _ar
                 result = _ar.begin_run(
                     project_root=self.state.project_root,
                     label=body.get("label"),
@@ -15601,7 +15602,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"success": False, "error": "Loopback only."}, HTTPStatus.FORBIDDEN)
                 return
             try:
-                from src.utils import analysis_runs as _ar
+                from src.core import analysis_runs as _ar
                 result = _ar.end_run(
                     project_root=self.state.project_root,
                     analysis_run_id=body.get("analysis_run_id"),
@@ -15691,7 +15692,7 @@ def _warm_inventory_cache(project_root: str) -> None:
 
 
 def main() -> None:
-    from src.utils import actor_identity
+    from src.core import actor_identity
     actor_identity.set_instance("control-panel")
     args = parse_args()
     state = DashboardState(args.project_name, args.project_id, args.analysis_root)

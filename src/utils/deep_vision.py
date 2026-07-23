@@ -27,7 +27,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.utils import analysis_store, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import analysis_store
 
 DEEP_SHOT_SCHEMA_REFERENCE = "davinci_resolve_mcp.shot_deep_analysis.v1"
 DEEP_SOURCE = "vision_deep_v1"

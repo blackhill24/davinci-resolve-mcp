@@ -20,7 +20,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from src.utils import analysis_memory, embeddings, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import analysis_memory, embeddings
 
 ENTITY_VISION_SOURCE = "vision_entity_v1"
 ENTITY_SCHEMA_REFERENCE = "davinci_resolve_mcp.entity_confirmation.v1"

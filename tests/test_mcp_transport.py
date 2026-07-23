@@ -2,7 +2,7 @@
 import os
 import unittest
 
-from src.utils import mcp_transport as T
+from src.core import mcp_transport as T
 
 
 class TokenTest(unittest.TestCase):

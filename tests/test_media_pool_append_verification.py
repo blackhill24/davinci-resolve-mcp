@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
-from src.utils.readback import reset_verification_stats, verification_stats
+from src.core.readback import reset_verification_stats, verification_stats
 
 
 class ClipStub:

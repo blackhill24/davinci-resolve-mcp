@@ -1,4 +1,4 @@
-"""Unit tests for src/utils/timeline_versioning.py (C6).
+"""Unit tests for src/core/timeline_versioning.py (C6).
 
 No Resolve required. Mocks Project/MediaPool/Timeline handles to verify the
 archive-and-rename flow + DB-side state.
@@ -11,7 +11,7 @@ import shutil
 import tempfile
 import unittest
 
-from src.utils import timeline_brain_db, timeline_versioning
+from src.core import timeline_brain_db, timeline_versioning
 
 
 class _MockMediaPoolItem:

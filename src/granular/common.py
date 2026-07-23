@@ -20,12 +20,12 @@ for path in (SRC_DIR, PROJECT_DIR):
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from src.utils.app_control import (
+from src.core.app_control import (
     get_app_state,
     quit_resolve_app,
     restart_resolve_app,
 )
-from src.utils.proc import resolve_spawn_env
+from src.core.proc import resolve_spawn_env
 from src.utils.cdl import normalize_cdl_payload
 from src.utils.cloud_operations import (
     create_cloud_project,
@@ -33,8 +33,8 @@ from src.utils.cloud_operations import (
     load_cloud_project,
     restore_cloud_project,
 )
-from src.utils.object_inspection import inspect_object, print_object_help
-from src.utils.platform import get_platform, get_resolve_paths
+from src.core.object_inspection import inspect_object, print_object_help
+from src.core.platform import get_platform, get_resolve_paths
 from src.utils.project_properties import (
     get_all_project_properties,
     get_color_settings,

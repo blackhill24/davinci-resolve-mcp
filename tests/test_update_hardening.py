@@ -18,7 +18,7 @@ import unittest
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 import install  # noqa: E402
-from src.utils import update_check  # noqa: E402
+from src.core import update_check  # noqa: E402
 
 
 class BreakingChangeScanner(unittest.TestCase):

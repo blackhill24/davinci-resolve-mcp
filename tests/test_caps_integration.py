@@ -16,7 +16,8 @@ import shutil
 import tempfile
 import unittest
 
-from src.utils import analysis_caps, media_analysis, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import analysis_caps, media_analysis
 
 
 class PreCallRefusal(unittest.TestCase):

@@ -15,7 +15,8 @@ import tempfile
 import unittest
 import wave
 
-from src.utils import analysis_store, strata, strata_queries, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import analysis_store, strata, strata_queries
 from tests.test_analysis_store import make_report
 
 try:

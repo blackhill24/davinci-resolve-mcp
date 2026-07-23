@@ -33,7 +33,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from src.utils import timeline_brain_db
+from src.core import timeline_brain_db
 
 OLLAMA_URL = os.environ.get("DAVINCI_RESOLVE_MCP_OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_TEXT_MODEL = os.environ.get("DAVINCI_RESOLVE_MCP_EMBED_MODEL", "nomic-embed-text")

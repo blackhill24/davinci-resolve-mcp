@@ -22,7 +22,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from src.utils import actor_identity, timeline_brain_db
+from src.core import actor_identity, timeline_brain_db
 
 logger = logging.getLogger("resolve-mcp.resolve-ai-ledger")
 

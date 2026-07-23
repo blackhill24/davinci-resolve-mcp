@@ -1,7 +1,7 @@
 """Drift guard: docs/reference/api-limitations.md tracks api_truth.
 
 The Blackmagic-facing limitations report is generated from the ``submit``-tagged
-entries in src/utils/api_truth.py by scripts/gen_api_limitations.py. This test
+entries in src/core/api_truth.py by scripts/gen_api_limitations.py. This test
 fails when the committed doc drifts from what the generator would produce now, so
 adding or editing a ``submit`` entry forces a regenerate. It also asserts the doc
 exists, is marked generated, and that every catalogued submit kind is valid.
@@ -10,7 +10,7 @@ import importlib.util
 import pathlib
 import unittest
 
-from src.utils.api_truth import API_TRUTH, submittable_limitations
+from src.core.api_truth import API_TRUTH, submittable_limitations
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOC = ROOT / "docs" / "reference" / "api-limitations.md"

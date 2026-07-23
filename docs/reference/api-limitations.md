@@ -1,7 +1,7 @@
 # DaVinci Resolve Scripting API — Limitations & Feedback
 
 <!-- GENERATED FILE — do not edit by hand.
-     Source: src/utils/api_truth.py (entries tagged `submit`).
+     Source: src/core/api_truth.py (entries tagged `submit`).
      Regenerate: venv/bin/python scripts/gen_api_limitations.py -->
 
 This is a curated, behaviorally-verified list of DaVinci Resolve scripting

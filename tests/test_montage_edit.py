@@ -17,7 +17,8 @@ import unittest
 import wave
 from unittest import mock
 
-from src.utils import analysis_store, cut_ir, edit_engine, montage_edit, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import analysis_store, cut_ir, edit_engine, montage_edit
 
 from tests.test_analysis_store import make_report
 

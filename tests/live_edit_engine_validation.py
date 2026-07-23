@@ -284,7 +284,7 @@ def main() -> int:
                   f"accounting={accounting}")
 
         # ── readback: brain_edits rows with rationale ──
-        from src.utils import timeline_brain_db
+        from src.core import timeline_brain_db
         conn = timeline_brain_db.connect(out_root)
         rows = conn.execute(
             "SELECT edit_type, rationale FROM brain_edits WHERE edit_type LIKE 'edit_engine.%' ORDER BY id"

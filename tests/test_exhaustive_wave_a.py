@@ -79,7 +79,7 @@ class HistoryLimitClampTest(unittest.TestCase):
     """EX8: negative limit must not become a SQLite full-table fetch."""
 
     def test_brain_edits_clamps_negative_limit(self):
-        import src.utils.brain_edits as be
+        import src.core.brain_edits as be
         captured = {}
 
         class FakeCursor:

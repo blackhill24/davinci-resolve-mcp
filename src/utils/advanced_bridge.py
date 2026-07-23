@@ -33,7 +33,7 @@ import subprocess
 import tempfile
 from typing import Any, Dict, List, Optional
 
-from src.utils.proc import safe_run
+from src.core.proc import safe_run
 
 
 def _repo_root() -> str:

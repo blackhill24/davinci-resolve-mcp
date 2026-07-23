@@ -1,4 +1,4 @@
-"""Unit tests for src/utils/timeline_brain_db.py (C6).
+"""Unit tests for src/core/timeline_brain_db.py (C6).
 
 No Resolve required.
 """
@@ -9,7 +9,7 @@ import os
 import tempfile
 import unittest
 
-from src.utils import timeline_brain_db
+from src.core import timeline_brain_db
 
 
 class TimelineBrainDB(unittest.TestCase):

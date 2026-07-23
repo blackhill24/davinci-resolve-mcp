@@ -1,7 +1,7 @@
 """Tests for the verify_by_readback verification primitive."""
 import unittest
 
-from src.utils.readback import verify_by_readback
+from src.core.readback import verify_by_readback
 
 
 class VerifyByReadbackTest(unittest.TestCase):

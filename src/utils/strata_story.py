@@ -18,7 +18,8 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from src.utils import strata, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import strata
 
 STORY_SOURCE = "story_v1"
 STORY_VERSION = "1.0.0"

@@ -31,7 +31,7 @@ import sqlite3
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.utils import timeline_brain_db
+from src.core import timeline_brain_db
 
 logger = logging.getLogger("resolve-mcp.analysis-store")
 

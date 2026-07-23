@@ -14,7 +14,8 @@ import shutil
 import tempfile
 import unittest
 
-from src.utils import analysis_store, strata, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import analysis_store, strata
 from tests.test_analysis_store import make_report
 
 REAL_SAMPLE_ROOT = os.path.expanduser(

@@ -24,7 +24,7 @@ import sys
 PROJECT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT)
 
-from src.utils.platform import get_resolve_paths
+from src.core.platform import get_resolve_paths
 
 paths = get_resolve_paths()
 os.environ["RESOLVE_SCRIPT_API"] = paths["api_path"]

@@ -1,11 +1,11 @@
-"""Unit tests for src/utils/object_inspection.py.
+"""Unit tests for src/core/object_inspection.py.
 
 Covers the single-pass member walk, the C-extension signature guard, the
 __doc__-based docstring read, and back-compat of the thin wrappers.
 """
 import unittest
 
-import src.utils.object_inspection as oi
+import src.core.object_inspection as oi
 
 
 class _Fake:

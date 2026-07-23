@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.utils.platform import setup_environment  # noqa: E402
+from src.core.platform import setup_environment  # noqa: E402
 
 EXIT_READY = 0
 EXIT_NOT_READY = 2

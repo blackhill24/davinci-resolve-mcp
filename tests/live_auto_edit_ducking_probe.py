@@ -184,7 +184,7 @@ def run(s) -> int:
             return 0
         print("SIGNAL FOUND: the lines above carry the level edit — that field is "
               "the clip-volume encoding. Record the confirmed finding in "
-              "src/utils/api_truth.py (issue=14), then implement the Tier-2 drt "
+              "src/core/api_truth.py (issue=14), then implement the Tier-2 drt "
               "writer + set music.ducking.mode=drt_automation.")
         return 0
     finally:

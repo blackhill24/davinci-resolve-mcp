@@ -15,7 +15,8 @@ import shutil
 import tempfile
 import unittest
 
-from src.utils import analysis_store, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import analysis_store
 
 # A real analyzed sample root (issue references: 20260517 sample). The test
 # only READS its analysis.json files; rows are written to a temp DB.

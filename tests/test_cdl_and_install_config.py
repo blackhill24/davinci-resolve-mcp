@@ -189,7 +189,7 @@ class InstallConfigTests(unittest.TestCase):
         self.assertEqual(run_mock.call_args.kwargs["env"]["PYTHONPATH"], "modules")
 
     def test_windows_stdio_helper_disables_newline_translation(self):
-        source = (PROJECT_ROOT / "src" / "utils" / "mcp_stdio.py").read_text(encoding="utf-8")
+        source = (PROJECT_ROOT / "src" / "core" / "mcp_stdio.py").read_text(encoding="utf-8")
         self.assertIn('newline=""', source)
 
 

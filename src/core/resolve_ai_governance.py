@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from src.utils import resolve_ai_ledger
+from src.core import resolve_ai_ledger
 
 logger = logging.getLogger("resolve-mcp.resolve-ai-governance")
 

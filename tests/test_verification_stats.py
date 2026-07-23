@@ -2,8 +2,8 @@
 import unittest
 
 import src.server as s
-from src.utils import readback
-from src.utils.readback import verify_by_readback, reset_verification_stats
+from src.core import readback
+from src.core.readback import verify_by_readback, reset_verification_stats
 
 
 class VerificationStatsTest(unittest.TestCase):

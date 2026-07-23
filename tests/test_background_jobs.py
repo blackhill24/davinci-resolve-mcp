@@ -5,7 +5,7 @@ import time
 import unittest
 
 import src.server as s
-from src.utils import background_jobs
+from src.core import background_jobs
 
 
 def _wait_for(predicate, timeout=3.0):

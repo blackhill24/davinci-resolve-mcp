@@ -8,7 +8,7 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from src.utils import destructive_hook
+from src.core import destructive_hook
 
 
 class ActionFiltering(unittest.TestCase):

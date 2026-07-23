@@ -15,7 +15,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from src.utils import analysis_memory, analysis_store, embeddings, entities, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import analysis_memory, analysis_store, embeddings, entities
 from src.utils import media_analysis as ma
 
 from tests.test_analysis_store import make_report

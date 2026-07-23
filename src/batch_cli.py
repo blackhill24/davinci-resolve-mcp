@@ -527,7 +527,7 @@ _HANDLERS = {
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    from src.utils import actor_identity
+    from src.core import actor_identity
     actor_identity.set_instance("batch-cli")
     parser = _build_parser()
     args = parser.parse_args(argv)

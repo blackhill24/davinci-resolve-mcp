@@ -4,7 +4,7 @@ import tempfile
 import time
 import unittest
 
-from src.utils import analysis_runs, timeline_brain_db
+from src.core import analysis_runs, timeline_brain_db
 
 
 class AutoRunLifecycleTest(unittest.TestCase):

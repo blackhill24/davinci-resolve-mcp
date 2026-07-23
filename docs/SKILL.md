@@ -902,7 +902,7 @@ This prevents catastrophic ops from proceeding when versioning is broken.
 **Action filtering** — `timeline_item.set_property(key='Notes')` and
 `timeline.set_clip_property(key='Notes'|'Comments')` bypass versioning because
 free-text metadata isn't worth archiving. See `NO_ARCHIVE_ON_KEYS` in
-`src/utils/destructive_hook.py` to add more.
+`src/core/destructive_hook.py` to add more.
 
 **Preferences** — `timeline_versioning_auto_save_after_archive` (default false)
 triggers `project.SaveProject()` after every archive so Resolve crashes don't

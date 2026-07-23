@@ -58,7 +58,7 @@ produced without this consent); declining keeps a static music level.
 ## Build strategy (evidence-backed)
 
 The scripting API cannot add transitions, trim/move existing items, blade,
-retime, or automate audio levels (`src/utils/api_truth.py`). Hence:
+retime, or automate audio levels (`src/core/api_truth.py`). Hence:
 
 - **Phase 1 — append-rebuild** (this kernel): per-clip in/out (half-open),
   `recordFrame`, `trackIndex`, `mediaType:2` mirroring — the mechanism proven

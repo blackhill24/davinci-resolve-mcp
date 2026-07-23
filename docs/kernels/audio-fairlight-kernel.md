@@ -95,7 +95,7 @@ skill (`.claude/skills/audio-fairlight.md`) and the `/audio_workflow` prompt.
 The `timeline` compound tool adds `set_clip_volume(clip_id, volume_db)` and
 `set_clip_pan(clip_id, pan_value)` — same export->drp-ops->reimport convention
 as [Stage 3.1](timeline-edit-kernel.md), audio-clip-only. Ground truth in
-`src/utils/api_truth.py` and `resolve-advanced/vendor/drp-format/audio-effect-encoder.js`.
+`src/core/api_truth.py` and `resolve-advanced/vendor/drp-format/audio-effect-encoder.js`.
 
 Investigated for 3.2.2 (EQ/FairlightFX/automation beyond volume), findings in
 `api_truth.py`:

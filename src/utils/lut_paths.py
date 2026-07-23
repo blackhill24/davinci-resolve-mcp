@@ -14,7 +14,7 @@ import platform
 import shutil
 from typing import List, Optional
 
-from src.utils.platform import get_resolve_plugin_paths
+from src.core.platform import get_resolve_plugin_paths
 
 # Subfolder under the master LUT root where relocated LUTs are staged. SetLUT
 # resolves relative paths against the master root, so a subfolder path like

@@ -13,7 +13,8 @@ import shutil
 import tempfile
 import unittest
 
-from src.utils import auto_edit, cut_ir, edit_engine, timeline_brain_db, analysis_store
+from src.core import timeline_brain_db
+from src.utils import auto_edit, cut_ir, edit_engine, analysis_store
 
 from tests.test_analysis_store import make_report
 

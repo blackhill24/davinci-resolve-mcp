@@ -43,7 +43,7 @@ sys.modules.setdefault("mcp.server", sub)
 sys.modules.setdefault("mcp.server.fastmcp", fast)
 sys.modules.setdefault("mcp.server.stdio", stdio)
 
-from src.utils.platform import get_resolve_paths  # noqa: E402
+from src.core.platform import get_resolve_paths  # noqa: E402
 
 paths = get_resolve_paths()
 os.environ["RESOLVE_SCRIPT_API"] = paths["api_path"]

@@ -22,7 +22,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-from src.utils import structural_diff
+from src.core import structural_diff
 
 
 # ── Color presets ────────────────────────────────────────────────────────────

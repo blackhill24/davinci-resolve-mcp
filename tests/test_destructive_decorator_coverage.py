@@ -15,7 +15,7 @@ import os
 import re
 import unittest
 
-from src.utils.destructive_hook import DESTRUCTIVE_ACTIONS_BY_TOOL
+from src.core.destructive_hook import DESTRUCTIVE_ACTIONS_BY_TOOL
 
 SERVER_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

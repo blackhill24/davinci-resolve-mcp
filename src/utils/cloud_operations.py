@@ -9,7 +9,7 @@ the Resolve scripting API.
 import logging
 from typing import Any, Dict, Optional
 
-from src.utils.readback import verify_by_readback
+from src.core.readback import verify_by_readback
 
 logger = logging.getLogger("davinci-resolve-mcp.cloud_operations")
 

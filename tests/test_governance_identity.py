@@ -8,7 +8,7 @@ import unittest
 from unittest import mock
 
 import src.server as compound
-from src.utils import actor_identity, resolve_ai_ledger, timeline_brain_db
+from src.core import actor_identity, resolve_ai_ledger, timeline_brain_db
 
 
 class ActorIdentityTest(unittest.TestCase):

@@ -11,7 +11,8 @@ import unittest
 import shutil
 import tempfile
 
-from src.utils import analysis_store, strata, strata_faces, strata_queries, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import analysis_store, strata, strata_faces, strata_queries
 from tests.test_analysis_store import make_report
 
 

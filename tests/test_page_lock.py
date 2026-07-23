@@ -4,8 +4,8 @@ import time
 import unittest
 from unittest import mock
 
-from src.utils import page_lock
-from src.utils.page_lock import page_lock as plock, open_page_serialized
+from src.core import page_lock
+from src.core.page_lock import page_lock as plock, open_page_serialized
 
 
 class PageLockTest(unittest.TestCase):

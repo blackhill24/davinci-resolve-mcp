@@ -30,7 +30,8 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from src.utils import analysis_memory, analysis_store, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import analysis_memory, analysis_store
 
 PLAN_DIR_NAME = "edit_plans"
 DEFAULT_HANDLE_SECONDS = 0.25

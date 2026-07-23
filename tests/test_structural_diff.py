@@ -1,7 +1,7 @@
 """Unit tests for the reusable structural diff engine (Phase A)."""
 import unittest
 
-from src.utils import structural_diff as sd
+from src.core import structural_diff as sd
 
 
 class StructuralDiffTest(unittest.TestCase):

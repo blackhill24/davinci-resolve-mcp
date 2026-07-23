@@ -16,7 +16,7 @@ the v2.54.1 timeline.export fix before they ship.
 import unittest
 
 import src.server as s
-from src.utils.api_truth import API_TRUTH
+from src.core.api_truth import API_TRUTH
 
 
 class ApiTruthMitigationGuard(unittest.TestCase):

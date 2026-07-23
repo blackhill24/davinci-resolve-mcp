@@ -13,7 +13,7 @@ import tempfile
 import unittest
 
 import src.server as compound
-from src.utils import resolve_ai_ledger as _ledger
+from src.core import resolve_ai_ledger as _ledger
 
 
 # ── Stubs ────────────────────────────────────────────────────────────────────

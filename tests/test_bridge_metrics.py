@@ -1,7 +1,7 @@
 """Tests for the bridge-call counting instrumentation."""
 import unittest
 
-from src.utils.bridge_metrics import CountingProxy, measure
+from src.core.bridge_metrics import CountingProxy, measure
 
 
 class Inner:

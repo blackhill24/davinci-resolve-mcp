@@ -11,7 +11,7 @@ building. Run against an OPEN project; it only reads.
 import sys
 
 import src.server as s
-from src.utils.bridge_metrics import measure
+from src.core.bridge_metrics import measure
 
 
 def _walk_media_pool(project_proxy):

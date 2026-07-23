@@ -2,8 +2,8 @@
 import subprocess
 import unittest
 
-from src.utils.contracts import validate
-from src.utils import proc
+from src.core.contracts import validate
+from src.core import proc
 
 
 class ValidateTest(unittest.TestCase):

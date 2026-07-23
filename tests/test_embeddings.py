@@ -15,7 +15,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from src.utils import analysis_store, embeddings, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import analysis_store, embeddings
 
 from tests.test_analysis_store import make_report
 

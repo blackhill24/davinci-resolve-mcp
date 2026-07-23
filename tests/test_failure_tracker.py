@@ -1,7 +1,7 @@
 """E2 contract test — repeated-failure escalation tracker."""
 import unittest
 
-from src.utils import failure_tracker as ft
+from src.core import failure_tracker as ft
 
 
 class FailureTrackerTest(unittest.TestCase):

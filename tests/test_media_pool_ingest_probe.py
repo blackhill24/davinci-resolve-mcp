@@ -20,7 +20,7 @@ from src.server import (
     _safe_import_sequence,
     _set_clip_marks,
 )
-from src.utils.readback import reset_verification_stats, verification_stats
+from src.core.readback import reset_verification_stats, verification_stats
 
 
 class MediaPoolItemStub:

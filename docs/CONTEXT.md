@@ -21,7 +21,7 @@ reference, authoring formats, and release process. Route here; don't duplicate i
 ## Key files (only where the name doesn't say enough)
 
 - `SKILL.md` — top-level operating guide for the MCP (start here for behavior).
-- `reference/api-limitations.md` — **generated** from `src/utils/api_truth.py`; edit the
+- `reference/api-limitations.md` — **generated** from `src/core/api_truth.py`; edit the
   source + regenerate, never the file.
 - `reference/resolve_scripting_api.txt` — bundled Blackmagic API text (large; grep, don't read).
 

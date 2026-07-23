@@ -43,15 +43,15 @@ for p in [current_dir, project_dir]:
 
 # Platform-specific Resolve paths
 from src.utils.cdl import normalize_cdl_payload
-from src.utils.mcp_stdio import run_fastmcp_stdio
-from src.utils.api_truth import lookup_api_truth, VERIFIED_ON as _API_TRUTH_VERIFIED_ON
-from src.utils.contracts import validate as _validate_params
+from src.core.mcp_stdio import run_fastmcp_stdio
+from src.core.api_truth import lookup_api_truth, VERIFIED_ON as _API_TRUTH_VERIFIED_ON
+from src.core.contracts import validate as _validate_params
 from src.utils.cloud_operations import cloud_sync_status_label
 from src.utils.cut_ir import build_cut_list as _build_cut_list
-from src.utils.page_lock import open_page_serialized as _open_page_serialized
-from src.utils.proc import preload_audit, resolve_spawn_env, safe_run, sanitized_spawn_env
-from src.utils.readback import verify_by_readback, verification_stats as _verification_stats
-from src.utils.update_check import (
+from src.core.page_lock import open_page_serialized as _open_page_serialized
+from src.core.proc import preload_audit, resolve_spawn_env, safe_run, sanitized_spawn_env
+from src.core.readback import verify_by_readback, verification_stats as _verification_stats
+from src.core.update_check import (
     check_for_updates,
     clear_update_prompt_preferences,
     get_cached_update_status,
@@ -87,8 +87,8 @@ from src.utils.media_analysis import (
     summarize_reports as summarize_media_analysis_reports,
 )
 from src.utils.sync_detection import detect_sync_events_for_records as detect_media_sync_events
-from src.utils import actor_identity, background_jobs, resolve_busy
-from src.utils.resolve_busy import long_resolve_op
+from src.core import actor_identity, background_jobs, resolve_busy
+from src.core.resolve_busy import long_resolve_op
 from src.utils.media_analysis_jobs import (
     MEDIA_EXTENSIONS,
     batch_job_status as media_analysis_batch_job_status,
@@ -98,7 +98,7 @@ from src.utils.media_analysis_jobs import (
     resume_batch_job as resume_media_analysis_batch_job,
     run_batch_job_slice as run_media_analysis_batch_job_slice,
 )
-from src.utils.platform import get_resolve_paths, get_resolve_plugin_paths
+from src.core.platform import get_resolve_paths, get_resolve_plugin_paths
 from src.utils.lut_paths import master_lut_dir, ensure_lut_in_master
 from src.utils import fuse_templates, dctl_templates, script_templates
 from src.utils.timeline_title_text import (
@@ -115,8 +115,8 @@ from src.utils.fusion_group_settings import (
     parse_setting_file,
     splice_inputs_block,
 )
-from src.utils import analysis_runs as _analysis_runs
-from src.utils import brain_edits as _brain_edits
+from src.core import analysis_runs as _analysis_runs
+from src.core import brain_edits as _brain_edits
 from src.utils import edit_engine as _edit_engine_mod
 from src.utils import auto_edit as _auto_edit_mod
 from src.utils import montage_edit as _montage_edit_mod
@@ -124,12 +124,12 @@ from src.utils import orchestrate as _orchestrate_mod
 from src.utils import advanced_bridge as _advanced_bridge
 from src.utils import music_analysis as _music_analysis_mod
 from src.utils import media_pool_changes as _media_pool_changes
-from src.utils import timeline_versioning as _timeline_versioning
+from src.core import timeline_versioning as _timeline_versioning
 from src.utils import project_spec as _project_spec
 from src.utils import project_lint as _project_lint
 from src.utils import clip_query as _clip_query
-from src.utils import destructive_hook as _destructive_hook
-from src.utils.destructive_hook import destructive_op as _destructive_op
+from src.core import destructive_hook as _destructive_hook
+from src.core.destructive_hook import destructive_op as _destructive_op
 
 paths = get_resolve_paths()
 RESOLVE_API_PATH = paths["api_path"]
@@ -1077,7 +1077,7 @@ _destructive_hook.register_project_root_provider(
 # ─── Resolve 21 AI-ops ledger plumbing ────────────────────────────────────────
 
 import uuid as _ledger_uuid
-from src.utils import resolve_ai_ledger as _resolve_ai_ledger
+from src.core import resolve_ai_ledger as _resolve_ai_ledger
 
 # One id per server process so the ledger / dashboard can scope "this session".
 _AI_LEDGER_SESSION_ID = _ledger_uuid.uuid4().hex
@@ -1112,7 +1112,7 @@ def _ai_ledger_timed(op: str, *, clip_id: Optional[str] = None):
 
 # ─── Resolve 21 AI-ops governance (soft tiers over the ledger) ────────────────
 
-from src.utils import resolve_ai_governance as _resolve_ai_governance
+from src.core import resolve_ai_governance as _resolve_ai_governance
 
 
 def _ai_governance_preset() -> Optional[str]:
@@ -1433,7 +1433,7 @@ def _record_action_outcome(scope_key: Optional[str], action_name: str,
     keeps the tracker focused on signals that matter.
     """
     try:
-        from src.utils import failure_tracker as _ft
+        from src.core import failure_tracker as _ft
     except Exception:
         return response
     err = response.get("error") if isinstance(response, dict) else None
@@ -8400,7 +8400,7 @@ def _normalize_auto_sync_settings(settings: Dict[str, Any], resolve_obj=None):
     ``primary_clip_id``). Those are dropped rather than forwarded: passing any
     unrecognized key makes ``MediaPool.AutoSyncAudio`` silently reject the whole
     call (returns ``False``, nothing links). Callers surface ``ignored`` so the
-    rejection is no longer invisible. See utils/api_truth.py: MediaPool.AutoSyncAudio.
+    rejection is no longer invisible. See core/api_truth.py: MediaPool.AutoSyncAudio.
     """
     if not settings:
         return {}, []
@@ -8462,7 +8462,7 @@ def _resolve_enum_settings(resolve_obj, settings, field_specs):
     for many fields expect ``resolve.<CONST>`` enum *values* too. They silently
     reject the WHOLE call when handed a plain string key (returning False/None
     with nothing applied), so unrecognized keys must be dropped, not forwarded.
-    See utils/api_truth.py for the catalogued symbols.
+    See core/api_truth.py for the catalogued symbols.
 
     ``field_specs`` is an iterable of dicts, one per supported field:
       ``aliases``   human keys accepted for this field (case-insensitive)
@@ -18200,7 +18200,7 @@ def folder(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, An
                     # returns [{1: origMediaPoolItem, 2: newMediaPoolItem}, ...] — an
                     # int-keyed dict per pair, not a 2-tuple. Unpacking a dict yields
                     # its keys (1, 2), not the items, so plain `orig, new = pair`
-                    # silently produced garbage here. See utils/api_truth.py.
+                    # silently produced garbage here. See core/api_truth.py.
                     orig, new = (pair[1], pair[2]) if isinstance(pair, dict) else pair
                     path, nbytes = _clip_file_size(new)
                     if nbytes:
@@ -21383,7 +21383,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         pending_ids = {row["clip_id"] for row in rows
                        if row.get("clip_id") and not _find_clip(root_folder, row["clip_id"])}
         if pending_ids:
-            from src.utils import timeline_brain_db as _tbdb
+            from src.core import timeline_brain_db as _tbdb
             translated: Dict[str, Any] = {}
             try:
                 conn = _tbdb.connect(project_root)
@@ -29411,7 +29411,7 @@ def _resource_recent_reports() -> Dict[str, Any]:
     """Last 20 published analysis reports (clip_id, signature, completed_at, path)
     from the global analysis registry. Catalog read — no Resolve required."""
     try:
-        from src.utils import analysis_runs  # noqa: F401
+        from src.core import analysis_runs  # noqa: F401
     except Exception:
         pass
     registry_path = os.path.join(
@@ -29554,7 +29554,7 @@ if __name__ == "__main__":
             transport = sys.argv[_i + 1]
             del sys.argv[_i:_i + 2]
     if transport in ("sse", "streamable-http"):
-        from src.utils.mcp_transport import run_networked
+        from src.core.mcp_transport import run_networked
         actor_identity.set_instance("network-sse" if transport == "sse" else "network-http")
         logger.info(f"Starting DaVinci Resolve MCP Server ({transport} transport)")
         run_networked(mcp, transport)

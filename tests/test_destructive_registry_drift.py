@@ -13,7 +13,7 @@ import ast
 import pathlib
 import unittest
 
-from src.utils.destructive_hook import DESTRUCTIVE_ACTIONS_BY_TOOL
+from src.core.destructive_hook import DESTRUCTIVE_ACTIONS_BY_TOOL
 
 import src.server as s
 

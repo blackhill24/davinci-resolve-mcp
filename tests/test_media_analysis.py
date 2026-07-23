@@ -40,7 +40,7 @@ from src.analysis_dashboard import (
     read_clip_corrections,
     _analysis_status_by_clip,
 )
-from src.utils import update_check
+from src.core import update_check
 from src.utils.media_analysis import (
     HOST_CHAT_PATHS_PROVIDER,
     VISION_SCHEMA_REFERENCE,
@@ -3388,7 +3388,8 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
         otherwise media_ref lookups (edit_engine planners, panel readers)
         find nothing while the manifest claims success (Phase 3 pilot bug)."""
         from tests.test_analysis_store import make_report
-        from src.utils import analysis_store, timeline_brain_db
+        from src.core import timeline_brain_db
+        from src.utils import analysis_store
 
         with tempfile.TemporaryDirectory() as tmp:
             source_dir = os.path.join(tmp, "source")
@@ -3474,7 +3475,7 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
         block. Regression for the gap the PR-68 inner fix left on the entry
         points (server analyze action, metadata publish, batch job creation)."""
         from tests.test_analysis_store import make_report
-        from src.utils import timeline_brain_db
+        from src.core import timeline_brain_db
 
         with tempfile.TemporaryDirectory() as tmp:
             source_dir = os.path.join(tmp, "source")
@@ -3537,7 +3538,8 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
         WHOLESALE to the JSON walk otherwise. Both paths must be semantically
         identical: the export is lockstep with the DB by construction."""
         from tests.test_analysis_store import make_report
-        from src.utils import analysis_store, timeline_brain_db
+        from src.core import timeline_brain_db
+        from src.utils import analysis_store
         from src.utils.media_analysis import (
             build_analysis_index, query_analysis_index, summarize_reports,
         )
@@ -3598,7 +3600,8 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
 
     def test_summarize_mixed_root_falls_back_wholesale(self):
         from tests.test_analysis_store import make_report
-        from src.utils import analysis_store, timeline_brain_db
+        from src.core import timeline_brain_db
+        from src.utils import analysis_store
         from src.utils.media_analysis import summarize_reports
 
         with tempfile.TemporaryDirectory() as tmp:

@@ -19,7 +19,8 @@ from __future__ import annotations
 import os
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from src.utils import cut_ir, edit_engine, music_analysis, strata, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import cut_ir, edit_engine, music_analysis, strata
 
 BRIEF_KIND = "auto_edit_brief"
 # "montage" is planned by the sibling montage_edit module (server.py's

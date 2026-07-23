@@ -23,8 +23,9 @@ import shutil
 import subprocess
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from src.utils import strata, timeline_brain_db
-from src.utils.proc import safe_run
+from src.core import timeline_brain_db
+from src.utils import strata
+from src.core.proc import safe_run
 
 logger = logging.getLogger("resolve-mcp.strata-analyzers")
 

@@ -26,7 +26,7 @@ import sqlite3
 import time
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from src.utils import timeline_brain_db
+from src.core import timeline_brain_db
 from src.utils.embeddings import pack_vector as _pack_vector
 from src.utils.embeddings import unpack_vector as _unpack_vector
 

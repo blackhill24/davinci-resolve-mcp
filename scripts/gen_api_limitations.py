@@ -2,7 +2,7 @@
 """Generate the Blackmagic-facing DaVinci Resolve API limitations report.
 
 The single source of truth is the ``submit``-tagged entries in
-``src/utils/api_truth.py`` (see ``submittable_limitations``). This script renders
+``src/core/api_truth.py`` (see ``submittable_limitations``). This script renders
 them into ``docs/reference/api-limitations.md`` — a curated, behaviorally-verified
 list that can be submitted to Blackmagic Design's developer feedback, split into
 capabilities they should *add* and behaviors they should *fix*.
@@ -24,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.utils.api_truth import (  # noqa: E402
+from src.core.api_truth import (  # noqa: E402
     VERIFIED_ON,
     submittable_limitations,
 )
@@ -64,7 +64,7 @@ def render() -> str:
         "# DaVinci Resolve Scripting API — Limitations & Feedback",
         "",
         "<!-- GENERATED FILE — do not edit by hand.",
-        "     Source: src/utils/api_truth.py (entries tagged `submit`).",
+        "     Source: src/core/api_truth.py (entries tagged `submit`).",
         "     Regenerate: venv/bin/python scripts/gen_api_limitations.py -->",
         "",
         "This is a curated, behaviorally-verified list of DaVinci Resolve scripting",

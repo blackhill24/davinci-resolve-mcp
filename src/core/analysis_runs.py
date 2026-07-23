@@ -37,7 +37,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from src.utils import timeline_brain_db
+from src.core import timeline_brain_db
 
 logger = logging.getLogger("resolve-mcp.analysis-runs")
 

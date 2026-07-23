@@ -2,7 +2,7 @@
 import unittest
 
 import src.server as s
-from src.utils.api_truth import lookup_api_truth, API_TRUTH
+from src.core.api_truth import lookup_api_truth, API_TRUTH
 
 
 class LookupTest(unittest.TestCase):

@@ -11,7 +11,7 @@ for path in (project_dir, current_dir):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from src.utils.platform import get_resolve_paths
+from src.core.platform import get_resolve_paths
 
 paths = get_resolve_paths()
 api_path = os.environ.get("RESOLVE_SCRIPT_API") or paths["api_path"]
@@ -27,8 +27,8 @@ if modules_path and modules_path not in sys.path:
 
 from src.granular import VERSION, mcp
 from src.granular.common import logger
-from src.utils.mcp_stdio import run_fastmcp_stdio
-from src.utils.update_check import start_background_update_check
+from src.core.mcp_stdio import run_fastmcp_stdio
+from src.core.update_check import start_background_update_check
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Unit tests for src/utils/analysis_runs.py (C6 hardening — run scoping).
+"""Unit tests for src/core/analysis_runs.py (C6 hardening — run scoping).
 
 No Resolve required.
 """
@@ -10,7 +10,7 @@ import shutil
 import tempfile
 import unittest
 
-from src.utils import analysis_runs, brain_edits, timeline_brain_db
+from src.core import analysis_runs, brain_edits, timeline_brain_db
 
 
 class RunScoping(unittest.TestCase):
@@ -127,7 +127,7 @@ class HookIntegration(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_extract_analysis_run_id_uses_current_run_when_no_param(self) -> None:
-        from src.utils import destructive_hook
+        from src.core import destructive_hook
         opened = analysis_runs.begin_run(project_root=self.project_root)
         try:
             run_id = destructive_hook._extract_analysis_run_id(None)
@@ -139,7 +139,7 @@ class HookIntegration(unittest.TestCase):
             analysis_runs.end_run(project_root=self.project_root)
 
     def test_extract_initiator_uses_current_run_when_no_param(self) -> None:
-        from src.utils import destructive_hook
+        from src.core import destructive_hook
         analysis_runs.begin_run(
             project_root=self.project_root, initiator="brain.chat",
         )

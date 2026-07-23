@@ -30,7 +30,7 @@ Every release bump must update all version surfaces:
 - README current stats or latest-release summary when they changed
 - `CHANGELOG.md` latest release entry
 - `docs/reference/api-limitations.md` when any `submit`-tagged entry in
-  `src/utils/api_truth.py` was added or changed (a newly documented Resolve API
+  `src/core/api_truth.py` was added or changed (a newly documented Resolve API
   gap/bug, a closed won't-fix issue, etc.). Regenerate it — do not hand-edit:
   `venv/bin/python scripts/gen_api_limitations.py`. The
   `tests.test_api_limitations_doc` drift guard fails the suite if it is stale.

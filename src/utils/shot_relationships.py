@@ -28,7 +28,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.utils import analysis_memory, embeddings, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import analysis_memory, embeddings
 
 RELATIONSHIP_VISION_SOURCE = "vision_relationship_v1"
 RELATIONSHIP_SCHEMA_REFERENCE = "davinci_resolve_mcp.relationship_confirmation.v1"

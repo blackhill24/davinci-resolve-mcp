@@ -24,7 +24,7 @@ import textwrap
 import time
 from pathlib import Path
 
-from src.utils.update_check import (
+from src.core.update_check import (
     clear_update_prompt_preferences,
     check_for_updates,
     ignore_update_version,
@@ -1044,7 +1044,7 @@ def apply_safe_self_update(project_dir, dry_run=False, *, initiator="cli",
     # user may have intentional reasons — but we log it loudly.
     integrity = {"verified": None, "expected_sha": None, "actual_sha": to_sha}
     try:
-        from src.utils.update_check import check_for_updates as _cfu  # type: ignore
+        from src.core.update_check import check_for_updates as _cfu  # type: ignore
         info = _cfu(from_version or "0.0.0", project_dir, force=False)
         expected = info.get("release_target_sha")
         if expected:
@@ -1159,7 +1159,7 @@ def preview_update(project_dir):
        channel, current_version, target_sha}
     """
     try:
-        from src.utils.update_check import check_for_updates  # type: ignore
+        from src.core.update_check import check_for_updates  # type: ignore
     except Exception as exc:
         return {"success": False, "error": f"update_check unavailable: {exc}"}
     current = _read_current_version(project_dir) or "0.0.0"

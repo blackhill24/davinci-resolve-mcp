@@ -2,8 +2,8 @@
 import tempfile
 import unittest
 
-from src.utils import resolve_ai_governance as G
-from src.utils import resolve_ai_ledger as L
+from src.core import resolve_ai_governance as G
+from src.core import resolve_ai_ledger as L
 
 
 class GovernanceTierResolutionTest(unittest.TestCase):

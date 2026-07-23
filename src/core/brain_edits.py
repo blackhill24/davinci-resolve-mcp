@@ -24,7 +24,7 @@ import os
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from src.utils import actor_identity, timeline_brain_db
+from src.core import actor_identity, timeline_brain_db
 
 logger = logging.getLogger("resolve-mcp.brain-edits")
 

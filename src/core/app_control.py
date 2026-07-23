@@ -16,7 +16,7 @@ import platform
 import subprocess
 from typing import Dict, Any, Optional, Union, List
 
-from src.utils.proc import resolve_spawn_env
+from src.core.proc import resolve_spawn_env
 
 # Configure logging
 logger = logging.getLogger("davinci-resolve-mcp.app_control")

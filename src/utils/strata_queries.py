@@ -17,7 +17,8 @@ import math
 import statistics
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from src.utils import strata, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import strata
 
 _WORD_STRIP = ".,!?;:\"'()[]—–-…"
 

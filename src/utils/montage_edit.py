@@ -46,7 +46,8 @@ import json
 import os
 from typing import Any, Dict, List, Optional, Sequence
 
-from src.utils import auto_edit, cut_ir, edit_engine, music_analysis, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import auto_edit, cut_ir, edit_engine, music_analysis
 
 GENRE = "montage"
 

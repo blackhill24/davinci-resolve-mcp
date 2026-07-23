@@ -1,4 +1,4 @@
-"""Offline tests for src/utils/resolve_connection.py — the connector core.
+"""Offline tests for src/core/resolve_connection.py — the connector core.
 
 DaVinciResolveScript is faked via sys.modules so no Resolve is needed.
 """
@@ -7,7 +7,7 @@ import types
 import unittest
 from unittest import mock
 
-from src.utils import resolve_connection as rc
+from src.core import resolve_connection as rc
 
 
 def _fake_dvr(scriptapp_result):

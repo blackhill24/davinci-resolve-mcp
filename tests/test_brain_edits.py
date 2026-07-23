@@ -1,4 +1,4 @@
-"""Unit tests for src/utils/brain_edits.py (C6).
+"""Unit tests for src/core/brain_edits.py (C6).
 
 No Resolve required. Mocks the timeline handle where metric capture is needed.
 """
@@ -11,7 +11,7 @@ import shutil
 import tempfile
 import unittest
 
-from src.utils import brain_edits, timeline_brain_db
+from src.core import brain_edits, timeline_brain_db
 
 
 class _MockTimeline:

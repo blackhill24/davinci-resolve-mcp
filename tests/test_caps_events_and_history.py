@@ -10,7 +10,8 @@ import tempfile
 import time
 import unittest
 
-from src.utils import analysis_caps, timeline_brain_db
+from src.core import timeline_brain_db
+from src.utils import analysis_caps
 
 
 class CapsEventsTable(unittest.TestCase):

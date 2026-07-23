@@ -7,7 +7,8 @@ import shutil
 import tempfile
 import unittest
 
-from src.utils import destructive_hook, media_pool_changes, timeline_brain_db
+from src.core import destructive_hook, timeline_brain_db
+from src.utils import media_pool_changes
 
 
 class MediaPoolChanges(unittest.TestCase):

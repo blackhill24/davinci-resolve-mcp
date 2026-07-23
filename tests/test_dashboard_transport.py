@@ -2,7 +2,7 @@
 import unittest
 
 import src.analysis_dashboard as dash
-from src.utils import mcp_transport as T
+from src.core import mcp_transport as T
 
 
 class DashboardTransportTest(unittest.TestCase):

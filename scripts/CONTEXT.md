@@ -11,7 +11,7 @@ Installer and maintenance scripts: audits, generators, probes. The generators ow
 |------|------|------|--------------|
 | Change install behavior | `../install.py` | this dir | `docs/install.md` |
 | Regenerate agent-rule mirrors (AGENTS/.cursor/…) | `agent-rules/generate.mjs`, `agent-rules/README.md` | `../.cursorrules` etc. (outputs) | — |
-| Regenerate API limitations doc | `gen_api_limitations.py` | — | `src/utils/api_truth.py` (source) |
+| Regenerate API limitations doc | `gen_api_limitations.py` | — | `src/core/api_truth.py` (source) |
 | Audit API parity / read-write symmetry | `audit_api_parity.py`, `audit_readwrite_symmetry.py` | — | `docs/reference/` |
 | Diagnose environment | `doctor.py` | — | — |
 | Measure bridge cost | `measure_bridge_cost.py` | — | `tests/benchmark_server.py` |

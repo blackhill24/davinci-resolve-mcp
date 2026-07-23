@@ -23,7 +23,7 @@ import time
 import uuid
 from typing import Any, Callable, Dict, List, Optional
 
-from src.utils.resolve_busy import long_resolve_op
+from src.core.resolve_busy import long_resolve_op
 
 # A finished job is dropped from the registry this long after it ended.
 MAX_JOB_AGE_SECONDS = 60 * 60

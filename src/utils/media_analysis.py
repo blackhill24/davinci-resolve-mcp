@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from src.utils import analysis_caps as _analysis_caps
-from src.utils.proc import sanitized_spawn_env
+from src.core.proc import sanitized_spawn_env
 
 # Caps preference reader — server.py registers a provider that reads the
 # media-analysis prefs file. Until then, the default preset is used.
@@ -6082,7 +6082,8 @@ def _collect_reports_for_summary(root: str) -> Tuple[List[Dict[str, Any]], List[
     disk_paths.sort()
 
     try:
-        from src.utils import analysis_store, timeline_brain_db
+        from src.core import timeline_brain_db
+        from src.utils import analysis_store
 
         conn = timeline_brain_db.connect(root)
         db_dirs = {
@@ -7329,7 +7330,7 @@ def build_analysis_index(project_root: str, *, index_path: Optional[Any] = None)
         # the query surface are unchanged either way.
         clips_root_prefix = os.path.realpath(os.path.join(root, "clips")) + os.sep
         try:
-            from src.utils import timeline_brain_db as _brain_db
+            from src.core import timeline_brain_db as _brain_db
 
             _db_dirs = {
                 str(r["clip_dir"]): str(r["clip_uuid"])

@@ -1,8 +1,8 @@
-"""Tests for the Resolve 21 AI-ops ledger (src/utils/resolve_ai_ledger.py)."""
+"""Tests for the Resolve 21 AI-ops ledger (src/core/resolve_ai_ledger.py)."""
 import tempfile
 import unittest
 
-from src.utils import resolve_ai_ledger as L
+from src.core import resolve_ai_ledger as L
 
 
 class LedgerRecordQueryTest(unittest.TestCase):

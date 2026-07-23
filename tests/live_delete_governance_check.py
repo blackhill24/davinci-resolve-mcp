@@ -11,7 +11,7 @@ Run:
 import sys
 
 import src.server as s
-from src.utils.destructive_hook import is_destructive
+from src.core.destructive_hook import is_destructive
 
 
 def main() -> int:

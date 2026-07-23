@@ -37,6 +37,7 @@ writeback/persistence policy) plus the MCP self-update policy — see
 | `mcp_update_status` / `set_mcp_update_policy` / `ignore_mcp_update` / `snooze_mcp_update` / `clear_mcp_update_preferences` | MCP self-update check and policy (defaults live under `setup`). |
 | `get_fairlight_presets` | List Fairlight mixer presets (read-only; see `resolve-audio-fairlight` for bus routing). |
 | `set_high_priority` / `disable_background_tasks_for_current_session` | Process-priority and background-task tuning for the current Resolve session. |
+| `install_launch_shim` / `uninstall_launch_shim` / `launch_shim_status` | Linux only. Install a user-scoped shim (`~/.local/bin/resolve` + a user-level `.desktop` override) so the Fairlight raw-hw ALSA config applies however Resolve is started, not only when this connector spawns it — without it, a desktop-launcher or terminal start wedges renders mid-run. Idempotent; refuses to overwrite files it did not write. `launch` reports a `launch_shim` key when an installed shim has been shadowed on `PATH`. |
 
 ### `timeline_versioning` — snapshot / rollback safety net
 

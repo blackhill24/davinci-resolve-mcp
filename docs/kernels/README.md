@@ -5,7 +5,7 @@ Resolve Scripting API. They are tracked separately from API method coverage:
 API coverage answers "can MCP reach every Blackmagic method?", while kernel
 coverage answers "which higher-level, guarded agent workflows are available?".
 
-Current kernel coverage: **207 actions** across **14 compound MCP tools**.
+Current kernel coverage: **210 actions** across **14 compound MCP tools**.
 
 | Kernel | MCP Tool | Actions |
 |--------|----------|---------|

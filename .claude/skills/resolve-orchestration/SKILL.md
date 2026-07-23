@@ -70,9 +70,17 @@ if a step here has to *compute* anything, that belongs in the tool, not here.
 - Source media stays read-only through every stage, same posture as
   `resolve-auto-edit`.
 
+## Granular (`--full`) + resources
+
+`orchestrate` is kernel-only by design — no one-per-method granular twin;
+it's a conductor over the *other* domains' own tools (which do or don't have
+granular twins per their own skills). No offline `resolve-advanced`
+counterpart exists yet (deferred follow-on). **Resources** —
+`status://current_project`, `capabilities://installed_tools`.
+
 ## Depth
 
 Action boundary + stage-graph/fingerprint/gate/snapshot/lease depth:
 `docs/kernels/orchestration-kernel.md`. Core module:
 `src/domains/orchestration/utils/orchestrate.py`. Tool wiring: `src/server.py` (`orchestrate`).
-Any-MCP-client prompt: `/orchestrate_workflow`.
+**Prompt** — `orchestrate_workflow` (`src/server.py`).

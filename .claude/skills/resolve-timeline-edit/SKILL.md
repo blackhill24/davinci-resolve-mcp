@@ -23,6 +23,15 @@ re-derive it here.
 | Restructure a **running** timeline | `davinci-resolve` (Python, live) | `timeline` (edit kernel), `timeline_item`, `edit_engine`, `timeline_markers` |
 | Author/diff a `.drt` **file**, or parse/compare editorial interchange with **no Resolve open** | `davinci-resolve-advanced` (Node) | `drt`, `editorial` |
 
+**Granular (`--full`) equivalents.** `src/granular/timeline.py` (track add/
+delete/enable/lock, marker CRUD, `timeline_delete_clips`,
+`timeline_set_clips_linked`) and `src/granular/timeline_item.py` (per-item
+transform/crop/retime/take reads and writes) expose one method per API call
+when a compound action doesn't cover it. **Prompt** — `timeline_edit_workflow`
+(`src/server.py`) routes a cut/trim/restructure/changelist ask across both
+servers. **Resources** — `status://current_timeline`,
+`capabilities://installed_tools`.
+
 ## Live edit-kernel essentials
 
 - Duplicate/relocate: `duplicate_clips` (modes `same_time`/`offset`/

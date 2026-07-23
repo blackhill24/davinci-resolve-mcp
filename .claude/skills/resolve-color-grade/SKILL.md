@@ -27,6 +27,21 @@ manuals — it tells you which one to open and the rules that cross both servers
 apply-ready `.drx`; **applying** it is the live server's job
 (`timeline_item_color.safe_apply_drx`). Node never drives Resolve.
 
+**Granular (`--full`) equivalents.** The four compound tools above are grouped
+actions over one-method-per-tool granular modules — reach for these when a
+compound action doesn't expose a specific API call: `src/granular/timeline_item.py`
+(`ti_set_cdl`, `ti_copy_grades`, `ti_get_node_graph`, `ti_get_color_group`,
+`ti_assign_to_color_group`, `ti_export_lut`, clip-color/flag helpers),
+`src/granular/graph.py` (`graph_set_lut`, `graph_apply_grade_from_drx`,
+`graph_set_node_enabled`, node cache/label reads), `src/granular/gallery.py`
+(still-album and power-grade-album CRUD).
+
+**MCP prompts** — `analyze_and_propose_grade`, `prep_color_handoff`,
+`color_grade_workflow` (all in `src/server.py`) chain these tools into
+guided workflows. **Resources** — `status://current_project`,
+`status://caps_preset`, `capabilities://installed_tools` report grading
+capability/preset state without a tool call.
+
 ## The frame-first rule (non-negotiable — see AGENTS.md)
 
 Before applying any grade, look, shot match, LUT, CDL, DRX, or copied grade to a

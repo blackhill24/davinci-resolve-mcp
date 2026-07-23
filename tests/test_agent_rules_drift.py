@@ -51,6 +51,9 @@ class AgentRulesDriftTest(unittest.TestCase):
             "timeline_edit_workflow",
             "conform_workflow",
             "delivery_workflow",
+            "extension_authoring_workflow",
+            "project_lifecycle_workflow",
+            "review_annotation_workflow",
         ):
             self.assertIn(
                 f'name="{name}"',

@@ -1,5 +1,5 @@
 ---
-name: resolve-edit
+name: resolve-timeline-edit
 description: Editing, cutting, trimming, pacing, and timeline restructuring in the DaVinci Resolve MCP. Apply when duplicating/moving clips, copying ranges, building variants, tightening or restructuring a cut, editing selects, or generating an editorial changelist/turnover — live in a running Resolve OR offline against .drt timeline files. Routes to the live edit tools, the offline editorial tools, and the project's editorial craft guidance.
 ---
 
@@ -46,7 +46,7 @@ re-derive it here.
 
 Use these to answer "what changed between v3 and v4" or to hand a conform an
 accurate change list **without** opening either timeline in Resolve. For carrying
-a *conform* across a re-edit, see the `resolve-conform` skill.
+a *conform* across a re-edit, see the `resolve-timeline-conform-interchange` skill.
 
 ## Source-media safety (AGENTS.md)
 

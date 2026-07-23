@@ -16,6 +16,7 @@ reference, authoring formats, and release process. Route here; don't duplicate i
 | Check API coverage / limitations | `reference/api-coverage.md`, `reference/api-limitations.md` | `authoring/` | `scripts/gen_api_limitations.py` |
 | Author Fuse/DCTL/settings files | `authoring/` (`fuse-dctl-authoring.md`, `setting-files/`) | `kernels/` | — |
 | Release / version bump | `process/release-process.md` | everything else | — |
+| Repo restructure rationale | `decisions/0001-domain-taxonomy.md` | — | — |
 
 ## Key files (only where the name doesn't say enough)
 

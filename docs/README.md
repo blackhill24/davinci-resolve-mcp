@@ -48,13 +48,13 @@ advanced tools automatically when an agent works in that domain. They are thin
 bridges — the authoritative depth stays in the kernels and guides above.
 
 - `resolve-mcp` (`.claude/skills/resolve.md`) — orientation/index: the map to the domain skills below (self-trigger; not an auto-loader)
-- `resolve-color` (`.claude/skills/color-grade.md`) — grading, looks, shot match, LUT/CDL/DRX
-- `resolve-edit` (`.claude/skills/timeline-edit.md`) — cutting, ranges, variants, changelist
-- `resolve-conform` (`.claude/skills/conform.md`) — conform, relink, finishing QC, grade tracing
-- `resolve-delivery` (`.claude/skills/delivery.md`) — render, deliverable QC, media/provenance
-- `resolve-fusion` (`.claude/skills/fusion.md`) — Fusion comps (titles, motion graphics, VFX)
-- `resolve-audio` (`.claude/skills/audio.md`) — audio/Fairlight tracks, buses, loudness, sync
-- `resolve-media-pool` (`.claude/skills/media-pool.md`) — media pool ingest, organize, multicam
+- `resolve-color-grade` (`.claude/skills/color-grade.md`) — grading, looks, shot match, LUT/CDL/DRX
+- `resolve-timeline-edit` (`.claude/skills/timeline-edit.md`) — cutting, ranges, variants, changelist
+- `resolve-timeline-conform-interchange` (`.claude/skills/timeline-conform-interchange.md`) — conform, relink, finishing QC, grade tracing
+- `resolve-render-deliver` (`.claude/skills/render-deliver.md`) — render, deliverable QC, media/provenance
+- `resolve-fusion-composition` (`.claude/skills/fusion-composition.md`) — Fusion comps (titles, motion graphics, VFX)
+- `resolve-audio-fairlight` (`.claude/skills/audio-fairlight.md`) — audio/Fairlight tracks, buses, loudness, sync
+- `resolve-media-pool-ingest` (`.claude/skills/media-pool-ingest.md`) — media pool ingest, organize, multicam
 - `resolve-media-analysis` (`.claude/skills/media-analysis.md`) — source-safe media intelligence
 
 The offline half of every one is the advanced server; see

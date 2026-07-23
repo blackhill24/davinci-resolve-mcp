@@ -807,6 +807,83 @@ deliverable-side media QC use delivery_workflow.
 Depth: docs/kernels/media-pool-ingest-kernel.md, docs/guides/multicam-setup-guide.md."""
 
 
+@mcp.prompt(
+    name="extension_authoring_workflow",
+    title="Extension Authoring Workflow",
+    description="Route a Fuse/DCTL/Resolve-page-script authoring task across the live extension lifecycle tools.",
+)
+def extension_authoring_workflow() -> str:
+    return """Extension authoring is a live-only domain: generate, validate, install, and
+remove Fuse tools, DCTL/ACES LUTs, and Resolve-page scripts through one
+lifecycle-aware tool. There is no offline authoring path yet.
+
+- Live: script_plugin extension_capabilities / probe_fuse_lifecycle /
+  probe_dctl_lifecycle / probe_script_lifecycle / safe_install_extension /
+  safe_remove_extension / refresh_or_restart_required / extension_boundary_report.
+  Raw fuse_plugin and dctl tools remain available for direct file operations.
+
+Rule of thumb: probe the lifecycle for the extension kind first, install with the
+`_mcp_` marker guard on, then check refresh_or_restart_required before assuming
+Resolve has picked up the change. New Fuses and ACES IDT/ODT DCTLs need a
+restart; regular LUT-category DCTLs pick up via project_settings.refresh_luts.
+Installed Lua execution through fusion.RunScript is unreliable — use
+script_plugin.run_inline for captured output.
+
+Depth: docs/kernels/extension-authoring-kernel.md."""
+
+
+@mcp.prompt(
+    name="project_lifecycle_workflow",
+    title="Project / Database / Archive Workflow",
+    description="Route a project/database/archive/preset task across the live project_manager tools and the offline project_db patcher.",
+)
+def project_lifecycle_workflow() -> str:
+    return """Project lifecycle spans two servers: the live Python server creates, exports,
+imports, archives, restores, and configures projects/databases/presets in a
+running Resolve; the advanced (offline) server patches the project DB with no
+Resolve open.
+
+- Live: project_manager project_capabilities / probe_project_lifecycle /
+  probe_project_settings / safe_project_create|export|import|archive|restore|delete /
+  safe_set_project_settings / project_settings_snapshot / database_capabilities /
+  safe_set_current_database / preset_lifecycle_probe / project_boundary_report,
+  plus project_manager_folders and project_manager_database.
+- Offline `project_db` (needs the project CLOSED + a full quit/relaunch).
+
+Rule of thumb: safe project create/import/restore/delete require `_mcp_`-prefixed
+names unless allow_non_mcp_name is set; safe export/import/archive/restore paths
+must sit under the system temp dir unless require_temp_path=False. Safe archive
+defaults every media/cache/proxy flag to false. Database switching is a dry-run
+unless both allow_switch=True and dry_run=False are given — a real switch closes
+open projects.
+
+Depth: docs/kernels/project-lifecycle-kernel.md."""
+
+
+@mcp.prompt(
+    name="review_annotation_workflow",
+    title="Review Annotation Workflow",
+    description="Route a marker/flag/clip-color annotation task across the live timeline_markers annotation layer.",
+)
+def review_annotation_workflow() -> str:
+    return """Review annotation is a live-only domain: add, read, copy, move, and clear
+markers, flags, and clip color across timeline, timeline item, and media pool
+item scopes, and produce read-only review reports.
+
+- Live: timeline_markers annotation_capabilities / probe_annotations /
+  normalize_marker_payload / copy_annotations / move_annotations /
+  sync_marker_custom_data / clear_annotations_by_scope / export_review_report /
+  annotation_boundary_report.
+
+Rule of thumb: timeline, timeline item, and media pool item frame spaces are NOT
+interchangeable — copy_annotations/move_annotations use direct frame numbers, so
+map frames explicitly when moving between scopes. Flags and clip color copy only
+when both source and target expose compatible methods; invalid marker colors are
+rejected before calling Resolve.
+
+Depth: docs/kernels/review-annotation-kernel.md."""
+
+
 # ─── Python Version Check ────────────────────────────────────────────────────
 
 _py_ver = sys.version_info[:2]

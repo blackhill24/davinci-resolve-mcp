@@ -93,7 +93,7 @@ Rules an agent must know:
 - **Deps.** `deliverable`/`media` QC needs **ffmpeg + ffprobe on PATH** (GPL, not
   bundled) — call the advanced `capabilities` tool for status + install hints.
 
-See the `resolve-delivery` skill (`.claude/skills/delivery.md`) for the
+See the `resolve-render-deliver` skill (`.claude/skills/render-deliver.md`) for the
 craft ↔ live ↔ offline routing.
 
 ## Live Evidence

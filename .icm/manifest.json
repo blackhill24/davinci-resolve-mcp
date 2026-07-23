@@ -2,17 +2,30 @@
   "version": 2,
   "layers": 3,
   "root_nav": "CLAUDE.md",
-  "synced": "2026-07-22",
+  "synced": "2026-07-23",
   "_root_structure": "75479c43f99da814",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "4227f60eabff54b6",
+      "fingerprint": "b2f4559b8a080ae2",
       "files": [
         "src/__init__.py",
         "src/analysis_dashboard.py",
         "src/batch_cli.py",
         "src/control_panel.py",
+        "src/domains/audio_fairlight/.gitkeep",
+        "src/domains/auto_edit/.gitkeep",
+        "src/domains/color_grade/.gitkeep",
+        "src/domains/extension_authoring/.gitkeep",
+        "src/domains/fusion_composition/.gitkeep",
+        "src/domains/media_analysis/.gitkeep",
+        "src/domains/media_pool_ingest/.gitkeep",
+        "src/domains/orchestration/.gitkeep",
+        "src/domains/project_lifecycle/.gitkeep",
+        "src/domains/render_deliver/.gitkeep",
+        "src/domains/review_annotation/.gitkeep",
+        "src/domains/timeline_conform_interchange/.gitkeep",
+        "src/domains/timeline_edit/.gitkeep",
         "src/granular/__init__.py",
         "src/granular/common.py",
         "src/granular/folder.py",
@@ -543,7 +556,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "fdc9b7d27d2c7a7b",
+      "fingerprint": "a2c0b8ff4062d56f",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -569,6 +582,7 @@
         "docs/authoring/setting-files/templates/MCP Test Vignette.setting",
         "docs/authoring/setting-files/templates/MCP Test Wipe.setting",
         "docs/contributing.md",
+        "docs/decisions/0001-domain-taxonomy.md",
         "docs/guides/color-decision-guide.md",
         "docs/guides/control-panel.md",
         "docs/guides/editorial-decision-guide.md",
@@ -614,7 +628,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "7c0cb15b4af70ee8",
+      "fingerprint": "9b59bcc1f16ddfc7",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -843,7 +857,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "f316e5af6e530b20",
+      "fingerprint": "a9173f198e609146",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

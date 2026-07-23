@@ -40,8 +40,8 @@ two:
 - Timeline Edit → `editorial` (interchange + changelist), `drt`
 
 Per-domain Claude Code skills route craft ↔ live ↔ offline automatically and live
-in `.claude/skills/`: `resolve-color`, `resolve-edit`, `resolve-conform`,
-`resolve-delivery` (plus `resolve-media-analysis` and `resolve-auto-edit`). `docs/SKILL.md` is the
+in `.claude/skills/`: `resolve-color-grade`, `resolve-timeline-edit`, `resolve-timeline-conform-interchange`,
+`resolve-render-deliver` (plus `resolve-media-analysis` and `resolve-auto-edit`). `docs/SKILL.md` is the
 top-level brief for both servers.
 
 Helper-tool details that need more than an action list live in guides. See

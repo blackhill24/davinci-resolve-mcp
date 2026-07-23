@@ -1,6 +1,6 @@
 ---
 name: resolve-mcp
-description: Orientation and index for DaVinci Resolve MCP work — grading, editing, conforming, delivery, media analysis, and .drp/.drt/.drx file work, live in a running Resolve or offline with none open. Load this for a map of the domain skills, the live-vs-offline servers, and the cross-cutting safety rules. The per-domain skills (resolve-color / resolve-edit / resolve-conform / resolve-delivery / resolve-media-analysis) carry the depth and self-trigger on their own descriptions; use this as the map, or when a task spans several domains.
+description: Orientation and index for DaVinci Resolve MCP work — grading, editing, conforming, delivery, media analysis, project lifecycle, review annotation, extension authoring, and .drp/.drt/.drx file work, live in a running Resolve or offline with none open. Load this for a map of the domain skills, the live-vs-offline servers, and the cross-cutting safety rules. The per-domain skills (resolve-color-grade / resolve-timeline-edit / resolve-timeline-conform-interchange / resolve-render-deliver / resolve-media-analysis / ...) carry the depth and self-trigger on their own descriptions; use this as the map, or when a task spans several domains.
 ---
 
 # DaVinci Resolve MCP — Index
@@ -24,30 +24,23 @@ live. Node never drives Resolve.
 
 | Task | Skill | Kernel | Any-MCP-client prompt |
 |---|---|---|---|
-| Grading, looks, shot match, LUT/CDL/DRX | `resolve-color` | `color-grade-kernel.md` | `/color_grade_workflow` |
-| Cutting, trimming, ranges, variants, changelist | `resolve-edit` | `timeline-edit-kernel.md` | `/timeline_edit_workflow` |
-| Conform, relink, finishing QC, grade tracing | `resolve-conform` | `timeline-conform-interchange-kernel.md` | `/conform_workflow` |
-| Render, deliverable QC, media/provenance | `resolve-delivery` | `render-deliver-kernel.md` | `/delivery_workflow` |
-| Fusion comps (titles, MG, VFX) | `resolve-fusion` | `fusion-composition-kernel.md` | `/fusion_workflow` |
-| Audio / Fairlight (tracks, buses, loudness) | `resolve-audio` | `audio-fairlight-kernel.md` | `/audio_workflow` |
-| Media pool ingest / organize / multicam | `resolve-media-pool` | `media-pool-ingest-kernel.md` | `/media_pool_workflow` |
+| Grading, looks, shot match, LUT/CDL/DRX | `resolve-color-grade` | `color-grade-kernel.md` | `/color_grade_workflow` |
+| Cutting, trimming, ranges, variants, changelist | `resolve-timeline-edit` | `timeline-edit-kernel.md` | `/timeline_edit_workflow` |
+| Conform, relink, finishing QC, grade tracing | `resolve-timeline-conform-interchange` | `timeline-conform-interchange-kernel.md` | `/conform_workflow` |
+| Render, deliverable QC, media/provenance | `resolve-render-deliver` | `render-deliver-kernel.md` | `/delivery_workflow` |
+| Fusion comps (titles, MG, VFX) | `resolve-fusion-composition` | `fusion-composition-kernel.md` | `/fusion_workflow` |
+| Audio / Fairlight (tracks, buses, loudness) | `resolve-audio-fairlight` | `audio-fairlight-kernel.md` | `/audio_workflow` |
+| Media pool ingest / organize / multicam | `resolve-media-pool-ingest` | `media-pool-ingest-kernel.md` | `/media_pool_workflow` |
 | Reading/analyzing source media | `resolve-media-analysis` | `media-analysis-guide.md` | `/analyze_media` |
+| Project/database/archive lifecycle, presets | `resolve-project-lifecycle` | `project-lifecycle-kernel.md` | `/project_lifecycle_workflow` |
+| Markers, flags, clip color, review reports | `resolve-review-annotation` | `review-annotation-kernel.md` | `/review_annotation_workflow` |
+| Fuse/DCTL/script extension authoring | `resolve-extension-authoring` | `extension-authoring-kernel.md` | `/extension_authoring_workflow` |
 
 ## Less-common domains (no dedicated skill — go straight to the kernel/tool)
 
-These have real coverage but low enough traffic that they route through this
-index rather than their own skill:
+This has real coverage but low enough traffic that it routes through this
+index rather than its own skill:
 
-- **Project lifecycle** — create/export/import/archive/restore projects,
-  databases, settings, presets: `project_manager` compound tool →
-  `docs/kernels/project-lifecycle-kernel.md`. Offline DB read/patch: advanced
-  `project_read` / `project_db` (project CLOSED + quit/relaunch).
-- **Review / annotations** — timeline markers, review reports, annotation
-  copy/move/scope: `timeline_markers` → `docs/kernels/review-annotation-kernel.md`.
-  Offline audit/lineage: advanced `provenance`.
-- **Extension authoring** — install/remove Fuse/DCTL/Lua-Python plugins:
-  `script_plugin` → `docs/kernels/extension-authoring-kernel.md`,
-  `docs/authoring/`.
 - **Pipeline (DB-as-truth)** — YAML-authored canonical project DB, staged runs
   with gates + provenance + drift: advanced `pipeline` tool →
   `resolve-advanced/README.md`.

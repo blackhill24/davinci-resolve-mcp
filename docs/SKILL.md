@@ -158,8 +158,8 @@ Operating rules an agent must know:
 
 Per-domain depth for both servers lives in the kernels (`docs/kernels/`), each of
 which carries an "Advanced (offline) server" section where an offline counterpart
-exists. Claude Code skills in `.claude/skills/` (`resolve-color`, `resolve-edit`,
-`resolve-conform`, `resolve-delivery`, `resolve-media-analysis`) route
+exists. Claude Code skills in `.claude/skills/` (`resolve-color-grade`, `resolve-timeline-edit`,
+`resolve-timeline-conform-interchange`, `resolve-render-deliver`, `resolve-media-analysis`) route
 craft ↔ live ↔ offline automatically when working in that domain.
 
 The compound server also registers MCP prompts. Use `davinci_resolve_workflow`

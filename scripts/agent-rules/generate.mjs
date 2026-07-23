@@ -43,7 +43,7 @@ const counts = {
 // ── Domain manifest (the routing source of truth) ──────────────────────────────
 const DOMAINS = [
   {
-    id: 'color', skill: 'resolve-color', title: 'Color / Grade', prompt: 'color_grade_workflow',
+    id: 'color_grade', skill: 'resolve-color-grade', title: 'Color / Grade', prompt: 'color_grade_workflow',
     when: 'grading, correcting, shot matching, developing looks, or applying/modifying LUTs, CDLs, DRX grades, or copied grades',
     kernel: 'docs/kernels/color-grade-kernel.md', guide: 'docs/guides/color-decision-guide.md',
     live: 'timeline_item_color (grade_boundary_report / safe_set_cdl / safe_apply_drx / grade_version_*), graph, gallery_stills, color_group',
@@ -51,7 +51,7 @@ const DOMAINS = [
     rule: 'Frame-first — inspect Resolve-rendered frames before applying any grade/look/LUT/CDL/DRX. Compute offline, apply live. drx generate/merge default to space="ui"; a warnings array means a hue curve rendered FLAT. safe_apply_drx defaults to V1/item0 — pass explicit track/item indices and back up a still first.',
   },
   {
-    id: 'edit', skill: 'resolve-edit', title: 'Timeline Edit', prompt: 'timeline_edit_workflow',
+    id: 'timeline_edit', skill: 'resolve-timeline-edit', title: 'Timeline Edit', prompt: 'timeline_edit_workflow',
     when: 'cutting, trimming, pacing, duplicating/moving clips, copying ranges, building variants, tightening a cut, or generating an editorial changelist',
     kernel: 'docs/kernels/timeline-edit-kernel.md', guide: 'docs/guides/editorial-decision-guide.md',
     live: 'timeline (duplicate_clips/copy_clips/move_clips, copy_range/overwrite_range/lift_range, copy_properties), edit_engine, timeline_item, timeline_markers',
@@ -59,7 +59,7 @@ const DOMAINS = [
     rule: 'No public razor/split — partial overlaps in lift_range are blocked unless allow_partial_item_delete. Use offline editorial to diff two cuts without opening either. Edits reference existing Media Pool items — never derive source media.',
   },
   {
-    id: 'conform', skill: 'resolve-conform', title: 'Conform / Interchange', prompt: 'conform_workflow',
+    id: 'timeline_conform_interchange', skill: 'resolve-timeline-conform-interchange', title: 'Conform / Interchange', prompt: 'conform_workflow',
     when: 'importing/relinking editorial, checking a conform against a reference, repairing reversed/retimed subclips, tracing grades across a re-conform, or QCing a conformed timeline',
     kernel: 'docs/kernels/timeline-conform-interchange-kernel.md', guide: null,
     live: 'timeline (probe_timeline_structure, detect_gaps_overlaps, source_range_report, export/import_timeline_checked, detect_missing_media, build_relink_plan), media_pool.safe_relink',
@@ -67,7 +67,7 @@ const DOMAINS = [
     rule: 'drt is the only lossless project-native round-trip. XML import via the scripting API goes offline — use import_timeline_checked with media sanitize, then exact-path relink. project_db patches need the project CLOSED + iConfirmProjectClosed + a full quit/relaunch. Relink plans are read-only until executed.',
   },
   {
-    id: 'delivery', skill: 'resolve-delivery', title: 'Delivery / Deliverable QC', prompt: 'delivery_workflow',
+    id: 'render_deliver', skill: 'resolve-render-deliver', title: 'Delivery / Deliverable QC', prompt: 'delivery_workflow',
     when: 'preparing render jobs, validating render settings, QCing a finished render vs spec, building render manifests, expanding texted/textless/stems deliverables, verifying media ingest, or producing a provenance/episode report',
     kernel: 'docs/kernels/render-deliver-kernel.md', guide: null,
     live: 'render (probe_render_matrix, validate_render_settings, safe_set_render_settings, prepare_render_job, safe_quick_export), render_presets',
@@ -75,7 +75,7 @@ const DOMAINS = [
     rule: 'Deliverable QC is report-only: gate=review, never auto-pass-clear — surface per-field verdicts to a human. QC tools refuse rather than fabricate. deliverable/media QC needs ffmpeg+ffprobe on PATH. Render probes touch only synthetic fixtures.',
   },
   {
-    id: 'fusion', skill: 'resolve-fusion', title: 'Fusion Composition', prompt: 'fusion_workflow',
+    id: 'fusion_composition', skill: 'resolve-fusion-composition', title: 'Fusion Composition', prompt: 'fusion_workflow',
     when: 'building or editing Fusion comps — titles, motion graphics, VFX, merges, masks, trackers',
     kernel: 'docs/kernels/fusion-composition-kernel.md', guide: null,
     live: 'fusion_comp (probe_fusion_comp, safe_add_tool, safe_set_inputs, safe_connect_tools)',
@@ -83,7 +83,7 @@ const DOMAINS = [
     rule: 'Author/verify the .comp offline, then apply live (to_api_calls maps onto safe_add_tool -> safe_set_inputs -> safe_connect_tools). Probe first — tool availability and input readability vary by build; bulk mutation needs timeline scope.',
   },
   {
-    id: 'audio', skill: 'resolve-audio', title: 'Audio / Fairlight', prompt: 'audio_workflow',
+    id: 'audio_fairlight', skill: 'resolve-audio-fairlight', title: 'Audio / Fairlight', prompt: 'audio_workflow',
     when: 'setting audio properties, syncing audio, isolating voice, generating subtitles, planning Fairlight tracks/buses, checking loudness, routing buses, or splitting/trimming/converting audio',
     kernel: 'docs/kernels/audio-fairlight-kernel.md', guide: null,
     live: 'timeline (probe_audio_item|track, safe_set_audio_properties, safe_auto_sync_audio, voice_isolation_capabilities, subtitle_generation_probe, fairlight_boundary_report)',
@@ -91,7 +91,7 @@ const DOMAINS = [
     rule: 'Plan/measure offline, apply live. Bus routing has no scripting API — use fairlight (needs better-sqlite3; project CLOSED + quit/relaunch). audio ops need ffmpeg on PATH and write NEW files to scratch, never over source.',
   },
   {
-    id: 'media-pool', skill: 'resolve-media-pool', title: 'Media Pool / Ingest', prompt: 'media_pool_workflow',
+    id: 'media_pool_ingest', skill: 'resolve-media-pool-ingest', title: 'Media Pool / Ingest', prompt: 'media_pool_workflow',
     when: 'importing media, building multicam timelines, organizing/relinking clips, normalizing metadata, or verifying/inventorying a card before ingest',
     kernel: 'docs/kernels/media-pool-ingest-kernel.md', guide: 'docs/guides/multicam-setup-guide.md',
     live: 'media_pool (safe_import_media|sequence|folder, organize_clips, normalize_metadata, safe_relink|unlink, set_clip_marks, setup_multicam_timeline)',
@@ -99,7 +99,7 @@ const DOMAINS = [
     rule: 'Verify + inventory the card offline before importing, then import/organize live. media needs ffmpeg+ffprobe. Never rename/derive camera originals (rename_plan refuses them). For footage-content analysis use media-analysis; for deliverable-side media QC use delivery.',
   },
   {
-    id: 'auto-edit', skill: 'resolve-auto-edit', title: 'Auto Edit (brief → render)', prompt: 'auto_edit_workflow',
+    id: 'auto_edit', skill: 'resolve-auto-edit', title: 'Auto Edit (brief → render)', prompt: 'auto_edit_workflow',
     when: 'the user names source files, optional music, and the kind of video they want and expects a finished cut — autonomous talking-head/interview editing with one approval checkpoint',
     kernel: 'docs/kernels/auto-edit-kernel.md', guide: 'docs/guides/editorial-decision-guide.md',
     live: 'auto_edit (start_brief, brief_status, plan_cut, revise_cut, get_cut_summary, approve_cut, build_timeline, finish), media_analysis, edit_engine',
@@ -107,7 +107,7 @@ const DOMAINS = [
     rule: 'ONE human checkpoint: approve_cut (confirm-token gated; its preview carries the cut summary + the music-bed-render consent line). Timelines are stateless artifacts — revisions rebuild via append-rebuild, never hand-patch. The only permitted derivative is the consent-gated ducked music bed, written under the analysis root.',
   },
   {
-    id: 'media-analysis', skill: 'resolve-media-analysis', title: 'Media Analysis', prompt: 'analyze_media',
+    id: 'media_analysis', skill: 'resolve-media-analysis', title: 'Media Analysis', prompt: 'analyze_media',
     when: 'reading or analyzing source media (technical, visual, or transcription) to inform Resolve actions',
     kernel: 'docs/kernels/README.md', guide: 'docs/guides/media-analysis-guide.md',
     live: 'media_analysis (analyze_file/clip/bin/project, commit_vision, summarize, review_timeline_markers)',
@@ -115,12 +115,36 @@ const DOMAINS = [
     rule: 'Source media is READ-ONLY — never modify/transcode/convert/derive. Do not silently downgrade: keep visuals, transcription, persistence, metadata + Media Pool marker writeback on unless the user opts out. Finish each clip with commit_vision or it stays pending (a failure mode).',
   },
   {
-    id: 'orchestrate', skill: 'resolve-orchestrate', title: 'Orchestrate (ingest → deliver)', prompt: 'orchestrate_workflow',
+    id: 'orchestration', skill: 'resolve-orchestration', title: 'Orchestrate (ingest → deliver)', prompt: 'orchestrate_workflow',
     when: 'a task spans multiple domains (edit AND grade AND deliver) and needs to survive a context reset across sessions — a full ingest-to-delivery post job',
     kernel: 'docs/kernels/orchestration-kernel.md', guide: null,
     live: 'orchestrate (start_job, job_status, run_stage, approve_gate, check_resume, rollback_stage, finish_job), delegating to media_pool/media_analysis/auto_edit/timeline/timeline_item_color/render/timeline_markers',
     offline: 'none yet — offline compute-then-apply is a deferred follow-on epic',
     rule: 'The sole reason this is a tool and not host prose: surviving context death mid-job. Fingerprint-bound gates — a drifted approval auto-voids. G1 on a talking-head edit ADOPTS auto_edit.approve_cut verbatim; G2 always needs a real look at a rendered frame, never blind. A failed reversible stage never auto-rolls-back — rollback_stage is explicit.',
+  },
+  {
+    id: 'extension_authoring', skill: 'resolve-extension-authoring', title: 'Extension Authoring', prompt: 'extension_authoring_workflow',
+    when: 'authoring or installing Fuse tools, DCTL/ACES LUTs, or Resolve-page scripts as generated extensions, or checking whether a new extension needs a refresh or restart',
+    kernel: 'docs/kernels/extension-authoring-kernel.md', guide: null,
+    live: 'script_plugin (extension_capabilities, probe_fuse_lifecycle, probe_dctl_lifecycle, probe_script_lifecycle, safe_install_extension, safe_remove_extension, refresh_or_restart_required, extension_boundary_report), fuse_plugin, dctl',
+    offline: 'none yet — extensions are authored/installed directly through the live script_plugin lifecycle layer',
+    rule: 'Safe install/remove default to requiring an _mcp_ marker in the source. New Fuses and ACES IDT/ODT DCTLs need a Resolve restart to register; regular LUT-category DCTLs pick up via project_settings.refresh_luts. Installed Lua execution through fusion.RunScript is unreliable — use run_inline for captured output/return values.',
+  },
+  {
+    id: 'project_lifecycle', skill: 'resolve-project-lifecycle', title: 'Project / Database / Archive', prompt: 'project_lifecycle_workflow',
+    when: 'creating, exporting, importing, archiving, or restoring projects, switching databases, managing layout/render presets, or snapshotting project settings',
+    kernel: 'docs/kernels/project-lifecycle-kernel.md', guide: null,
+    live: 'project_manager (project_capabilities, probe_project_lifecycle, probe_project_settings, safe_project_create/export/import/archive/restore/delete, safe_set_project_settings, project_settings_snapshot, database_capabilities, safe_set_current_database, preset_lifecycle_probe, project_boundary_report), project_manager_folders, project_manager_database',
+    offline: 'project_db (DB-level patches — needs the project CLOSED + a full quit/relaunch) on the advanced server',
+    rule: 'Safe project create/import/restore/delete require _mcp_-prefixed names unless allow_non_mcp_name; safe export/import/archive/restore paths must sit under the system temp dir unless require_temp_path=False. Safe archive forces media/cache/proxy flags false by default. Database switching is a dry-run unless allow_switch AND dry_run=False are both explicit — a real switch closes open projects.',
+  },
+  {
+    id: 'review_annotation', skill: 'resolve-review-annotation', title: 'Review Annotation', prompt: 'review_annotation_workflow',
+    when: 'adding, reading, copying, or moving markers, flags, or clip colors across a timeline, timeline item, or media pool item, or producing a read-only annotation/review report',
+    kernel: 'docs/kernels/review-annotation-kernel.md', guide: null,
+    live: 'timeline_markers (annotation_capabilities, probe_annotations, normalize_marker_payload, copy_annotations, move_annotations, sync_marker_custom_data, clear_annotations_by_scope, export_review_report, annotation_boundary_report)',
+    offline: 'none yet — annotation state lives only inside the open Resolve project',
+    rule: 'Timeline, timeline item, and media pool item frame spaces are not interchangeable — copy_annotations/move_annotations use direct frame numbers, so map frames explicitly when moving between scopes. Flags and clip color copy only when both source and target expose compatible methods; invalid marker colors are rejected before calling Resolve.',
   },
 ];
 

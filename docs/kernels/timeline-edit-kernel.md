@@ -200,7 +200,7 @@ timelines and reasons over editorial interchange with **no Resolve running**:
 Use these to answer "what changed between v3 and v4" or to hand a conform an
 accurate change list without opening either timeline. For conforming/relinking
 that change list, see the Timeline Conform / Interchange kernel and the
-`resolve-conform` skill; for the edit ↔ offline routing, see the `resolve-edit`
+`resolve-timeline-conform-interchange` skill; for the edit ↔ offline routing, see the `resolve-timeline-edit`
 skill (`.claude/skills/timeline-edit.md`).
 
 ### Stage 3.1 UI-gap workarounds (issue #21)

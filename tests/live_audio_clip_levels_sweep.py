@@ -74,7 +74,7 @@ def _audio_eff_blobs(s, tl) -> list[str]:
 
 def main() -> int:
     import src.server as s
-    from src.utils.project_cleanup import delete_project_safely
+    from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
 
     r = s.get_resolve()
     if r is None:

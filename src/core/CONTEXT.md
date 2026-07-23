@@ -4,7 +4,11 @@ Cross-domain shared infrastructure: no domain-specific Resolve semantics, or
 used by 2+ domains (restructure epic #52, Phase 1 / #44). Extracted from
 `src/utils/` and `server.py` before per-domain files move — see
 `docs/decisions/0001-domain-taxonomy.md` for the sibling naming ADR and
-`#44` for the move rationale/criterion.
+`#44` for the move rationale/criterion. `advanced_bridge.py` joined in Phase 2
+(#47) as a documented exception to that phase's "everything gets exactly one
+domain" rule — it's a generic Node-bridge invoker used directly by
+timeline_edit, auto_edit, and orchestration, with no domain-specific Resolve
+semantics of its own.
 
 ## Routing table
 
@@ -20,6 +24,7 @@ used by 2+ domains (restructure epic #52, Phase 1 / #44). Extracted from
 | Destructive-op registry | `destructive_hook.py` | — | drift-checked against `tests/test_destructive_registry_drift.py` |
 | Resolve connection bootstrap | `resolve_connection.py` | `granular/` | connector core; both live servers depend on it |
 | Busy/lock gating | `resolve_busy.py`, `page_lock.py` | — | long-Resolve-op busy gate + UI page lock |
+| Invoke resolve-advanced (Node) ops | `advanced_bridge.py` | domain `utils/` | used by timeline_edit, auto_edit, orchestration — see `resolve-advanced/scripts/drp-bridge.mjs` |
 | Misc infra | `actor_identity.py`, `analysis_runs.py`, `bridge_metrics.py`, `failure_tracker.py`, `object_inspection.py`, `readback.py`, `structural_diff.py`, `update_check.py` | — | one concern each; grep before adding a new core file |
 
 ## Conventions & gotchas

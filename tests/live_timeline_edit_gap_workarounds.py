@@ -55,7 +55,7 @@ def synth_clip(name: str, color: str) -> str:
 
 def main() -> int:
     import src.server as s
-    from src.utils.project_cleanup import delete_project_safely
+    from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
 
     if not s._advanced_bridge.node_available():
         print("Node.js not on PATH — every action under test honestly refuses; "

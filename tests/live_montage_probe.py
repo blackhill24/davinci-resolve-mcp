@@ -143,7 +143,7 @@ def _visual_report(shots, *, clip_select_potential):
 
 
 def seed_analysis(project_root: str, *, clip_id: str, name: str, path: str, shots) -> None:
-    from src.utils import analysis_store
+    from src.domains.media_analysis.utils import analysis_store
     from tests.test_analysis_store import make_report
     report = make_report(visual=_visual_report(shots, clip_select_potential="medium"))
     report["clip"] = dict(report["clip"], clip_id=clip_id, clip_name=name,

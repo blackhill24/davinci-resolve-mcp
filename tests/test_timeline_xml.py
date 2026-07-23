@@ -1,4 +1,4 @@
-"""Unit tests for the FCP7/xmeml timeline sanitizer (src.utils.timeline_xml).
+"""Unit tests for the FCP7/xmeml timeline sanitizer (src.domains.timeline_conform_interchange.utils.timeline_xml).
 
 Pure parsing — no DaVinci Resolve connection required.
 """
@@ -9,7 +9,7 @@ import unittest
 import urllib.parse
 import xml.etree.ElementTree as ET
 
-from src.utils.timeline_xml import (
+from src.domains.timeline_conform_interchange.utils.timeline_xml import (
     analyze_timeline_xml,
     sanitize_timeline_xml,
     _pathurl_to_disk,

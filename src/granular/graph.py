@@ -1,7 +1,7 @@
 """Color page graph, LUT, and color-group tools."""
 
 from src.granular.common import *  # noqa: F401,F403
-from src.utils.lut_paths import ensure_lut_in_master
+from src.domains.color_grade.utils.lut_paths import ensure_lut_in_master
 
 resolve = ResolveProxy()
 

@@ -29,7 +29,7 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 import DaVinciResolveScript as dvr  # noqa: E402
-from src.utils.project_cleanup import delete_project_safely  # noqa: E402
+from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely  # noqa: E402
 
 PROJECT_NAME = "ZZ_api_gap_verify"
 results = []

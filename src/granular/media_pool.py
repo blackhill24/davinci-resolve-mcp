@@ -1,7 +1,7 @@
 """Media pool operations and MediaPool API tools."""
 
 from src.granular.common import *  # noqa: F401,F403
-from src.utils.multicam import build_multicam_setup_plan
+from src.domains.media_pool_ingest.utils.multicam import build_multicam_setup_plan
 
 resolve = ResolveProxy()
 

@@ -27,7 +27,7 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.utils import subtitle_codec as sc  # noqa: E402
+from src.domains.audio_fairlight.utils import subtitle_codec as sc  # noqa: E402
 
 PILOT = f"import_srt_probe_{time.strftime('%H%M%S')}"
 WORK = tempfile.mkdtemp(prefix="drm-srt-tool-probe-")
@@ -97,7 +97,7 @@ def _run_gated(s, action: str, params: dict) -> dict:
 
 def main() -> int:
     import src.server as s
-    from src.utils.project_cleanup import delete_project_safely
+    from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
 
     if not sc.zstd_available():
         print("zstandard not installed in the server env — exit 2")

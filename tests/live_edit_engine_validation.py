@@ -65,8 +65,8 @@ def main() -> int:
                           duration=26.0, pattern="smptebars")
 
     import src.server as s
-    from src.utils import media_analysis as ma
-    from src.utils import analysis_store, embeddings
+    from src.domains.media_analysis.utils import media_analysis as ma
+    from src.domains.media_analysis.utils import analysis_store, embeddings
 
     r = s.get_resolve()
     if r is None:
@@ -296,7 +296,7 @@ def main() -> int:
 
     finally:
         try:
-            from src.utils.project_cleanup import delete_project_safely
+            from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
             outcome = delete_project_safely(pm, PILOT, switch_to=previous_project)
             if outcome["success"]:
                 print(f"cleanup: previous project restored; pilot deleted "

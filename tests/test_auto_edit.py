@@ -1,4 +1,4 @@
-"""Unit tests for src/utils/auto_edit.py (the auto_edit decision layer).
+"""Unit tests for src/domains/auto_edit/utils/auto_edit.py (the auto_edit decision layer).
 
 No Resolve required: the decision layer is DB-only by design (same posture as
 test_edit_engine.py). Seeds the analysis DB via analysis_store.ingest_report
@@ -14,7 +14,8 @@ import tempfile
 import unittest
 
 from src.core import timeline_brain_db
-from src.utils import auto_edit, cut_ir, edit_engine, analysis_store
+from src.domains.auto_edit.utils import auto_edit, cut_ir, edit_engine
+from src.domains.media_analysis.utils import analysis_store
 
 from tests.test_analysis_store import make_report
 

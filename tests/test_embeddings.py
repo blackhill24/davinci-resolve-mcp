@@ -1,4 +1,4 @@
-"""Unit tests for src/utils/embeddings.py (Phase C — embeddings + similarity).
+"""Unit tests for src/domains/media_analysis/utils/embeddings.py (Phase C — embeddings + similarity).
 
 No Resolve and no embedding backends required: backend calls are mocked with
 deterministic keyword vectors, so these cover the store/search plumbing —
@@ -16,7 +16,7 @@ import unittest
 from unittest import mock
 
 from src.core import timeline_brain_db
-from src.utils import analysis_store, embeddings
+from src.domains.media_analysis.utils import analysis_store, embeddings
 
 from tests.test_analysis_store import make_report
 

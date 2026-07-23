@@ -6,7 +6,7 @@ reading the project list back, not by trusting the return value.
 """
 import unittest
 
-from src.utils.cloud_operations import (
+from src.domains.project_lifecycle.utils.cloud_operations import (
     CLOUD_SYNC_STATUS_LABELS,
     cloud_sync_status_label,
     import_cloud_project,

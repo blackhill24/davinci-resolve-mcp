@@ -1,4 +1,4 @@
-"""Unit tests for the raw container differ (src/utils/drt_diff).
+"""Unit tests for the raw container differ (src/domains/timeline_conform_interchange/utils/drt_diff).
 
 Pure and offline: build two tiny zip archives that stand in for exported
 ``.drt`` files and assert the diff surfaces exactly the changed entry and the
@@ -12,7 +12,7 @@ import tempfile
 import unittest
 import zipfile
 
-from src.utils import drt_diff
+from src.domains.timeline_conform_interchange.utils import drt_diff
 
 
 def _write_zip(path: str, entries: dict) -> None:

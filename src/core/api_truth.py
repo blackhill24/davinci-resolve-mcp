@@ -110,7 +110,7 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "project in 1 attempt across multiple runs, so the "
                    "switch-away-then-retry mitigation still holds.",
         "recommended": "Load/close away from the target first, then retry; use "
-                       "src/utils/project_cleanup.py:delete_project_safely.",
+                       "src/domains/project_lifecycle/utils/project_cleanup.py:delete_project_safely.",
         "tags": ["unreliable-return", "project", "flaky"],
         "submit": "bug",
     },
@@ -758,7 +758,7 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "text edit was proven end-to-end (decode zstd, swap UTF-16LE "
                    "text, recompress).",
         "recommended": "Workaround shipped (issue #30): the oracle-validated codec "
-                       "lives in src/utils/subtitle_codec.py (BMD-exact zstd framing "
+                       "lives in src/domains/audio_fairlight/utils/subtitle_codec.py (BMD-exact zstd framing "
                        "— level 3, write_content_size=True, write_checksum=False — "
                        "plus the protobuf-aware re-serializer for the nested length "
                        "cascade, so arbitrary-length text works). Timing edits are "
@@ -789,7 +789,7 @@ API_TRUTH: List[Dict[str, Any]] = [
                        "[u32-LE len][FontName UTF-16LE][float32-LE size][u32-LE len]"
                        "['#rrggbb' UTF-16LE] — font swaps ride the validated length "
                        "cascade, size is a fixed float overwrite, color a string swap "
-                       "(src/utils/subtitle_codec.py read_cue_style/author_cue_effblob; "
+                       "(src/domains/audio_fairlight/utils/subtitle_codec.py read_cue_style/author_cue_effblob; "
                        "exposed as the style option of timeline import_srt). Track-level "
                        "presets and the remaining attributes (background, outline, "
                        "shadow, alignment) stay UI-only pending further RE.",
@@ -834,7 +834,7 @@ API_TRUTH: List[Dict[str, Any]] = [
                        "exported .drt's SubtitleTrackVec (one Sm2TiGenerator per "
                        "cue; frames from timeline fps + start frame; optional "
                        "per-cue style {font,size,color}; mode replace|append) via "
-                       "src/utils/subtitle_codec.py and reimports a NEW "
+                       "src/domains/audio_fairlight/utils/subtitle_codec.py and reimports a NEW "
                        "'(subtitled)' timeline. Cue template: the timeline's own "
                        "subtitle track if present, else template_drt, else the "
                        "EMBEDDED synthetic template (proven live on 21.0.2.4 to "

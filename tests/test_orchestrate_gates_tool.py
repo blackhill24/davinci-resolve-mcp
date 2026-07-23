@@ -15,7 +15,8 @@ import tempfile
 import unittest
 
 import src.server as s
-from src.utils import auto_edit, orchestrate
+from src.domains.auto_edit.utils import auto_edit
+from src.domains.orchestration.utils import orchestrate
 from tests.test_auto_edit_tool import make_plan
 
 

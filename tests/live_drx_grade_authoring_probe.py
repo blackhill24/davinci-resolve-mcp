@@ -100,8 +100,8 @@ def main() -> int:
     finally:
         sys.argv = original_argv
 
-    from src.utils import advanced_bridge
-    from src.utils.color_grade_live_probe import _make_synthetic_video, _first_imported_clip
+    from src.core import advanced_bridge
+    from src.domains.color_grade.utils.color_grade_live_probe import _make_synthetic_video, _first_imported_clip
 
     if not advanced_bridge.node_available():
         print("SKIP: Node (advanced server) unavailable — cannot author DRX offline.")

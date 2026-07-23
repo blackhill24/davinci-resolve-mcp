@@ -14,7 +14,7 @@ Phases (the multicam conversion itself is the manual GUI step in between):
             both clips in the Media Pool and does:
               right-click -> "New Multicam Clip Using Selected Clips..."
               (sync by timecode is fine for the synthetic media)
-  diff    - re-export the .drp and diff vs baseline (src/utils/drt_diff), dump
+  diff    - re-export the .drp and diff vs baseline (src/domains/timeline_conform_interchange/utils/drt_diff), dump
             the multicam-bearing regions (new SeqContainers / MpClip entries /
             changed folders) so the encoding is visible.
   cleanup - delete the disposable project.
@@ -38,7 +38,7 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.utils import drt_diff  # noqa: E402
+from src.domains.timeline_conform_interchange.utils import drt_diff  # noqa: E402
 
 STATE_FILE = os.path.join(tempfile.gettempdir(), "drm-multicam-probe-state.json")
 
@@ -139,7 +139,7 @@ def phase_diff() -> int:
 
 def phase_cleanup() -> int:
     import src.server as s
-    from src.utils.project_cleanup import delete_project_safely
+    from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
     st = _state()
     r = s.get_resolve()
     delete_project_safely(r.GetProjectManager(), st["project"])

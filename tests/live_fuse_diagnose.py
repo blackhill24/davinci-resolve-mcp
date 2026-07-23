@@ -22,7 +22,7 @@ os.environ["RESOLVE_SCRIPT_LIB"] = paths["lib_path"]
 sys.path.insert(0, paths["modules_path"])
 
 import DaVinciResolveScript as dvr_script  # noqa: E402
-from src.utils import fuse_templates  # noqa: E402
+from src.domains.extension_authoring.utils import fuse_templates  # noqa: E402
 
 
 # Hand-written minimal Fuse — pure pass-through, no aux features.

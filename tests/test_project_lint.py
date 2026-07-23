@@ -1,7 +1,7 @@
 """Unit tests for the project lint health-check (Phase C1)."""
 import unittest
 
-from src.utils import project_lint as pl
+from src.domains.project_lifecycle.utils import project_lint as pl
 
 
 def _codes(state):

@@ -1,4 +1,4 @@
-"""Unit tests for src/utils/entities.py (Phase D — cross-clip entities).
+"""Unit tests for src/domains/media_analysis/utils/entities.py (Phase D — cross-clip entities).
 
 No Resolve and no embedding backends required: visual vectors are written
 straight into the v10 embeddings table so clustering, the confirmation
@@ -16,8 +16,8 @@ import unittest
 from unittest import mock
 
 from src.core import timeline_brain_db
-from src.utils import analysis_memory, analysis_store, embeddings, entities
-from src.utils import media_analysis as ma
+from src.domains.media_analysis.utils import analysis_memory, analysis_store, embeddings, entities
+from src.domains.media_analysis.utils import media_analysis as ma
 
 from tests.test_analysis_store import make_report
 

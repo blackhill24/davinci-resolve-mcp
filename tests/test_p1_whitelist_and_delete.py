@@ -66,7 +66,7 @@ class DeleteProjectRoutingTest(unittest.TestCase):
         fake_resolve = mock.Mock()
         fake_resolve.GetProjectManager.return_value = fake_pm
         with mock.patch.object(s, "get_resolve", return_value=fake_resolve), \
-             mock.patch("src.utils.project_cleanup.delete_project_safely",
+             mock.patch("src.domains.project_lifecycle.utils.project_cleanup.delete_project_safely",
                         return_value={"success": True, "attempts": 1, "leftover": None, "detail": ""}) as safe:
             out = s.project_manager("delete", {"name": "Disposable"})
         safe.assert_called_once()

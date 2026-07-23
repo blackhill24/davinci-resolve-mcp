@@ -11,7 +11,7 @@ import time
 import unittest
 
 from src.core import timeline_brain_db
-from src.utils import analysis_caps
+from src.domains.media_analysis.utils import analysis_caps
 
 
 class CapsEventsTable(unittest.TestCase):

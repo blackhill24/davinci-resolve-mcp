@@ -17,7 +17,7 @@
 | resolve-advanced bridge tests | `test_advanced_bridge.py` (read-only panel), `test_advanced_bridge_ops.py` (drt/drp write ops; skips w/o node) | `live_*` | — |
 | Audio/subtitle export-diff RE probes (#22) | `live_pan_probe.py`, `live_audio_fx_probe.py`, `live_channel_format_probe.py` (drp `VirtualAudioTracksBA`), `live_subtitle_probe.py` (drt `SubtitleTrackVec`; text = protobuf-in-zstd `EffectFiltersBA`, timing = plain XML; adds a `roundtrip` phase); setup/diff/cleanup phases around a manual GUI edit | `test_*` | — |
 | SRT import codec probe (#22, 3.2.5) | `live_srt_import_probe.py` (oracle/author/import): validated subtitle-text codec (protobuf tree + BMD length cascade + BMD-exact zstd framing) authoring arbitrary-length cue text; `oracle` phase self-checks offline against 2 embedded ground-truth blobs. Needs `zstandard` (not a repo dep) | `test_*` | — |
-| Subtitle codec + import_srt tool (#30) | `test_subtitle_codec.py` (offline oracle + style), `live_import_srt_tool_probe.py` (tool + synthetic-template feasibility) | — | codec: `src/utils/subtitle_codec.py` |
+| Subtitle codec + import_srt tool (#30) | `test_subtitle_codec.py` (offline oracle + style), `live_import_srt_tool_probe.py` (tool + synthetic-template feasibility) | — | codec: `src/domains/audio_fairlight/utils/subtitle_codec.py` |
 | Stage-3-tail live probes (#30) | `live_retime_probe.py` (set_clip_speed/fit_to_fill), `live_render_in_place_probe.py` (gates `idle`), `live_multicam_drt_probe.py` (setup/diff around a manual GUI multicam step) | `test_*` | — |
 | Benchmark the server | `benchmark_server.py` | `live_*` | `scripts/measure_bridge_cost.py` |
 | Set up a test timeline | `create_test_timeline.py` | — | — |

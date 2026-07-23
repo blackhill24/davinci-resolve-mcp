@@ -20,7 +20,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
-from src.utils import orchestrate
+from src.domains.orchestration.utils import orchestrate
 
 
 def run(coro):

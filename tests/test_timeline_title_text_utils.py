@@ -1,6 +1,6 @@
 import unittest
 
-from src.utils.timeline_title_text import (
+from src.domains.timeline_edit.utils.timeline_title_text import (
     candidate_title_property_keys,
     escape_xml_text_body,
     flatten_timeline_item_properties,

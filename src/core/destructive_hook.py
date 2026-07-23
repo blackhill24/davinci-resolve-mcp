@@ -30,7 +30,7 @@ import logging
 from typing import Any, Callable, Dict, FrozenSet, Optional, Tuple
 
 from src.core import analysis_runs, brain_edits, timeline_versioning
-from src.utils import media_pool_changes
+from src.domains.media_pool_ingest.utils import media_pool_changes
 
 logger = logging.getLogger("resolve-mcp.destructive-hook")
 

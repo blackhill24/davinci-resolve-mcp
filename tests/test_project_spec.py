@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from src.utils import project_spec as ps
+from src.domains.project_lifecycle.utils import project_spec as ps
 
 
 class FakeExecutor:

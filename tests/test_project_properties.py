@@ -1,4 +1,4 @@
-"""Offline tests for src/utils/project_properties.py (previously untested).
+"""Offline tests for src/domains/project_lifecycle/utils/project_properties.py (previously untested).
 
 A FakeProject stands in for the Resolve Project object; GetSetting returns
 strings for numeric settings, mirroring how Resolve's API actually behaves.
@@ -6,7 +6,7 @@ strings for numeric settings, mirroring how Resolve's API actually behaves.
 import unittest
 from unittest import mock
 
-from src.utils.project_properties import (
+from src.domains.project_lifecycle.utils.project_properties import (
     get_all_project_properties,
     get_project_property,
     get_timeline_format_settings,

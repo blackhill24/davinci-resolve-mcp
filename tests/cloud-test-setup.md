@@ -33,7 +33,7 @@ RESOLVE_CLOUD_PROJECT_MEDIA_PATH=/path/to/disposable/library \
 ```
 
 Writes `cloud-project-probe.json` / `.md` to the output dir, same shape as
-the other `live_*_validation.py` probes (see `src/utils/timeline_kernel_probe.py`).
+the other `live_*_validation.py` probes (see `src/domains/timeline_edit/utils/timeline_kernel_probe.py`).
 
 ## Cleanup — read before running
 

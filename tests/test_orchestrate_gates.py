@@ -10,7 +10,7 @@ import shutil
 import tempfile
 import unittest
 
-from src.utils import orchestrate
+from src.domains.orchestration.utils import orchestrate
 
 
 def _files():

@@ -26,8 +26,8 @@ from src.core.app_control import (
     restart_resolve_app,
 )
 from src.core.proc import resolve_spawn_env
-from src.utils.cdl import normalize_cdl_payload
-from src.utils.cloud_operations import (
+from src.domains.color_grade.utils.cdl import normalize_cdl_payload
+from src.domains.project_lifecycle.utils.cloud_operations import (
     create_cloud_project,
     import_cloud_project,
     load_cloud_project,
@@ -35,7 +35,7 @@ from src.utils.cloud_operations import (
 )
 from src.core.object_inspection import inspect_object, print_object_help
 from src.core.platform import get_platform, get_resolve_paths
-from src.utils.project_properties import (
+from src.domains.project_lifecycle.utils.project_properties import (
     get_all_project_properties,
     get_color_settings,
     get_project_info,

@@ -3,7 +3,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
-from src.utils import cut_ir
+from src.domains.auto_edit.utils import cut_ir
 
 
 class FillerTest(unittest.TestCase):

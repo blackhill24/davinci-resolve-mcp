@@ -1,4 +1,4 @@
-"""Unit tests for src/utils/orchestrate.py (job state machine + persistence).
+"""Unit tests for src/domains/orchestration/utils/orchestrate.py (job state machine + persistence).
 
 No Resolve required — pure state/IO layer, same posture as test_edit_engine.py
 and test_auto_edit.py.
@@ -11,7 +11,7 @@ import shutil
 import tempfile
 import unittest
 
-from src.utils import orchestrate
+from src.domains.orchestration.utils import orchestrate
 
 
 def _files():

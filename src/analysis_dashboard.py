@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlparse
 
-from src.utils.media_analysis import (
+from src.domains.media_analysis.utils.media_analysis import (
     _write_json as _atomic_write_json,
     analysis_index_status,
     analysis_root_coverage,
@@ -33,7 +33,7 @@ from src.utils.media_analysis import (
     stable_clip_directory,
     stable_clip_match_hashes,
 )
-from src.utils.media_analysis_jobs import (
+from src.domains.media_analysis.utils.media_analysis_jobs import (
     MEDIA_EXTENSIONS,
     batch_job_status,
     cancel_batch_job,
@@ -44,7 +44,7 @@ from src.utils.media_analysis_jobs import (
     run_batch_job_slice,
 )
 from src.core.platform import setup_environment
-from src.utils.analysis_memory import read_panel_state, write_panel_state
+from src.domains.media_analysis.utils.analysis_memory import read_panel_state, write_panel_state
 from src.core import brain_edits as _brain_edits
 from src.core import timeline_versioning as _timeline_versioning
 from src.core import timeline_brain_db as _timeline_brain_db
@@ -13028,7 +13028,7 @@ def _v2_load_analysis_db_first(project_root: str, clip_dir: str) -> Optional[Dic
     job-linked report dirs whose rows live under another project's DB.
     """
     try:
-        from src.utils import analysis_store
+        from src.domains.media_analysis.utils import analysis_store
 
         report = analysis_store.load_db_report(
             project_root, clip_dir=os.path.basename(clip_dir.rstrip("/\\"))
@@ -13048,7 +13048,7 @@ def _v2_semantic_search(project_root: str, q: str, *, limit: int = 20) -> Dict[s
         return {"success": True, "results": []}
     try:
         from src.core import timeline_brain_db as tbd
-        from src.utils import embeddings
+        from src.domains.media_analysis.utils import embeddings
 
         found = embeddings.find_similar(project_root, text=text, kind="text", limit=limit)
         if not found.get("success"):
@@ -13308,8 +13308,8 @@ def get_analyzed_clip_shot(project_root: str, clip_id: str, shot_index: int) -> 
     # Exported reports don't carry shot_uuid, so derive it from the DB by
     # clip + shot_index.
     try:
-        from src.utils import analysis_store as _analysis_store
-        from src.utils import shot_relationships as _shot_rel
+        from src.domains.media_analysis.utils import analysis_store as _analysis_store
+        from src.domains.media_analysis.utils import shot_relationships as _shot_rel
         conn = _timeline_brain_db.connect(project_root)
         shot_uuid = matched.get("shot_uuid")
         if not shot_uuid:
@@ -13360,7 +13360,7 @@ def regenerate_clip_transcript(
     if not source_file or not os.path.isfile(str(source_file)):
         return {"success": False, "error": f"source file not found on disk: {source_file!r}"}
     try:
-        from src.utils.media_analysis import (
+        from src.domains.media_analysis.utils.media_analysis import (
             _transcribe,
             detect_capabilities,
         )
@@ -13903,7 +13903,7 @@ def list_edit_plans_payload(project_root: str) -> Dict[str, Any]:
     rows rather than being silently hidden.
     """
     try:
-        from src.utils import edit_engine as _edit_engine
+        from src.domains.auto_edit.utils import edit_engine as _edit_engine
         return _edit_engine.list_plans(project_root, limit=50, include_corrupt=True)
     except Exception as exc:  # noqa: BLE001 — panel reads fail soft
         return {"success": False, "error": f"{type(exc).__name__}: {exc}", "plans": []}
@@ -13917,7 +13917,7 @@ def get_edit_plan_payload(project_root: str, plan_id: str) -> Dict[str, Any]:
     — the plan still renders without thumbnails when the DB is unavailable.
     """
     try:
-        from src.utils import edit_engine as _edit_engine
+        from src.domains.auto_edit.utils import edit_engine as _edit_engine
         plan = _edit_engine.load_plan(project_root, plan_id)
     except Exception as exc:  # noqa: BLE001
         return {"success": False, "error": f"{type(exc).__name__}: {exc}"}
@@ -14819,7 +14819,7 @@ _ADVANCED_LINEAGE_OPS = {"list", "show", "diff", "verdicts"}
 
 
 def _advanced_root() -> str:
-    from src.utils.advanced_bridge import advanced_root
+    from src.core.advanced_bridge import advanced_root
 
     return advanced_root()
 
@@ -14827,15 +14827,15 @@ def _advanced_root() -> str:
 def _run_advanced_bridge(surface: str, op: str, args: Optional[Dict[str, Any]] = None,
                          timeout: float = 30.0) -> Dict[str, Any]:
     # Read-only inspection path (capabilities|lineage). The reusable subprocess
-    # machinery lives in src/utils/advanced_bridge — this stays a thin wrapper so
+    # machinery lives in src/core/advanced_bridge — this stays a thin wrapper so
     # the panel and the auto_edit drt surgery share one source of truth.
-    from src.utils.advanced_bridge import run_panel_bridge
+    from src.core.advanced_bridge import run_panel_bridge
 
     return run_panel_bridge(surface, op, args, timeout=timeout)
 
 
 def _advanced_capabilities_payload() -> Dict[str, Any]:
-    from src.utils.advanced_bridge import node_path
+    from src.core.advanced_bridge import node_path
 
     payload = _run_advanced_bridge("capabilities", "get")
     payload["node"] = node_path()
@@ -15120,7 +15120,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/entities":
             try:
-                from src.utils import entities as _entities
+                from src.domains.media_analysis.utils import entities as _entities
 
                 self._json(_entities.list_entities(self.state.project_root))
             except Exception as exc:  # noqa: BLE001 — panel reads fail soft
@@ -15184,7 +15184,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/caps/history":
             try:
-                from src.utils import analysis_caps as _ac
+                from src.domains.media_analysis.utils import analysis_caps as _ac
                 days = int((query.get("days") or ["30"])[0])
                 self._json({
                     "success": True,
@@ -15195,7 +15195,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/caps/refusals":
             try:
-                from src.utils import analysis_caps as _ac
+                from src.domains.media_analysis.utils import analysis_caps as _ac
                 limit = int((query.get("limit") or ["20"])[0])
                 self._json({
                     "success": True,
@@ -15210,7 +15210,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/media_pool_changes":
             try:
-                from src.utils import media_pool_changes as _mpc
+                from src.domains.media_pool_ingest.utils import media_pool_changes as _mpc
                 limit = int((query.get("limit") or ["50"])[0])
                 self._json({
                     "success": True,
@@ -15461,7 +15461,7 @@ class Handler(BaseHTTPRequestHandler):
                 from src.server import (
                     _media_analysis_effective_preferences as _ma_eff_prefs,
                 )
-                from src.utils import media_analysis as _ma_mod
+                from src.domains.media_analysis.utils import media_analysis as _ma_mod
                 _ma_prefs = _ma_eff_prefs()
                 params["sampling_mode"] = (
                     body.get("sampling_mode")
@@ -15573,7 +15573,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"success": False, "error": "Loopback only."}, HTTPStatus.FORBIDDEN)
                 return
             try:
-                from src.utils import analysis_caps as _ac
+                from src.domains.media_analysis.utils import analysis_caps as _ac
                 result = _ac.reset_day_usage(
                     project_root=self.state.project_root,
                     day_bucket=body.get("day_bucket"),

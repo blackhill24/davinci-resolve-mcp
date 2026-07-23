@@ -1,7 +1,7 @@
 import unittest
 
 from src.server import _setup_multicam_timeline
-from src.utils.multicam import build_multicam_setup_plan
+from src.domains.media_pool_ingest.utils.multicam import build_multicam_setup_plan
 
 
 class MediaPoolItemStub:

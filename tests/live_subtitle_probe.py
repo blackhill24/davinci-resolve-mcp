@@ -53,7 +53,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.utils import drt_diff  # noqa: E402
+from src.domains.timeline_conform_interchange.utils import drt_diff  # noqa: E402
 
 STATE_FILE = os.path.join(tempfile.gettempdir(), "drm-subtitle-probe-state.json")
 _DNXHR = ["-c:v", "dnxhd", "-profile:v", "dnxhr_lb", "-pix_fmt", "yuv422p"]

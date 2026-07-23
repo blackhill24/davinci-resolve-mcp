@@ -6,7 +6,7 @@ pipeline, now spanning two genres — **talking-head** (interview, Phase 1) and
 evidence the analysis program already produces: word-level transcripts
 (`transcript_words`), story beats, select potential, and the similarity index.
 `start_brief`/`plan_cut` branch by `brief.genre` to the genre's own decision
-layer — `src/utils/auto_edit.py` (talking-head) or `src/utils/montage_edit.py`
+layer — `src/domains/auto_edit/utils/auto_edit.py` (talking-head) or `src/domains/auto_edit/utils/montage_edit.py`
 (montage) — but **share everything downstream**: both produce a
 `cut_ir.CutList`, and `build_timeline`/`approve_cut`/`finish`/`revise_cut` are
 genre-agnostic executors that only operate on the CutList structure, never on
@@ -87,7 +87,7 @@ retime, or automate audio levels (`src/core/api_truth.py`). Hence:
 
 ## Evidence & persistence
 
-- CutList schema + validators: `src/utils/cut_ir.py` (`kind="auto_edit_cut"`,
+- CutList schema + validators: `src/domains/auto_edit/utils/cut_ir.py` (`kind="auto_edit_cut"`,
   half-open frames throughout).
 - Briefs and CutLists persist via `edit_engine.save_plan` — content
   fingerprint + stale-plan protection; a tampered plan refuses to build.

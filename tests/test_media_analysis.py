@@ -41,7 +41,7 @@ from src.analysis_dashboard import (
     _analysis_status_by_clip,
 )
 from src.core import update_check
-from src.utils.media_analysis import (
+from src.domains.media_analysis.utils.media_analysis import (
     HOST_CHAT_PATHS_PROVIDER,
     VISION_SCHEMA_REFERENCE,
     analysis_request_signature,
@@ -77,7 +77,7 @@ from src.utils.media_analysis import (
     update_analysis_registry,
     vision_is_pending_host_analysis,
 )
-from src.utils.media_analysis_jobs import (
+from src.domains.media_analysis.utils.media_analysis_jobs import (
     batch_job_status,
     cancel_batch_job,
     create_batch_job,
@@ -516,7 +516,7 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
                 "file_path": "/Volumes/Media/c0001.mp4",
             }
             # Legacy folder name: slug + hash(clip_id) (pre-canonical scheme).
-            from src.utils.media_analysis import short_hash
+            from src.domains.media_analysis.utils.media_analysis import short_hash
             legacy_dir = os.path.join(
                 project_root, "clips", f"c0001.mp4-{short_hash('clip-123', 12)}"
             )
@@ -730,7 +730,7 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
         # pip console scripts land next to the interpreter; a venv-installed
         # whisper must be found even when the venv bin dir is not on PATH
         # (server started as `.venv/bin/python …` without activation).
-        from src.utils.media_analysis import _which_tool
+        from src.domains.media_analysis.utils.media_analysis import _which_tool
 
         with tempfile.TemporaryDirectory() as tmp:
             tool = os.path.join(tmp, "faketool-which-test")
@@ -3389,7 +3389,7 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
         find nothing while the manifest claims success (Phase 3 pilot bug)."""
         from tests.test_analysis_store import make_report
         from src.core import timeline_brain_db
-        from src.utils import analysis_store
+        from src.domains.media_analysis.utils import analysis_store
 
         with tempfile.TemporaryDirectory() as tmp:
             source_dir = os.path.join(tmp, "source")
@@ -3539,8 +3539,8 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
         identical: the export is lockstep with the DB by construction."""
         from tests.test_analysis_store import make_report
         from src.core import timeline_brain_db
-        from src.utils import analysis_store
-        from src.utils.media_analysis import (
+        from src.domains.media_analysis.utils import analysis_store
+        from src.domains.media_analysis.utils.media_analysis import (
             build_analysis_index, query_analysis_index, summarize_reports,
         )
 
@@ -3601,8 +3601,8 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
     def test_summarize_mixed_root_falls_back_wholesale(self):
         from tests.test_analysis_store import make_report
         from src.core import timeline_brain_db
-        from src.utils import analysis_store
-        from src.utils.media_analysis import summarize_reports
+        from src.domains.media_analysis.utils import analysis_store
+        from src.domains.media_analysis.utils.media_analysis import summarize_reports
 
         with tempfile.TemporaryDirectory() as tmp:
             root = os.path.join(tmp, "analysis-root")
@@ -3626,7 +3626,7 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
 
     def test_summarize_pre_v9_root_uses_json(self):
         from tests.test_analysis_store import make_report
-        from src.utils.media_analysis import summarize_reports
+        from src.domains.media_analysis.utils.media_analysis import summarize_reports
 
         with tempfile.TemporaryDirectory() as tmp:
             root = os.path.join(tmp, "analysis-root")

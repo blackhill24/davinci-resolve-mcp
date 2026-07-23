@@ -73,7 +73,7 @@ def main() -> int:
     finally:
         sys.argv = original_argv
 
-    from src.utils.color_grade_live_probe import _make_synthetic_video, _first_imported_clip
+    from src.domains.color_grade.utils.color_grade_live_probe import _make_synthetic_video, _first_imported_clip
 
     work_dir = Path(tempfile.mkdtemp(prefix="mcp_proxy_build_probe_"))
     # Resolve's render queue refuses to write into the system temp dir — render into

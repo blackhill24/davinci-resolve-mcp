@@ -6,7 +6,7 @@ import tempfile
 import unittest
 import wave
 
-from src.utils.sync_detection import (
+from src.domains.media_analysis.utils.sync_detection import (
     analyze_samples_for_sync_events,
     detect_sync_event_capabilities,
     detect_sync_events_for_records,

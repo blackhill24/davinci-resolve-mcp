@@ -44,7 +44,7 @@ approval (`approve_cut`) sits between planning and execution.
 - Action boundary: `docs/kernels/auto-edit-kernel.md`
 - Editorial heuristics (pacing, punch-in vs b-roll, titles, music):
   `docs/guides/editorial-decision-guide.md` → "Auto-Edit Heuristics"
-- Decision layer internals: `src/utils/auto_edit.py` (talking-head),
-  `src/utils/montage_edit.py` (montage — genre="montage", music required,
-  no ducking), `src/utils/cut_ir.py`,
-  `src/utils/music_analysis.py`
+- Decision layer internals: `src/domains/auto_edit/utils/auto_edit.py` (talking-head),
+  `src/domains/auto_edit/utils/montage_edit.py` (montage — genre="montage", music required,
+  no ducking), `src/domains/auto_edit/utils/cut_ir.py`,
+  `src/domains/auto_edit/utils/music_analysis.py`

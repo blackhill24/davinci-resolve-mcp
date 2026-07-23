@@ -42,12 +42,12 @@ for p in [current_dir, project_dir]:
         sys.path.insert(0, p)
 
 # Platform-specific Resolve paths
-from src.utils.cdl import normalize_cdl_payload
+from src.domains.color_grade.utils.cdl import normalize_cdl_payload
 from src.core.mcp_stdio import run_fastmcp_stdio
 from src.core.api_truth import lookup_api_truth, VERIFIED_ON as _API_TRUTH_VERIFIED_ON
 from src.core.contracts import validate as _validate_params
-from src.utils.cloud_operations import cloud_sync_status_label
-from src.utils.cut_ir import build_cut_list as _build_cut_list
+from src.domains.project_lifecycle.utils.cloud_operations import cloud_sync_status_label
+from src.domains.auto_edit.utils.cut_ir import build_cut_list as _build_cut_list
 from src.core.page_lock import open_page_serialized as _open_page_serialized
 from src.core.proc import preload_audit, resolve_spawn_env, safe_run, sanitized_spawn_env
 from src.core.readback import verify_by_readback, verification_stats as _verification_stats
@@ -64,7 +64,7 @@ from src.core.update_check import (
     update_prompt_decision,
     update_state_path,
 )
-from src.utils.media_analysis import (
+from src.domains.media_analysis.utils.media_analysis import (
     HOST_CHAT_PATHS_PROVIDER,
     HOST_CHAT_VISION_PROVIDERS,
     DEFAULT_VISION_ANALYSIS_PROMPT,
@@ -86,10 +86,10 @@ from src.utils.media_analysis import (
     slugify,
     summarize_reports as summarize_media_analysis_reports,
 )
-from src.utils.sync_detection import detect_sync_events_for_records as detect_media_sync_events
+from src.domains.media_analysis.utils.sync_detection import detect_sync_events_for_records as detect_media_sync_events
 from src.core import actor_identity, background_jobs, resolve_busy
 from src.core.resolve_busy import long_resolve_op
-from src.utils.media_analysis_jobs import (
+from src.domains.media_analysis.utils.media_analysis_jobs import (
     MEDIA_EXTENSIONS,
     batch_job_status as media_analysis_batch_job_status,
     cancel_batch_job as cancel_media_analysis_batch_job,
@@ -99,16 +99,16 @@ from src.utils.media_analysis_jobs import (
     run_batch_job_slice as run_media_analysis_batch_job_slice,
 )
 from src.core.platform import get_resolve_paths, get_resolve_plugin_paths
-from src.utils.lut_paths import master_lut_dir, ensure_lut_in_master
-from src.utils import fuse_templates, dctl_templates, script_templates
-from src.utils.timeline_title_text import (
+from src.domains.color_grade.utils.lut_paths import master_lut_dir, ensure_lut_in_master
+from src.domains.extension_authoring.utils import fuse_templates, dctl_templates, script_templates
+from src.domains.timeline_edit.utils.timeline_title_text import (
     candidate_title_property_keys as _candidate_title_property_keys,
     plain_to_minimal_styled_xml as _plain_to_minimal_styled_xml,
     timeline_item_get_property_map as _timeline_item_get_property_map,
 )
-from src.utils.multicam import build_multicam_setup_plan
-from src.utils.timeline_xml import analyze_timeline_xml, sanitize_timeline_xml
-from src.utils.fusion_group_settings import (
+from src.domains.media_pool_ingest.utils.multicam import build_multicam_setup_plan
+from src.domains.timeline_conform_interchange.utils.timeline_xml import analyze_timeline_xml, sanitize_timeline_xml
+from src.domains.fusion_composition.utils.fusion_group_settings import (
     FUSION_COMMIT_CHECKLIST,
     FUSION_GROUP_GUARDRAILS,
     default_backup_path,
@@ -117,17 +117,17 @@ from src.utils.fusion_group_settings import (
 )
 from src.core import analysis_runs as _analysis_runs
 from src.core import brain_edits as _brain_edits
-from src.utils import edit_engine as _edit_engine_mod
-from src.utils import auto_edit as _auto_edit_mod
-from src.utils import montage_edit as _montage_edit_mod
-from src.utils import orchestrate as _orchestrate_mod
-from src.utils import advanced_bridge as _advanced_bridge
-from src.utils import music_analysis as _music_analysis_mod
-from src.utils import media_pool_changes as _media_pool_changes
+from src.domains.auto_edit.utils import edit_engine as _edit_engine_mod
+from src.domains.auto_edit.utils import auto_edit as _auto_edit_mod
+from src.domains.auto_edit.utils import montage_edit as _montage_edit_mod
+from src.domains.orchestration.utils import orchestrate as _orchestrate_mod
+from src.core import advanced_bridge as _advanced_bridge
+from src.domains.auto_edit.utils import music_analysis as _music_analysis_mod
+from src.domains.media_pool_ingest.utils import media_pool_changes as _media_pool_changes
 from src.core import timeline_versioning as _timeline_versioning
-from src.utils import project_spec as _project_spec
-from src.utils import project_lint as _project_lint
-from src.utils import clip_query as _clip_query
+from src.domains.project_lifecycle.utils import project_spec as _project_spec
+from src.domains.project_lifecycle.utils import project_lint as _project_lint
+from src.domains.timeline_edit.utils import clip_query as _clip_query
 from src.core import destructive_hook as _destructive_hook
 from src.core.destructive_hook import destructive_op as _destructive_op
 
@@ -1281,7 +1281,7 @@ def _caps_overrides_provider() -> Optional[Dict[str, Any]]:
 # Lazy import to avoid touching media_analysis at module-init time (it imports
 # our destructive-hook + analysis_caps modules already, but the providers we
 # register here read media-analysis preferences which the server owns).
-from src.utils import media_analysis as _media_analysis_module
+from src.domains.media_analysis.utils import media_analysis as _media_analysis_module
 _media_analysis_module.register_caps_preset_provider(_caps_preset_provider)
 _media_analysis_module.register_caps_overrides_provider(_caps_overrides_provider)
 
@@ -6534,13 +6534,13 @@ def _timeline_import_srt_impl(proj, tl, p: Dict[str, Any]):
     subtitle track. No scripting method exists (File > Import > Subtitle is
     UI-only; FCPXML <caption> is ignored), so this authors the cues into the
     exported .drt's SubtitleTrackVec via the oracle-validated codec
-    (src/utils/subtitle_codec.py) and imports the result as a NEW timeline.
+    (src/domains/audio_fairlight/utils/subtitle_codec.py) and imports the result as a NEW timeline.
 
     Per-cue template resolution: the current timeline's own subtitle track ->
     `template_drt` -> the EMBEDDED synthetic template (proven live to survive
     reimport, live_import_srt_tool_probe Q1) — so no pre-existing cue is
     required."""
-    from src.utils import subtitle_codec as _subtitle_codec
+    from src.domains.audio_fairlight.utils import subtitle_codec as _subtitle_codec
 
     srt_path = p.get("path") or p.get("srt_path")
     if not srt_path:
@@ -14743,7 +14743,7 @@ def _v2_update_field(project_root: str, p: Dict[str, Any], *, entity_type: str) 
     # whose DB predates v9 or lacks ingested rows.
     db_result: Dict[str, Any]
     try:
-        from src.utils import analysis_store
+        from src.domains.media_analysis.utils import analysis_store
         db_result = analysis_store.record_human_correction(
             project_root,
             clip_ref=clip_id or os.path.basename(os.path.dirname(path)),
@@ -14858,7 +14858,7 @@ def _v2_revert_field(project_root: str, p: Dict[str, Any]) -> Dict[str, Any]:
     # row so the export overlay falls back to the blob value.
     db_result: Dict[str, Any]
     try:
-        from src.utils import analysis_store
+        from src.domains.media_analysis.utils import analysis_store
         clip_ref = clip_id or os.path.basename(os.path.dirname(path))
         if action_taken == "removed (back to machine-derived)" or revert_source != "human":
             db_result = analysis_store.clear_human_field(
@@ -15936,7 +15936,7 @@ def _safe_project_delete(pm, p: Dict[str, Any]) -> Dict[str, Any]:
     current = pm.GetCurrentProject()
     # Route through delete_project_safely: DeleteProject silently returns False
     # when the target is/was current and is flaky on the first attempt (#19).
-    from src.utils.project_cleanup import delete_project_safely
+    from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
     current_name = current.GetName() if current and _has_method(current, "GetName") else None
     if current_name == name:
         if not p.get("close_current", False):
@@ -16499,7 +16499,7 @@ def project_manager(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
     elif action == "delete":
         if not p.get("name"):
             return _err("delete requires name")
-        from src.utils.project_cleanup import delete_project_safely
+        from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
         deleted = delete_project_safely(pm, p["name"])
         return {"success": bool(deleted.get("success")), "delete_detail": deleted}
     elif action == "import_project":
@@ -18909,7 +18909,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
     if action == "get_caps":
         # Effective caps + per-scope usage rollup. Cheap, no Resolve required —
         # consults the preference file + the per-project token-usage DB.
-        from src.utils import analysis_caps as _ac
+        from src.domains.media_analysis.utils import analysis_caps as _ac
         active = _ac.resolve_caps(_caps_preset_provider(), _caps_overrides_provider())
         out: Dict[str, Any] = {
             "success": True,
@@ -18992,7 +18992,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
         }
     if action == "set_caps_preset":
         preset = (p.get("preset") or "").strip().lower()
-        from src.utils import analysis_caps as _ac
+        from src.domains.media_analysis.utils import analysis_caps as _ac
         if preset not in _ac.VALID_PRESETS:
             return _err(f"unknown preset '{preset}'. Valid: {sorted(_ac.VALID_PRESETS)}")
         # Update preference file directly (same pattern as set_defaults).
@@ -19006,7 +19006,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
         _write_media_analysis_preferences(prefs)
         return {"success": True, "preset": preset, "overrides": prefs.get("analysis_caps_overrides") or {}}
     if action == "get_usage":
-        from src.utils import analysis_caps as _ac
+        from src.domains.media_analysis.utils import analysis_caps as _ac
         try:
             vctx = _destructive_versioning_provider()
             if vctx is None:
@@ -19134,7 +19134,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
             )
         # V2 B6: chat ↔ panel state sharing
         if action == "get_panel_state":
-            from src.utils.analysis_memory import read_panel_state, panel_state_path
+            from src.domains.media_analysis.utils.analysis_memory import read_panel_state, panel_state_path
             state = read_panel_state(project_root)
             return {
                 "success": True,
@@ -19143,7 +19143,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 "panel_state": state,
             }
         if action == "set_panel_state":
-            from src.utils.analysis_memory import write_panel_state
+            from src.domains.media_analysis.utils.analysis_memory import write_panel_state
             updates = p.get("state") or p.get("panel_state") or {}
             if not isinstance(updates, dict):
                 return _err("set_panel_state requires `state` to be an object")
@@ -19152,7 +19152,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
             return write_panel_state(project_root, updates, written_by=written_by, merge=merge)
         # V2 session-start context (loads soul + memory + heartbeat + panel state)
         if action == "session_start_context":
-            from src.utils.analysis_memory import session_start_context
+            from src.domains.media_analysis.utils.analysis_memory import session_start_context
             return session_start_context(project_root)
         # V2 C4: correction tools — per-clip sidecar JSON with provenance + changelog
         if action == "update_shot_field":
@@ -19167,24 +19167,24 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
             return _v2_list_corrections(project_root, p)
         # C1 — DB-canonical analysis store (Phase A).
         if action == "db_status":
-            from src.utils import analysis_store
+            from src.domains.media_analysis.utils import analysis_store
             return analysis_store.db_status(project_root)
         if action == "db_ingest":
-            from src.utils import analysis_store
+            from src.domains.media_analysis.utils import analysis_store
             return analysis_store.ingest_project(project_root)
         # Perception strata (schema v13).
         if action == "strata_status":
-            from src.utils import strata, strata_analyzers
+            from src.domains.media_analysis.utils import strata, strata_analyzers
             clip_ref = _strata_clip_ref(p)
             status = strata.strata_status(project_root, clip_ref)
             if status.get("success") and clip_ref is None:
                 status["analyzer_capabilities"] = strata_analyzers.capabilities()
             return status
         if action == "backfill_words":
-            from src.utils import strata
+            from src.domains.media_analysis.utils import strata
             return strata.backfill_transcript_words(project_root)
         if action == "strata_run":
-            from src.utils import strata_analyzers
+            from src.domains.media_analysis.utils import strata_analyzers
             clip_ref = _strata_clip_ref(p)
             if not clip_ref:
                 return _err("strata_run requires clip_id (or clip_uuid / clip_dir / file_path)")
@@ -19193,14 +19193,14 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 analyzers = [analyzers]
             return strata_analyzers.run_analyzers(project_root, clip_ref, analyzers)
         if action == "take_diff":
-            from src.utils import strata_queries
+            from src.domains.media_analysis.utils import strata_queries
             clip_a = p.get("clip_a") or p.get("clipA") or p.get("take_a") or p.get("takeA")
             clip_b = p.get("clip_b") or p.get("clipB") or p.get("take_b") or p.get("takeB")
             if not clip_a or not clip_b:
                 return _err("take_diff requires clip_a and clip_b")
             return strata_queries.take_diff(project_root, clip_a, clip_b, text=p.get("text") or p.get("line"))
         if action == "cut_candidates":
-            from src.utils import strata_queries
+            from src.domains.media_analysis.utils import strata_queries
             clip_ref = _strata_clip_ref(p)
             t = _opt_number(p.get("time_seconds", p.get("timeSeconds")))
             if not clip_ref or t is None:
@@ -19218,7 +19218,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 limit=int(_opt_number(p.get("limit")) or 7),
             )
         if action == "strata_query":
-            from src.utils import strata_queries
+            from src.domains.media_analysis.utils import strata_queries
             start_raw = p.get("start_seconds", p.get("startSeconds"))
             end_raw = p.get("end_seconds", p.get("endSeconds"))
             start = _opt_number(start_raw)
@@ -19236,7 +19236,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 limit=int(_opt_number(p.get("limit")) or 20),
             )
         if action == "timeline_strata":
-            from src.utils import strata_queries
+            from src.domains.media_analysis.utils import strata_queries
             timeline_name = p.get("timeline_name") or p.get("timelineName") or p.get("timeline")
             if not timeline_name:
                 return _err("timeline_strata requires timeline_name")
@@ -19260,13 +19260,13 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 include_curve_values=bool(p.get("include_curve_values", p.get("includeCurveValues", False))),
             )
         if action == "plan_story_beats":
-            from src.utils import strata_story
+            from src.domains.media_analysis.utils import strata_story
             clip_ref = _strata_clip_ref(p)
             if not clip_ref:
                 return _err("plan_story_beats requires clip_id")
             return strata_story.plan_story_beats(project_root, clip_ref)
         if action == "commit_story_beats":
-            from src.utils import strata_story
+            from src.domains.media_analysis.utils import strata_story
             clip_ref = _strata_clip_ref(p)
             if not clip_ref:
                 return _err("commit_story_beats requires clip_id")
@@ -19280,14 +19280,14 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 source_model=p.get("source_model") or p.get("sourceModel"),
             )
         if action == "list_story_beats":
-            from src.utils import strata_story
+            from src.domains.media_analysis.utils import strata_story
             clip_ref = _strata_clip_ref(p)
             if not clip_ref:
                 return _err("list_story_beats requires clip_id")
             return strata_story.list_story_beats(project_root, clip_ref)
         # Phase B — deep shot-level vision tier.
         if action == "deepen":
-            from src.utils import deep_vision
+            from src.domains.media_analysis.utils import deep_vision
             clip_ref = p.get("clip_id") or p.get("clipId") or p.get("clip_dir") or p.get("clipDir") or p.get("file_path") or p.get("filePath")
             if not clip_ref:
                 return _err("deepen requires clip_id, clip_dir, or file_path")
@@ -19302,7 +19302,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 job_id=p.get("job_id") or p.get("jobId"),
             )
         if action == "commit_shot_vision":
-            from src.utils import deep_vision
+            from src.domains.media_analysis.utils import deep_vision
             clip_ref = p.get("clip_id") or p.get("clipId") or p.get("clip_dir") or p.get("clipDir") or p.get("file_path") or p.get("filePath")
             if not clip_ref:
                 return _err("commit_shot_vision requires clip_id, clip_dir, or file_path")
@@ -19314,7 +19314,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 author=p.get("author") or "host_chat",
             )
         if action == "vision_pending_sweep":
-            from src.utils import deep_vision
+            from src.domains.media_analysis.utils import deep_vision
             return deep_vision.vision_pending_sweep(
                 project_root,
                 expire=_media_analysis_bool(p.get("expire"), False),
@@ -19323,7 +19323,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
             )
         # Phase C — embeddings + similarity (local compute; no token caps).
         if action == "build_embeddings":
-            from src.utils import embeddings
+            from src.domains.media_analysis.utils import embeddings
             kinds = p.get("kinds") or p.get("kind") or ["text"]
             if isinstance(kinds, str):
                 kinds = [kinds]
@@ -19335,7 +19335,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 max_frames_per_clip=int(p.get("max_frames_per_clip") or p.get("maxFramesPerClip") or 16),
             )
         if action == "find_similar":
-            from src.utils import embeddings
+            from src.domains.media_analysis.utils import embeddings
             entity_types = p.get("entity_types") or p.get("entityTypes")
             if isinstance(entity_types, str):
                 entity_types = [entity_types]
@@ -19351,7 +19351,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
             )
         # Phase D — cross-clip entities + bin briefing v2.
         if action == "detect_entities":
-            from src.utils import entities
+            from src.domains.media_analysis.utils import entities
             return entities.detect_entities(
                 project_root,
                 threshold=float(p.get("threshold") or entities.DEFAULT_CLUSTER_THRESHOLD),
@@ -19360,7 +19360,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 job_id=p.get("job_id") or p.get("jobId"),
             )
         if action == "commit_entities":
-            from src.utils import entities
+            from src.domains.media_analysis.utils import entities
             return entities.commit_entities(
                 project_root,
                 entities_payload=p.get("entities"),
@@ -19368,12 +19368,12 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 author=p.get("author") or "host_chat",
             )
         if action == "list_entities":
-            from src.utils import entities
+            from src.domains.media_analysis.utils import entities
             return entities.list_entities(project_root, kind=p.get("kind"))
         # Cross-shot relationships (spec §4): detect → one bounded vision
         # confirm (frame pairs) → commit; pattern recognition only.
         if action == "detect_shot_relationships":
-            from src.utils import shot_relationships
+            from src.domains.media_analysis.utils import shot_relationships
             band = p.get("continues_band") or p.get("continuesBand")
             return shot_relationships.detect_shot_relationships(
                 project_root,
@@ -19388,7 +19388,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 job_id=p.get("job_id") or p.get("jobId"),
             )
         if action == "commit_shot_relationships":
-            from src.utils import shot_relationships
+            from src.domains.media_analysis.utils import shot_relationships
             return shot_relationships.commit_shot_relationships(
                 project_root,
                 relationships_payload=p.get("relationships"),
@@ -19396,7 +19396,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 author=p.get("author") or "host_chat",
             )
         if action == "list_shot_relationships":
-            from src.utils import shot_relationships
+            from src.domains.media_analysis.utils import shot_relationships
             return shot_relationships.list_shot_relationships(
                 project_root,
                 clip_ref=p.get("clip_id") or p.get("clipId") or p.get("clip_dir") or p.get("clipDir"),
@@ -19405,10 +19405,10 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 include_superseded=bool(p.get("include_superseded") or p.get("includeSuperseded")),
             )
         if action == "prepare_bin_briefing":
-            from src.utils import entities
+            from src.domains.media_analysis.utils import entities
             return entities.prepare_bin_briefing(project_root)
         if action == "commit_bin_summary":
-            from src.utils import entities
+            from src.domains.media_analysis.utils import entities
             return entities.commit_bin_summary(
                 project_root,
                 briefing=p.get("briefing") or p.get("summary"),
@@ -21310,7 +21310,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         music = plan.get("music")
         bed_note = None
         if music and (music.get("ducking") or {}).get("mode") == "rendered_bed":
-            from src.utils import analysis_memory as _analysis_memory
+            from src.domains.media_analysis.utils import analysis_memory as _analysis_memory
             bed_dir = os.path.join(_analysis_memory.memory_dir(project_root), "auto_edit")
             bed_path = os.path.join(bed_dir, f"{plan['plan_id']}_bed.wav")
             duration_s = (int(music.get("record_end_frame", 0))
@@ -21580,7 +21580,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         if render:
             target_dir = str(render.get("target_dir") or render.get("targetDir") or "")
             if not target_dir:
-                from src.utils import analysis_memory as _analysis_memory
+                from src.domains.media_analysis.utils import analysis_memory as _analysis_memory
                 target_dir = os.path.join(
                     _analysis_memory.memory_dir(project_root), "auto_edit", "renders")
             os.makedirs(target_dir, exist_ok=True)
@@ -22417,7 +22417,7 @@ async def _orchestrate_run_deliver(job, job_id, project_root, proj, p: Dict[str,
     render_opts.update(p.get("render") or {})
     target_dir = str(render_opts.get("target_dir") or render_opts.get("targetDir") or "")
     if not target_dir:
-        from src.utils import analysis_memory as _analysis_memory
+        from src.domains.media_analysis.utils import analysis_memory as _analysis_memory
         target_dir = os.path.join(_analysis_memory.memory_dir(project_root), "orchestrate", job_id, "renders")
     os.makedirs(target_dir, exist_ok=True)
     custom_name = str(render_opts.get("custom_name") or render_opts.get("customName") or f"orchestrate_{job_id}")
@@ -27981,7 +27981,7 @@ def _dctl_dir(category: str = "lut") -> str:
                      "Valid: lut, aces_idt, aces_odt")
 
 
-# LUT relocation for Graph.SetLUT lives in src.utils.lut_paths so server.py and
+# LUT relocation for Graph.SetLUT lives in src.domains.color_grade.utils.lut_paths so server.py and
 # src/granular/graph.py share one implementation (see the module docstring for
 # the live-verified behavior). Thin aliases keep the existing call sites stable.
 _master_lut_dir = master_lut_dir
@@ -29395,7 +29395,7 @@ def _resource_current_timeline() -> Dict[str, Any]:
 @_safe_resource
 def _resource_caps_preset() -> Dict[str, Any]:
     """Active analysis caps preset + overrides + effective caps. No Resolve required."""
-    from src.utils import analysis_caps as _ac
+    from src.domains.media_analysis.utils import analysis_caps as _ac
     active = _ac.resolve_caps(_caps_preset_provider(), _caps_overrides_provider())
     return {
         "preset": active.preset,
@@ -29546,7 +29546,7 @@ if __name__ == "__main__":
         sys.exit(0)
 
     # --transport stdio (default) | sse | streamable-http. Networked modes bind
-    # loopback by default and require a bearer token (see src/utils/mcp_transport).
+    # loopback by default and require a bearer token (see src/core/mcp_transport).
     transport = "stdio"
     if "--transport" in sys.argv:
         _i = sys.argv.index("--transport")

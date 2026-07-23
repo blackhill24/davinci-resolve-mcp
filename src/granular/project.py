@@ -515,7 +515,7 @@ def load_cloud_project_tool(
     """
     # NOTE: the module-level @mcp.tool load_cloud_project (legacy signature)
     # shadows the star-imported util of the same name — bind the util explicitly.
-    from src.utils.cloud_operations import load_cloud_project as _load_cloud_project_util
+    from src.domains.project_lifecycle.utils.cloud_operations import load_cloud_project as _load_cloud_project_util
     return _load_cloud_project_util(get_resolve(), project_name=project_name,
                                     project_media_path=project_media_path, sync_mode=sync_mode)
 
@@ -789,7 +789,7 @@ def delete_project(project_name: str) -> Dict[str, Any]:
     # DeleteProject is flaky (silently returns False when the target is/was
     # current, transient first-attempt failures); route through the retry+switch
     # guard (#19).
-    from src.utils.project_cleanup import delete_project_safely
+    from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
     deleted = delete_project_safely(pm, project_name)
     return {"success": bool(deleted.get("success")), "project_name": project_name, "delete_detail": deleted}
 

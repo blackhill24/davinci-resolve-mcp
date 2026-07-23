@@ -13,7 +13,7 @@ INSTALL_PATH = PROJECT_ROOT / "install.py"
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.utils.cdl import normalize_cdl_payload
+from src.domains.color_grade.utils.cdl import normalize_cdl_payload
 
 _spec = importlib.util.spec_from_file_location("resolve_install", INSTALL_PATH)
 install = importlib.util.module_from_spec(_spec)

@@ -154,7 +154,7 @@ equivalent, blocking full automation.
 
 - **Object:** `TimelineItem / Timeline / Project`
 - **Behavior:** There is no API method to set or query subtitle font family, font size, text color, background color, outline, shadow, position, alignment, or to apply/query subtitle style presets. TimelineItem.GetProperty() on subtitle items returns only transform/composite keys. Timeline.GetSetting() and Project.GetSetting() return None for all probed subtitle-style keys (e.g. 'subtitleFontName', 'subtitleFontSize', 'subtitleTextColor', 'subtitleBackgroundColor', 'subtitlePosition', 'subtitleAlignment', 'subtitlePreset', 'subtitleStyle'). Verified via dir(), GetProperty(), and GetSetting() on Resolve 21.0.0.48.
-- **Workaround / current handling:** Per-cue styling IS writable offline (issue #30, 3.2.6): the cue's EffectFiltersBA BMD leaf carries, after the text, [u32-LE len][FontName UTF-16LE][float32-LE size][u32-LE len]['#rrggbb' UTF-16LE] — font swaps ride the validated length cascade, size is a fixed float overwrite, color a string swap (src/utils/subtitle_codec.py read_cue_style/author_cue_effblob; exposed as the style option of timeline import_srt). Track-level presets and the remaining attributes (background, outline, shadow, alignment) stay UI-only pending further RE.
+- **Workaround / current handling:** Per-cue styling IS writable offline (issue #30, 3.2.6): the cue's EffectFiltersBA BMD leaf carries, after the text, [u32-LE len][FontName UTF-16LE][float32-LE size][u32-LE len]['#rrggbb' UTF-16LE] — font swaps ride the validated length cascade, size is a fixed float overwrite, color a string swap (src/domains/audio_fairlight/utils/subtitle_codec.py read_cue_style/author_cue_effblob; exposed as the style option of timeline import_srt). Track-level presets and the remaining attributes (background, outline, shadow, alignment) stay UI-only pending further RE.
 - **Tags:** missing-method, subtitle, style, preset, workaround
 
 ### Speech recognition engine selection
@@ -214,7 +214,7 @@ values, or automation-hostile modal prompts.
 - **Object:** `ProjectManager`
 - **Signature:** `(projectName) -> bool`
 - **Behavior:** Returns False (no deletion) when the target project is, or recently was, the current project, and is flaky on the first attempt — so a single bool() call leaves the project undeleted with no useful error. Guard re-verified live on Studio 21.0.2.4 (Stage 4, #24): delete_project_safely deleted the disposable project in 1 attempt across multiple runs, so the switch-away-then-retry mitigation still holds.
-- **Workaround / current handling:** Load/close away from the target first, then retry; use src/utils/project_cleanup.py:delete_project_safely.
+- **Workaround / current handling:** Load/close away from the target first, then retry; use src/domains/project_lifecycle/utils/project_cleanup.py:delete_project_safely.
 - **Tags:** unreliable-return, project, flaky
 
 ### Composition.Paste

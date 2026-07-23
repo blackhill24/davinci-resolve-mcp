@@ -121,7 +121,7 @@ class CorrectionsClobberGuardTest(unittest.TestCase):
 class AtomicWriteTest(unittest.TestCase):
     def test_bin_summary_writer_is_atomic_on_success(self):
         # A successful write leaves no .tmp behind and produces the final file.
-        from src.utils import analysis_memory as am
+        from src.domains.media_analysis.utils import analysis_memory as am
         with tempfile.TemporaryDirectory() as d:
             with mock.patch.object(am, "bin_summary_path", return_value=os.path.join(d, "bin_summary.md")):
                 # _atomic temp path must be cleaned up; just assert no .tmp lingers

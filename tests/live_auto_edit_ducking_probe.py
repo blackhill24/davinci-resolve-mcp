@@ -47,7 +47,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.utils import drt_diff  # noqa: E402
+from src.domains.timeline_conform_interchange.utils import drt_diff  # noqa: E402
 
 PROBE = f"duck_probe_{time.strftime('%H%M%S')}"
 MEDIA_DIR = tempfile.mkdtemp(prefix="drm-duck-media-")

@@ -14,7 +14,7 @@ import os
 import tempfile
 import unittest
 
-from src.utils import media_analysis as m
+from src.domains.media_analysis.utils import media_analysis as m
 from src import server as srv
 
 

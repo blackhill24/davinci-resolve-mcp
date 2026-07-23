@@ -87,7 +87,7 @@ def main() -> int:
         sys.argv = original_argv
 
     output_dir = args.output_dir or Path(tempfile.mkdtemp(prefix="fusion-composition-probe-report_"))
-    from src.utils.fusion_composition_live_probe import run_probe
+    from src.domains.fusion_composition.utils.fusion_composition_live_probe import run_probe
 
     report = run_probe(server, output_dir, keep_open=args.keep_open)
     if report["counts"].get("error", 0):

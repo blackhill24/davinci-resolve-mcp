@@ -967,7 +967,7 @@ The caps layer:
   tokens still get `frames_uploaded` recorded.
 
 Wall-clock timeout + cumulative-budget refusal are implemented in
-`src/utils/analysis_caps.py` and ready to hook at additional call sites in
+`src/domains/media_analysis/utils/analysis_caps.py` and ready to hook at additional call sites in
 the analysis pipeline; the initial integration is at frame sampling +
 response construction + commit_vision usage recording.
 

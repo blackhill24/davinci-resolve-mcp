@@ -16,7 +16,7 @@ import unittest
 import wave
 
 from src.core import timeline_brain_db
-from src.utils import analysis_store, strata, strata_queries
+from src.domains.media_analysis.utils import analysis_store, strata, strata_queries
 from tests.test_analysis_store import make_report
 
 try:
@@ -25,7 +25,7 @@ except ImportError:  # pragma: no cover
     np = None
 
 if np is not None:
-    from src.utils import strata_analyzers as sa
+    from src.domains.media_analysis.utils import strata_analyzers as sa
 
 FFMPEG = shutil.which("ffmpeg")
 

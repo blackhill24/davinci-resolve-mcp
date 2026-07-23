@@ -1,6 +1,6 @@
 import unittest
 
-from src.utils.project_cleanup import delete_project_safely
+from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
 
 
 class _FakeProject:

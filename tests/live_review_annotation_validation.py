@@ -97,7 +97,7 @@ def main() -> int:
     finally:
         sys.argv = original_argv
 
-    from src.utils.review_annotation_live_probe import run_probe
+    from src.domains.review_annotation.utils.review_annotation_live_probe import run_probe
 
     output_dir = args.output_dir or Path(tempfile.mkdtemp(prefix="review-annotation-probe-report_"))
     report = run_probe(server, output_dir, keep_open=args.keep_open)

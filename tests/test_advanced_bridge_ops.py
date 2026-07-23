@@ -1,4 +1,4 @@
-"""Tests for the drp-format OP path of src/utils/advanced_bridge (t11).
+"""Tests for the drp-format OP path of src/core/advanced_bridge (t11).
 
 The existing tests/test_advanced_bridge.py covers the read-only panel/lineage
 bridge. This file covers the reusable util and its WRITE bridge (drp-bridge.mjs),
@@ -19,7 +19,7 @@ import tempfile
 import unittest
 import zipfile
 
-from src.utils import advanced_bridge as ab
+from src.core import advanced_bridge as ab
 
 
 def _advanced_ready() -> bool:

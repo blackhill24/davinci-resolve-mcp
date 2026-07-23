@@ -1,4 +1,4 @@
-"""Offline oracle + unit tests for src/utils/subtitle_codec (issues #22/#30).
+"""Offline oracle + unit tests for src/domains/audio_fairlight/utils/subtitle_codec (issues #22/#30).
 
 The two embedded ground-truth blobs are real subtitle cue EffectFiltersBA
 payloads exported from Resolve 21.0.2.4 (captured by tests/live_subtitle_probe.py,
@@ -14,7 +14,7 @@ font="Open Sans", size=58.0, color="#ffffff".
 import binascii
 import unittest
 
-from src.utils import subtitle_codec as sc
+from src.domains.audio_fairlight.utils import subtitle_codec as sc
 
 # Ground truth (same blobs as tests/live_srt_import_probe.py).
 CUE1 = ("00000002000000a48128b52ffd602d00cd0400f24a212b804b330726311223153058f3df6"

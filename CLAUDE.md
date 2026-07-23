@@ -46,7 +46,7 @@ install.py  package.json  requirements.txt  AGENTS.md  README.md  CHANGELOG.md
 
 <!-- A good name is a doc line that can never go stale. Prefer renaming to describing. -->
 - `src/granular/<domain>.py` — one module per Resolve domain (timeline, media_pool, …)
-- `src/utils/<feature>.py`; `*_live_probe.py` = live-Resolve capability probes
+- `src/domains/<domain>/utils/<feature>.py` (domain code); `src/core/<feature>.py` (cross-domain); `*_live_probe.py` = live-Resolve probes
 - `tests/test_*.py` = offline unit; `tests/live_*.py` = require a running Resolve
 - `resolve-advanced/server/*.mjs` + `server/tools/<domain>.mjs` = authoring tools; `vendor/<domain>/` = codecs
 - `docs/kernels/<domain>-kernel.md` = per-domain action depth

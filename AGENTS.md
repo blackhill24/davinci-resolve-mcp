@@ -81,7 +81,7 @@ semantics.
 - Granular server entrypoint: `src/resolve_mcp_server.py`
 - Local control panel launcher: `src/control_panel.py`
 - Granular implementation: `src/granular/`
-- Utilities: `src/utils/`
+- Domain-specific code: `src/domains/<domain>/utils/`; cross-domain infra: `src/core/`
 - Installer: `install.py`
 - Tests: `tests/`
 - Examples: `examples/`

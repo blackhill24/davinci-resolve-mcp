@@ -13,7 +13,7 @@ import tempfile
 import unittest
 
 import src.server as s
-from src.utils import auto_edit, cut_ir, edit_engine
+from src.domains.auto_edit.utils import auto_edit, cut_ir, edit_engine
 
 
 def run(coro):

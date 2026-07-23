@@ -1,4 +1,4 @@
-"""Unit tests for src/utils/montage_edit.py (the montage decision layer,
+"""Unit tests for src/domains/auto_edit/utils/montage_edit.py (the montage decision layer,
 epic #38 P1 = issue #40).
 
 No Resolve required — DB-only, same posture as test_auto_edit.py. Seeds the
@@ -18,7 +18,8 @@ import wave
 from unittest import mock
 
 from src.core import timeline_brain_db
-from src.utils import analysis_store, cut_ir, edit_engine, montage_edit
+from src.domains.auto_edit.utils import cut_ir, edit_engine, montage_edit
+from src.domains.media_analysis.utils import analysis_store
 
 from tests.test_analysis_store import make_report
 

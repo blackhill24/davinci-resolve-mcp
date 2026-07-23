@@ -1,4 +1,4 @@
-"""Offline tests for src/utils/fusion_group_settings.py.
+"""Offline tests for src/domains/fusion_composition/utils/fusion_group_settings.py.
 
 The fixtures intentionally include nested UserControls / ControlGroup tables
 because real-world Fusion GroupOperator exports almost always have them — a
@@ -17,7 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.utils.fusion_group_settings import (
+from src.domains.fusion_composition.utils.fusion_group_settings import (
     FUSION_COMMIT_CHECKLIST,
     FUSION_GROUP_GUARDRAILS,
     default_backup_path,

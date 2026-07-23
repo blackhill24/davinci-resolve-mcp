@@ -1,4 +1,4 @@
-"""Unit tests for src/utils/analysis_store.py (C1 — DB-canonical clip analysis).
+"""Unit tests for src/domains/media_analysis/utils/analysis_store.py (C1 — DB-canonical clip analysis).
 
 No Resolve required. Includes the Phase A round-trip guard: ingest → export
 must reproduce the report exactly (the export overlay only ever applies human
@@ -16,7 +16,7 @@ import tempfile
 import unittest
 
 from src.core import timeline_brain_db
-from src.utils import analysis_store
+from src.domains.media_analysis.utils import analysis_store
 
 # A real analyzed sample root (issue references: 20260517 sample). The test
 # only READS its analysis.json files; rows are written to a temp DB.

@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 from src.core import timeline_brain_db
-from src.utils import analysis_store, strata, strata_queries, strata_story
+from src.domains.media_analysis.utils import analysis_store, strata, strata_queries, strata_story
 from tests.test_analysis_store import make_report
 from tests.test_strata import make_report_with_words
 

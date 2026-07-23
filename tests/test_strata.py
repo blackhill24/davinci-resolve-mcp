@@ -1,4 +1,4 @@
-"""Unit tests for the perception strata (schema v13 + src/utils/strata.py).
+"""Unit tests for the perception strata (schema v13 + src/domains/media_analysis/utils/strata.py).
 
 No Resolve required. Covers: the v13 migration, word-row ingest (segment
 words + top-level fallback), blob backfill, machine-replace vs human-preserve
@@ -15,7 +15,7 @@ import tempfile
 import unittest
 
 from src.core import timeline_brain_db
-from src.utils import analysis_store, strata
+from src.domains.media_analysis.utils import analysis_store, strata
 from tests.test_analysis_store import make_report
 
 REAL_SAMPLE_ROOT = os.path.expanduser(
@@ -104,7 +104,7 @@ class StrataSchemaTests(unittest.TestCase):
         self.assertGreaterEqual(timeline_brain_db._read_schema_version(conn), 15)
 
     def test_curve_codec_matches_embeddings_vector_codec(self) -> None:
-        from src.utils import embeddings
+        from src.domains.media_analysis.utils import embeddings
 
         values = [0.0, 1.5, -2.25, float("nan")]
         packed = strata.pack_curve(values)

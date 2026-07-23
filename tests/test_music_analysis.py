@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from src.utils import music_analysis
+from src.domains.auto_edit.utils import music_analysis
 
 EBUR128_SUMMARY = """
 [Parsed_ebur128_0 @ 0x55] Summary:

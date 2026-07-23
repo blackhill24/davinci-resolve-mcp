@@ -1,8 +1,8 @@
 """MediaPoolItem operations and metadata helpers."""
 
 from src.granular.common import *  # noqa: F401,F403
-from src.utils.cloud_operations import cloud_sync_status_label
-from src.utils.media_analysis import mark_registry_stale_for_clip as _mark_analysis_registry_stale
+from src.domains.project_lifecycle.utils.cloud_operations import cloud_sync_status_label
+from src.domains.media_analysis.utils.media_analysis import mark_registry_stale_for_clip as _mark_analysis_registry_stale
 
 resolve = ResolveProxy()
 

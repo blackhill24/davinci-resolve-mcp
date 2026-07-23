@@ -6,7 +6,7 @@ frame math, and CutList make/validate round trips.
 """
 import unittest
 
-from src.utils import cut_ir
+from src.domains.auto_edit.utils import cut_ir
 
 FPS = 24.0
 

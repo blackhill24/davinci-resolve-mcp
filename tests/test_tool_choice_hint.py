@@ -1,7 +1,7 @@
 """Contract tests for C3 — host_tool_choice_hint in deferred-payload."""
 import unittest
 
-from src.utils.media_analysis import build_host_chat_paths_payload
+from src.domains.media_analysis.utils.media_analysis import build_host_chat_paths_payload
 
 
 class HostToolChoiceHintTest(unittest.TestCase):

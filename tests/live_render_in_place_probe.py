@@ -57,7 +57,7 @@ def _run_gated(s, action: str, params: dict) -> dict:
 
 def main() -> int:
     import src.server as s
-    from src.utils.project_cleanup import delete_project_safely
+    from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
 
     os.makedirs(RENDER_DIR, exist_ok=True)
     clip_paths = [synth_clip(n, c) for n, c in (("ripA", "red"), ("ripB", "green"))]

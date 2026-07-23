@@ -18,7 +18,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from src import batch_cli
-from src.utils import media_analysis_jobs
+from src.domains.media_analysis.utils import media_analysis_jobs
 
 
 class BatchCliParserTests(unittest.TestCase):
@@ -167,7 +167,7 @@ class BatchCliRunIntegrationTests(unittest.TestCase):
             caps["transcription"] = {"available": True, "backends": ["local_mock"]}
 
             buf = io.StringIO()
-            with patch("src.utils.media_analysis_jobs.detect_capabilities", return_value=caps), redirect_stdout(buf):
+            with patch("src.domains.media_analysis.utils.media_analysis_jobs.detect_capabilities", return_value=caps), redirect_stdout(buf):
                 rc = batch_cli.main(
                     [
                         "--json",

@@ -15,7 +15,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
-from src.utils import auto_edit, cut_ir, edit_engine, montage_edit
+from src.domains.auto_edit.utils import auto_edit, cut_ir, edit_engine, montage_edit
 
 
 def run(coro):

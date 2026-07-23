@@ -1,4 +1,4 @@
-"""Unit tests for src/utils/analysis_caps.py."""
+"""Unit tests for src/domains/media_analysis/utils/analysis_caps.py."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import time
 import unittest
 
 from src.core import timeline_brain_db
-from src.utils import analysis_caps
+from src.domains.media_analysis.utils import analysis_caps
 
 
 class PresetResolution(unittest.TestCase):

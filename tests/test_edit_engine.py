@@ -1,4 +1,4 @@
-"""Unit tests for src/utils/edit_engine.py (Phase E — planning layer).
+"""Unit tests for src/domains/auto_edit/utils/edit_engine.py (Phase E — planning layer).
 
 No Resolve required: the planning layer is DB-only by design. Execution
 paths (timeline creation, lifts, swaps) are validated live on a disposable
@@ -14,7 +14,8 @@ import tempfile
 import unittest
 
 from src.core import timeline_brain_db
-from src.utils import analysis_store, edit_engine, embeddings
+from src.domains.auto_edit.utils import edit_engine
+from src.domains.media_analysis.utils import analysis_store, embeddings
 
 from tests.test_analysis_store import make_report
 

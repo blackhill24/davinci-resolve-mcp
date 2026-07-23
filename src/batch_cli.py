@@ -1,6 +1,6 @@
 """Headless batch-runner CLI for source-safe media analysis.
 
-Drives src.utils.media_analysis_jobs from outside an MCP/chat client so users
+Drives src.domains.media_analysis.utils.media_analysis_jobs from outside an MCP/chat client so users
 can run long batches via cron, CI, or terminal without holding a chat turn
 open. The orchestration loop and durable state live in the jobs engine; this
 module only handles argv, progress streaming, and exit codes.
@@ -14,12 +14,12 @@ import sys
 import time
 from typing import Any, Dict, List, Optional
 
-from src.utils.media_analysis import (
+from src.domains.media_analysis.utils.media_analysis import (
     build_plan,
     detect_capabilities,
     plan_requires_capabilities,
 )
-from src.utils.media_analysis_jobs import (
+from src.domains.media_analysis.utils.media_analysis_jobs import (
     batch_job_status,
     cancel_batch_job,
     create_batch_job_from_paths,

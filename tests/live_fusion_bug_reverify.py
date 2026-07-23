@@ -22,7 +22,7 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 import src.server as s  # noqa: E402
-from src.utils.project_cleanup import delete_project_safely  # noqa: E402
+from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely  # noqa: E402
 
 PROJECT_NAME = "ZZ_fusion_bug_reverify"
 

@@ -81,7 +81,7 @@ def main() -> int:
     finally:
         sys.argv = original_argv
 
-    from src.utils.project_lifecycle_live_probe import run_probe  # noqa: WPS433
+    from src.domains.project_lifecycle.utils.project_lifecycle_live_probe import run_probe  # noqa: WPS433
 
     output_dir = args.output_dir or Path(tempfile.mkdtemp(prefix="project-lifecycle-probe-report_"))
     report = run_probe(server, output_dir, keep_open=args.keep_open)

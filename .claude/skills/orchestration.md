@@ -74,5 +74,5 @@ if a step here has to *compute* anything, that belongs in the tool, not here.
 
 Action boundary + stage-graph/fingerprint/gate/snapshot/lease depth:
 `docs/kernels/orchestration-kernel.md`. Core module:
-`src/utils/orchestrate.py`. Tool wiring: `src/server.py` (`orchestrate`).
+`src/domains/orchestration/utils/orchestrate.py`. Tool wiring: `src/server.py` (`orchestrate`).
 Any-MCP-client prompt: `/orchestrate_workflow`.

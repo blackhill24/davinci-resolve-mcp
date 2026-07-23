@@ -836,7 +836,7 @@ def main() -> int:
     validation_result = run_validation(server, keep_open=args.keep_open)
 
     if args.output_dir is not None:
-        from src.utils.timeline_kernel_live_probe import run_probe
+        from src.domains.timeline_edit.utils.timeline_kernel_live_probe import run_probe
 
         run_probe(server, args.output_dir, keep_open=args.keep_open)
         return 0

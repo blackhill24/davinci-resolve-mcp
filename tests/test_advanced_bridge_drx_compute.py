@@ -16,7 +16,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from src.utils import advanced_bridge as ab
+from src.core import advanced_bridge as ab
 
 
 def _advanced_ready() -> bool:

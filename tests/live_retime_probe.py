@@ -59,7 +59,7 @@ def _run_gated(s, action: str, params: dict) -> dict:
 
 def main() -> int:
     import src.server as s
-    from src.utils.project_cleanup import delete_project_safely
+    from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
 
     if not s._advanced_bridge.node_available():
         print("Node.js not on PATH — retime actions can only refuse; install Node 18+.")

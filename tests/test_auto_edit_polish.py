@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import unittest
 
-from src.utils import auto_edit, music_analysis
+from src.domains.auto_edit.utils import auto_edit, music_analysis
 
 
 def _seg(clip_uuid, record_start, length=48, **extra):

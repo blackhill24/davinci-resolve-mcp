@@ -1,6 +1,6 @@
 import unittest
 
-from src.utils.timeline_kernel_probe import (
+from src.domains.timeline_edit.utils.timeline_kernel_probe import (
     ProbeRecorder,
     parse_api_class_methods,
     parse_timeline_item_property_keys,

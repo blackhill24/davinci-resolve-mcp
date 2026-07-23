@@ -54,7 +54,7 @@ manifest explicitly.
 
 ## Offline compute (epic #37)
 
-`src/utils/advanced_bridge.py` bridges into the advanced (Node) server for
+`src/core/advanced_bridge.py` bridges into the advanced (Node) server for
 pure file/DB-read compute that stays **in-band** — Resolve keeps running
 the whole call, no quit/relaunch needed. `run_drx_compute(action, args)`
 targets grade compute specifically; `run_advanced_tool(tool, action, args)`

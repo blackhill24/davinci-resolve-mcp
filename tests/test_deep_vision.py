@@ -1,4 +1,4 @@
-"""Unit tests for src/utils/deep_vision.py (Phase B — deep shot-level vision).
+"""Unit tests for src/domains/media_analysis/utils/deep_vision.py (Phase B — deep shot-level vision).
 
 No Resolve required. Covers the estimate→confirm→payload flow, token
 validation, commit (rows + blob + lockstep export, human preservation),
@@ -17,8 +17,8 @@ import unittest
 from unittest import mock
 
 from src.core import timeline_brain_db
-from src.utils import analysis_store, deep_vision
-from src.utils import media_analysis as ma
+from src.domains.media_analysis.utils import analysis_store, deep_vision
+from src.domains.media_analysis.utils import media_analysis as ma
 
 from tests.test_analysis_store import make_report
 

@@ -12,7 +12,7 @@ from src.granular.common import (
 from src.server import (
     _build_append_clip_info_dict as compound_build_append_clip_info_dict,
 )
-from src.utils.cloud_operations import _build_cloud_settings
+from src.domains.project_lifecycle.utils.cloud_operations import _build_cloud_settings
 
 
 class MediaPoolItemStub:

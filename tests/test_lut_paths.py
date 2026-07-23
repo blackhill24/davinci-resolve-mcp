@@ -1,4 +1,4 @@
-"""Offline tests for src.utils.lut_paths (Graph.SetLUT master-dir relocation).
+"""Offline tests for src.domains.color_grade.utils.lut_paths (Graph.SetLUT master-dir relocation).
 
 Covers the behavior verified live on Resolve Studio 21: SetLUT resolves LUTs
 only against the master LUT dir, so a user-dir LUT must be relocated into a
@@ -18,7 +18,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from src.utils import lut_paths  # noqa: E402
+from src.domains.color_grade.utils import lut_paths  # noqa: E402
 
 
 class MasterLutDirTest(unittest.TestCase):

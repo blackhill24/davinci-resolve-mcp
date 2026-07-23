@@ -1,4 +1,4 @@
-"""Unit tests for src/utils/shot_relationships.py (spec §4 — cross-shot
+"""Unit tests for src/domains/media_analysis/utils/shot_relationships.py (spec §4 — cross-shot
 relationships).
 
 No Resolve and no embedding backends required: per-shot visual vectors are
@@ -16,8 +16,8 @@ import unittest
 from unittest import mock
 
 from src.core import timeline_brain_db
-from src.utils import analysis_store, embeddings, shot_relationships
-from src.utils import media_analysis as ma
+from src.domains.media_analysis.utils import analysis_store, embeddings, shot_relationships
+from src.domains.media_analysis.utils import media_analysis as ma
 
 from tests.test_analysis_store import make_report
 

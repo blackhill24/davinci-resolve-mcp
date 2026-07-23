@@ -1,7 +1,7 @@
 """Unit tests for the clip-query DSL (Phase C2)."""
 import unittest
 
-from src.utils import clip_query as cq
+from src.domains.timeline_edit.utils import clip_query as cq
 
 
 CLIPS = [

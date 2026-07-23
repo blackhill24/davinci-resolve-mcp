@@ -103,7 +103,7 @@ def main() -> int:
         sys.argv = original_argv
 
     output_dir = args.output_dir or Path(tempfile.mkdtemp(prefix="media-pool-ingest-probe-report_"))
-    from src.utils.media_pool_ingest_live_probe import run_probe
+    from src.domains.media_pool_ingest.utils.media_pool_ingest_live_probe import run_probe
 
     report = run_probe(server, output_dir, keep_open=args.keep_open)
     if report["counts"].get("error", 0):

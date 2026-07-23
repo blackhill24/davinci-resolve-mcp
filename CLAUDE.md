@@ -14,9 +14,10 @@ This router only answers *where does the task live*. Also: `docs/SKILL.md` (oper
 
 One npm package, two MCP servers giving AI assistants full DaVinci Resolve control:
 - **live** (`src/`, Python) — drives a *running* Resolve via the official Scripting API.
-  Full API coverage + guarded workflow helpers across eight domains: **color/grade, timeline
-  edit, conform/interchange, delivery QC, Fusion, audio/Fairlight, media pool/ingest, media
-  analysis** (visual + transcription + metadata writeback). Ships a local browser control panel.
+  Full API coverage + guarded workflow helpers across 13 domains (see `src/CONTEXT.md`'s
+  domain index): color/grade, timeline edit, conform/interchange, delivery QC, Fusion,
+  audio/Fairlight, media pool/ingest, auto edit, media analysis, orchestration, extension
+  authoring, project lifecycle, review annotation. Ships a local browser control panel.
 - **advanced** (`resolve-advanced/`, Node) — authors `.drp`/`.drt`/`.drx` files + applies
   DB/XML edits (Fairlight routing, conform, offline-ref, group-grade read) with **no Resolve running**.
 
@@ -32,7 +33,7 @@ method). Per-domain depth: `AGENTS.md` → Domain Routing + `docs/kernels/`. Liv
 | dashboard | `src/dashboard/` | Local browser control-panel UI + backend (no Resolve required to serve it) | Editing the control panel's HTTP handler, panel UI, or its endpoints |
 | advanced-server | `resolve-advanced/` | Node beyond-API file/DB authoring | Editing `.drp/.drt/.drx` codecs or offline tools |
 | docs | `docs/` | Kernels, guides, reference, process | Writing/finding domain depth or process docs |
-| tests | `tests/` | ~170 Python tests (offline + live) | Adding/running validation |
+| tests | `tests/` | ~220 Python tests, mirrors `src/domains`+`core`+`dashboard` (offline + live) | Adding/running validation |
 | tooling | `scripts/` (+ `install.py`) | Installer, audits, doc/rule generators | Running audits or regenerating generated docs |
 
 ## Folder map (top level only — each workspace maps its own depth)

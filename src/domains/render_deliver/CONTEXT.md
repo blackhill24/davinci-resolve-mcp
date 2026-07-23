@@ -1,18 +1,28 @@
-# Delivery / Deliverable QC — Context (ICM Layer 3, stub)
+# Delivery / Deliverable QC — Context (ICM Layer 3)
 
-Domain-specific code for **Delivery / Deliverable QC** (restructure epic #52). This is a stub —
-Phase 2 (#47) only moved files here; the full per-domain routing table lands
-in Phase 7 (#49) once `server.py`'s tool functions also move here (Phase 3,
-#46).
+Preparing render jobs, validating render settings, QCing a finished render vs
+spec, building render manifests, expanding texted/textless/stems deliverables,
+verifying media ingest, or producing a provenance/episode report. Prompt:
+`/delivery_workflow`.
 
-## Files
+## Routing table
 
-- `utils/render_deliver_live_probe.py`
+| Task | Read | Skip | Notes |
+|------|------|------|-------|
+| Render queue, settings, proxies, build_proxies | `actions.py` (`render`) | `granular/` | render queue REFUSES the system temp dir — render to a real media dir |
+| Render/deliverable presets | `actions.py` (`render_presets`) | — | |
+| Live capability probe | `utils/render_deliver_live_probe.py` | — | regenerates kernel counts |
 
-## Depth
+## Conventions & gotchas
 
-- Kernel: `docs/kernels/render-deliver-kernel.md`
-- Claude Code skill: `.claude/skills/` (`resolve-render-deliver`)
+- Resolve's render queue silently no-ops (`AddRenderJob` returns falsy) when the
+  target dir is the system temp dir — `build_proxies` defaults
+  `require_temp_target=False` for this reason; keep that default when touching
+  render-target validation.
+- `ExportAudio=False` avoids the headless-render stall documented in `core/proc.py`.
+- Live: `render`. Offline (resolve-advanced): `deliverable`.
 
-> Upkeep: when files here change (add/remove/rename), fix the list above in the
+> Upkeep: when files here change (add/remove/rename), fix the table above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root.
+> Kernel: `docs/kernels/render-deliver-kernel.md`. Skill: `.claude/skills/render-deliver.md`.
+> Keep this file ≲40 lines.

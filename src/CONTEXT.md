@@ -1,45 +1,46 @@
 # live-server — Context (ICM Layer 2)
 
 Python MCP that drives a **running** DaVinci Resolve via its scripting API.
-`utils/` (flat) is gone (restructure epic #52) — domain-specific code now lives
-under `domains/<domain>/utils/`, cross-domain shared infra under `core/`.
+Domain-specific code lives under `domains/<domain>/utils/`, cross-domain shared
+infra under `core/`. This file is a domain **index**; task-level routing lives
+one layer down, in each domain's own `CONTEXT.md`.
 
-## Routing table
+## Domain index
 
-<!-- Rows = tasks that actually recur here. Read/Skip = paths + purposes, not summaries. -->
+| Domain | Path | Purpose |
+|--------|------|---------|
+| Color / Grade | `domains/color_grade/` | grading, LUTs/CDLs/DRX, node graph, gallery |
+| Timeline Edit | `domains/timeline_edit/` | cut/trim/pace, variants, dispatch hub for audio + conform |
+| Conform / Interchange | `domains/timeline_conform_interchange/` | AAF/DRP/PrProj import-export, conform QC (no tools of its own — dispatched via `timeline_edit`) |
+| Delivery / Deliverable QC | `domains/render_deliver/` | render queue/settings/proxies, deliverable QC |
+| Fusion Composition | `domains/fusion_composition/` | Fusion node graphs, titles, masks, trackers |
+| Audio / Fairlight | `domains/audio_fairlight/` | audio props/sync/subtitles/Fairlight (no tools of its own — dispatched via `timeline_edit`) |
+| Media Pool / Ingest | `domains/media_pool_ingest/` | import, multicam, relink, card verification |
+| Auto Edit (brief → render) | `domains/auto_edit/` | autonomous talking-head + montage editing |
+| Media Analysis | `domains/media_analysis/` | technical/visual/transcription analysis of source media |
+| Orchestrate (ingest → deliver) | `domains/orchestration/` | resumable multi-domain conductor |
+| Extension Authoring | `domains/extension_authoring/` | Fuse/DCTL/script-plugin authoring + install |
+| Project / Database / Archive | `domains/project_lifecycle/` | project/db/archive lifecycle, cloud projects |
+| Review Annotation | `domains/review_annotation/` | markers/flags/clip colors on timeline or media pool |
 
-| Task | Read | Skip | Skills / MCP |
-|------|------|------|--------------|
-| Add/change a compound tool | `server.py`, relevant `domains/<domain>/utils/<feature>.py` | `granular/` | domain skill in `.claude/skills/` |
-| Add/change a granular tool | `resolve_mcp_server.py`, `granular/<domain>.py` | `server.py` | — |
-| Find a domain's code / live probe | `domains/<domain>/CONTEXT.md` (stub until Phase 7 / #49), `domains/<domain>/utils/<domain>_live_probe.py` | other domains | matching `.claude/skills/`, `docs/kernels/*-kernel.md` |
-| Cross-domain shared infra (governance, transport, brain DB, ledgers, process/platform helpers, background jobs, advanced-bridge) | `core/CONTEXT.md` (routing), `core/*.py` | domain `utils/`, `granular/` | — |
-| Media-analysis / vision work | `domains/media_analysis/utils/media_analysis*.py`, `deep_vision.py` | `granular/` | `docs/guides/media-analysis-guide.md` |
-| Document a Resolve API limitation | `core/api_truth.py` | — | run `scripts/gen_api_limitations.py` |
-| Auto-edit pipeline (brief→render, all genres) | `domains/auto_edit/utils/auto_edit.py` (talking-head), `montage_edit.py` (montage — sibling decision layer, same CutList IR), `cut_ir.py`, `music_analysis.py` (ducking ladder + beat detection), `server.py` (auto_edit tool) | `granular/` | `.claude/skills/auto-edit.md` |
-| Orchestrate conductor (ingest→deliver, resumable) | `domains/orchestration/utils/orchestrate.py`, `server.py` (orchestrate tool + `_orchestrate_*` helpers) | `granular/` | `.claude/skills/orchestration.md`, `docs/kernels/orchestration-kernel.md` |
-| Reverse-engineer a drt/drp encoding | `domains/timeline_conform_interchange/utils/drt_diff.py` (raw export-diff for ground-truth), `tests/live_auto_edit_ducking_probe.py` | Node `vendor/drp-format/diff.js` (semantic) | issue #14 |
-| Invoke resolve-advanced (Node) ops | `core/advanced_bridge.py` (drt/drp surgery in scratch; honest refuse w/o node — used by 4+ domains, lives in core despite the Phase 2 per-domain rule) | `granular/` | `resolve-advanced/scripts/drp-bridge.mjs` |
-| Safe temp/export paths | `domains/color_grade/utils/lut_paths.py`, safe path helpers | — | — |
-| Subtitle cue authoring / SRT import | `domains/audio_fairlight/utils/subtitle_codec.py` (oracle-validated blob codec + styling), `server.py` (`import_srt`) | `granular/` | probes in `tests/` (#30) |
+Each domain's `CONTEXT.md` has the real routing table (task → file → gotcha).
+Cross-domain shared infra (governance, transport, brain DB, process/platform,
+advanced-bridge) is `core/` — see `core/CONTEXT.md`.
 
-## Key files (only where the name doesn't say enough)
+## Key files
 
 - `server.py` — compound server (preferred); `resolve_mcp_server.py` — granular entrypoint.
-- `core/api_truth.py` — source of truth for API gaps; `submit`-tagged entries regenerate
-  `docs/reference/api-limitations.md` (a drift guard enforces regeneration).
-- `core/contracts.py` — shared action-dispatch envelope; reuse before adding abstractions.
+- `granular/` — one module per Resolve-API object; untouched, separate taxonomy from the
+  domains above (`docs/decisions/0001-domain-taxonomy.md`).
+- `core/api_truth.py` — API-gap source of truth; regenerates `docs/reference/api-limitations.md`.
 
 ## Conventions & gotchas
 
 - Prefer the compound server unless a task specifically needs granular tools.
-- Follow existing action-dispatch + helper patterns; never invent ad hoc temp paths for
-  files Resolve writes — use the repo's safe path helpers.
-- Source-media safety in `AGENTS.md` is non-negotiable and applies to every tool here.
-- Resolve's render queue REFUSES the system temp dir (`AddRenderJob` silently returns
-  falsy) — render to a real media dir (e.g. `~/Videos`). `render build_proxies` defaults
-  `require_temp_target=False` for this reason. ExportAudio=False dodges the headless stall.
+- Source-media safety in root `AGENTS.md` is non-negotiable, every tool here.
+- "No tools of its own" (audio_fairlight, timeline_conform_interchange) means dispatched
+  through another domain's compound tool — its `CONTEXT.md` says which.
 
-> Upkeep: when files here change (add/remove/rename), fix the table + key files above in the
-> same session, then run `python3 .icm/drift-check.py --update` from the root. Content-only
-> edits usually need no doc change. Keep this file ≲40 lines.
+> Upkeep: when a domain is added/removed/renamed, fix the index above in the same session,
+> then run `python3 .icm/drift-check.py --update` from the root. Task-level routing changes
+> belong in that domain's own `CONTEXT.md`, not here. Keep this file ≲40 lines.

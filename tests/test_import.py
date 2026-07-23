@@ -115,8 +115,9 @@ def test_prompt_registrations():
     # 2 baseline (davinci_resolve_workflow + analyze_media) + 5 F2 workflow prompts
     # + 7 per-domain workflow routers + auto_edit_workflow (auto-edit Phase 2)
     # + orchestrate_workflow (orchestrate P4) + 3 promoted-domain routers
-    # (extension_authoring/project_lifecycle/review_annotation, restructure Phase 0, #43).
-    assert source.count("@mcp.prompt") == 19
+    # (extension_authoring/project_lifecycle/review_annotation, restructure Phase 0, #43)
+    # + server_ops_workflow (skills rewrite epic, #69).
+    assert source.count("@mcp.prompt") == 20
     assert 'name="auto_edit_workflow"' in source
     assert 'name="orchestrate_workflow"' in source
     # Per-domain routers (cross-platform depth via MCP prompts).
@@ -131,6 +132,7 @@ def test_prompt_registrations():
         "extension_authoring_workflow",
         "project_lifecycle_workflow",
         "review_annotation_workflow",
+        "server_ops_workflow",
     ):
         assert f'name="{_name}"' in source
     # Baseline prompts (must not regress).

@@ -228,7 +228,7 @@ The default server is a local stdio process launched by your MCP client; it does
 |--------|-------|
 | MCP Tools | **36** compound / **341** granular (live server) |
 | Advanced (offline) tools | **18** — .drp/.drt/.drx + DB authoring, no Resolve running |
-| Kernel Actions | **155** guarded workflow actions across 10 compound tools |
+| Kernel Actions | **207** guarded workflow actions across 14 compound tools |
 | API Methods Covered | **348/348** (100%) |
 | Methods Live Tested | **331/348** (95.1%) |
 | Live Test Pass Rate | **331/331** (100%) |

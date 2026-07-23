@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "5da9476e40dfd1fd",
+      "fingerprint": "6a3cf1eee5c3ee77",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -607,7 +607,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "c283acfa537fb5ab",
+      "fingerprint": "ae8dc76756b3a644",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -663,6 +663,7 @@
         "docs/kernels/project-lifecycle-kernel.md",
         "docs/kernels/render-deliver-kernel.md",
         "docs/kernels/review-annotation-kernel.md",
+        "docs/kernels/server-ops-kernel.md",
         "docs/kernels/timeline-conform-interchange-kernel.md",
         "docs/kernels/timeline-edit-kernel.md",
         "docs/notes/codec-plugin-notes.md",
@@ -679,7 +680,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "4e681bfeae933578",
+      "fingerprint": "c2116fe11d725516",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -912,7 +913,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "9683924f73878b8c",
+      "fingerprint": "193f974bd919f08e",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

@@ -37,6 +37,7 @@ live. Node never drives Resolve.
 | Project/database/archive lifecycle, presets | `resolve-project-lifecycle` | `project-lifecycle-kernel.md` | `/project_lifecycle_workflow` |
 | Markers, flags, clip color, review reports | `resolve-review-annotation` | `review-annotation-kernel.md` | `/review_annotation_workflow` |
 | Fuse/DCTL/script extension authoring | `resolve-extension-authoring` | `extension-authoring-kernel.md` | `/extension_authoring_workflow` |
+| Connect/verify, --full toggle, control panel, diagnostics | `resolve-server-ops` | `server-ops-kernel.md` | `/server_ops_workflow` |
 
 ## Less-common domains (no dedicated skill — go straight to the kernel/tool)
 

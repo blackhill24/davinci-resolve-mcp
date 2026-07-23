@@ -146,6 +146,14 @@ const DOMAINS = [
     offline: 'none yet — annotation state lives only inside the open Resolve project',
     rule: 'Timeline, timeline item, and media pool item frame spaces are not interchangeable — copy_annotations/move_annotations use direct frame numbers, so map frames explicitly when moving between scopes. Flags and clip color copy only when both source and target expose compatible methods; invalid marker colors are rejected before calling Resolve.',
   },
+  {
+    id: 'server_ops', skill: 'resolve-server-ops', title: 'Server Ops', prompt: 'server_ops_workflow',
+    when: 'connecting to or verifying Resolve, choosing compound vs granular (--full) tools, opening/closing the local control panel, reading MCP resources, or diagnosing environment/dependency problems',
+    kernel: 'docs/kernels/server-ops-kernel.md', guide: null,
+    live: 'setup (schema/get_defaults/set_defaults/clear_defaults), resolve_control (launch/get_version/get_page/open_page, control panel lifecycle, api_truth/verification_stats/env_audit), timeline_versioning (begin_run/list_versions/diff_versions/rollback)',
+    offline: 'none — server-ops is live-server infrastructure with no advanced-server counterpart',
+    rule: 'Call resolve_control(action="launch") first in a new session — connects to or starts Resolve, safe to call when already running. timeline_versioning is the snapshot/rollback layer other domains rely on, not a content-editing tool itself. scripts/doctor.py and the advanced capabilities tool diagnose environment/dependency gaps.',
+  },
 ];
 
 // ── Shared body used across every platform (frontmatter differs, body does not) ─

@@ -61,6 +61,7 @@ bridges — the authoritative depth stays in the kernels and guides above.
 - `resolve-project-lifecycle` (`.claude/skills/resolve-project-lifecycle/SKILL.md`) — project/database/archive lifecycle, presets
 - `resolve-review-annotation` (`.claude/skills/resolve-review-annotation/SKILL.md`) — markers, flags, clip color, review reports
 - `resolve-extension-authoring` (`.claude/skills/resolve-extension-authoring/SKILL.md`) — Fuse/DCTL/script extension authoring
+- `resolve-server-ops` (`.claude/skills/resolve-server-ops/SKILL.md`) — connect/verify, --full toggle, control panel, diagnostics
 
 The offline half of every one is the advanced server; see
 [Advanced Server](../resolve-advanced/README.md).

@@ -1,0 +1,990 @@
+{
+  "success": true,
+  "analysis_version": "0.2",
+  "analysis_signature": {
+    "analysis_keyframe_budget": 8,
+    "analysis_sampling": {
+      "frame_ceiling": 80,
+      "frame_floor": 3,
+      "frames_per_minute": 4.0,
+      "mode": "adaptive_capped"
+    },
+    "analysis_version": "0.2",
+    "depth": "standard",
+    "layers": {
+      "cut_boundary_analysis": {
+        "enabled": true,
+        "hard_frame_cap": 512,
+        "version": 1
+      },
+      "marker_plan": {
+        "colors_hash": "bf21a9e8fbc5",
+        "enabled": true,
+        "min_shot_duration_seconds": null
+      },
+      "motion": true,
+      "readthrough": true,
+      "technical": true,
+      "transcription": {
+        "backend": null,
+        "enabled": true,
+        "language": null,
+        "model": null
+      },
+      "vision": {
+        "enabled": false,
+        "prompt_hash": "65439baf62ac",
+        "provider": null
+      }
+    },
+    "signature_hash": "f9c9dcbcd195",
+    "source_file": {
+      "exists": true,
+      "mtime_ns": 1784754697677463391,
+      "path": "/tmp/drm-montage-media-2cmprkxl/broll_a.mov",
+      "size_bytes": 17695580
+    }
+  },
+  "analysis_profile": {
+    "depth": "standard",
+    "analysis_keyframe_budget": 8,
+    "transcription_enabled": true,
+    "vision_enabled": false,
+    "source_trust": "auto"
+  },
+  "analyzed_at": "2026-07-22T21:11:46Z",
+  "source_file": "/tmp/drm-montage-media-2cmprkxl/broll_a.mov",
+  "clip": {
+    "bin_path": "Footage",
+    "clip_id": "9a024767-9cc8-4e76-a943-3f2d25ffeb29",
+    "clip_name": "broll_a.mov",
+    "clip_properties_error": null,
+    "duration": "00:00:09:00",
+    "file_path": "/tmp/drm-montage-media-2cmprkxl/broll_a.mov",
+    "fps": 24.0,
+    "media_id": "6c558e05-f3c9-4dc1-89ce-66a00e4dd3c0",
+    "media_type": "Video",
+    "resolution": "1280x720"
+  },
+  "summary": "broll_a.mov, 9.0s, medium motion",
+  "technical_warnings": [],
+  "technical": {
+    "format": {
+      "filename": "/tmp/drm-montage-media-2cmprkxl/broll_a.mov",
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "duration_seconds": 9.0,
+      "size_bytes": 17695580,
+      "bit_rate": 15729404,
+      "tags": {
+        "major_brand": "qt  ",
+        "minor_version": "512",
+        "compatible_brands": "qt  ",
+        "encoder": "Lavf62.12.102"
+      }
+    },
+    "video": [
+      {
+        "index": 0,
+        "codec": "dnxhd",
+        "codec_long": "VC3/DNxHD",
+        "profile": "DNXHR LB",
+        "pixel_format": "yuv422p",
+        "width": 1280,
+        "height": 720,
+        "r_frame_rate": "24/1",
+        "avg_frame_rate": "24/1",
+        "frame_rate": 24.0,
+        "is_vfr": false,
+        "color_primaries": null,
+        "transfer_characteristics": null,
+        "matrix_coefficients": "bt709",
+        "field_order": null,
+        "duration_seconds": 9.0,
+        "frame_count": 216
+      }
+    ],
+    "audio": [],
+    "chapters": [],
+    "warnings": []
+  },
+  "readthrough": {
+    "success": true,
+    "loudness": {
+      "success": true,
+      "metrics": {
+        "integrated_lufs": null,
+        "loudness_range_lu": null,
+        "true_peak_dbtp": null
+      }
+    },
+    "scenes": {
+      "success": true,
+      "items": [],
+      "threshold": 0.15,
+      "threshold_stats": {
+        "n": 215,
+        "mean": 0.00075,
+        "sd": 0.00214,
+        "p95": 0.00359,
+        "p99": 0.01217,
+        "candidate": 0.0061,
+        "min_floor": 0.15,
+        "k_sd": 2.5,
+        "threshold_cap": 0.4,
+        "chosen": 0.15,
+        "source": "adaptive"
+      }
+    },
+    "black_frames": {
+      "success": true,
+      "items": []
+    },
+    "silence": {
+      "success": true,
+      "items": []
+    },
+    "interlace": {
+      "success": true,
+      "metrics": {
+        "tff": 0,
+        "bff": 0,
+        "progressive": 0,
+        "undetermined": 0,
+        "dominant": "tff"
+      }
+    },
+    "cut_analysis": {
+      "success": true,
+      "source": "ffmpeg_scene_detection",
+      "threshold": 0.3,
+      "fps": 24.0,
+      "frame_step_seconds": 0.041666666666666664,
+      "duration_seconds": 9.0,
+      "cut_count": 0,
+      "cut_density_per_minute": 0.0,
+      "likely_edited_sequence": false,
+      "cut_points": [],
+      "raw_shot_ranges": [
+        {
+          "index": 1,
+          "start": 0.0,
+          "end": 9.0,
+          "duration": 9.0,
+          "start_frame": 0,
+          "end_frame": 216
+        }
+      ],
+      "shot_ranges": [
+        {
+          "index": 1,
+          "start": 0.0,
+          "end": 9.0,
+          "duration": 9.0,
+          "start_frame": 0,
+          "end_frame": 216,
+          "first_sample_time_seconds": 0.08333333333333333,
+          "last_sample_time_seconds": 8.916666666666666,
+          "first_sample_frame": 2,
+          "last_sample_frame": 214
+        }
+      ],
+      "short_shot_candidates": [],
+      "flash_frame_candidates": [],
+      "notes": [
+        "FFmpeg scene detection reads the full video stream; boundary frames are sampled for visual confirmation when available.",
+        "Short scene-bounded ranges are candidates only until LLM/frame review distinguishes flash frames from deliberate cuts or high motion."
+      ]
+    }
+  },
+  "cut_analysis": {
+    "success": true,
+    "source": "ffmpeg_scene_detection",
+    "threshold": 0.3,
+    "fps": 24.0,
+    "frame_step_seconds": 0.041666666666666664,
+    "duration_seconds": 9.0,
+    "cut_count": 0,
+    "cut_density_per_minute": 0.0,
+    "likely_edited_sequence": false,
+    "cut_points": [],
+    "raw_shot_ranges": [
+      {
+        "index": 1,
+        "start": 0.0,
+        "end": 9.0,
+        "duration": 9.0,
+        "start_frame": 0,
+        "end_frame": 216
+      }
+    ],
+    "shot_ranges": [
+      {
+        "index": 1,
+        "start": 0.0,
+        "end": 9.0,
+        "duration": 9.0,
+        "start_frame": 0,
+        "end_frame": 216,
+        "first_sample_time_seconds": 0.08333333333333333,
+        "last_sample_time_seconds": 8.916666666666666,
+        "first_sample_frame": 2,
+        "last_sample_frame": 214
+      }
+    ],
+    "short_shot_candidates": [],
+    "flash_frame_candidates": [],
+    "notes": [
+      "FFmpeg scene detection reads the full video stream; boundary frames are sampled for visual confirmation when available.",
+      "Short scene-bounded ranges are candidates only until LLM/frame review distinguishes flash frames from deliberate cuts or high motion."
+    ]
+  },
+  "motion": {
+    "success": true,
+    "requested_sample_budget": 8,
+    "effective_sample_budget": 8,
+    "hard_frame_cap": 512,
+    "cut_boundary_frames_requested": 0,
+    "cut_boundary_sampling_capped": false,
+    "cut_boundary_pairs_total": 0,
+    "cut_boundary_pairs_sampled": 0,
+    "cut_boundary_pair_coverage": 1.0,
+    "sample_count": 8,
+    "overall_motion_level": "medium",
+    "average_frame_delta": 0.05269413320883909,
+    "max_frame_delta": 0.09313145525699992,
+    "analysis_keyframes": [
+      {
+        "index": 1,
+        "time_seconds": 0.083,
+        "selection_reason": "shot_start",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0001.jpg",
+        "metrics": {
+          "mean_luma": 125.95581709104961,
+          "mean_rgb": [
+            121.84047067901234,
+            126.92573302469135,
+            128.46604938271605
+          ],
+          "luma_histogram_16": [
+            580,
+            500,
+            134,
+            74,
+            422,
+            181,
+            621,
+            72,
+            97,
+            576,
+            178,
+            559,
+            64,
+            131,
+            483,
+            512
+          ]
+        },
+        "delta_from_previous": null,
+        "boundary_role": "first_frame_in_shot",
+        "shot_index": 1,
+        "shot_start": 0.0,
+        "shot_end": 9.0
+      },
+      {
+        "index": 2,
+        "time_seconds": 0.45,
+        "selection_reason": "first_usable",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0002.jpg",
+        "metrics": {
+          "mean_luma": 125.76741859567943,
+          "mean_rgb": [
+            121.81635802469135,
+            126.66570216049382,
+            128.50347222222223
+          ],
+          "luma_histogram_16": [
+            580,
+            499,
+            128,
+            74,
+            431,
+            186,
+            628,
+            68,
+            94,
+            572,
+            195,
+            552,
+            44,
+            134,
+            487,
+            512
+          ]
+        },
+        "delta_from_previous": 0.015700143226014686
+      },
+      {
+        "index": 3,
+        "time_seconds": 2.25,
+        "selection_reason": "interval",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0003.jpg",
+        "metrics": {
+          "mean_luma": 125.43373668981506,
+          "mean_rgb": [
+            122.50829475308642,
+            126.02835648148148,
+            128.15779320987653
+          ],
+          "luma_histogram_16": [
+            590,
+            495,
+            135,
+            99,
+            421,
+            161,
+            632,
+            55,
+            107,
+            591,
+            172,
+            547,
+            37,
+            147,
+            485,
+            510
+          ]
+        },
+        "delta_from_previous": 0.07472237351730815
+      },
+      {
+        "index": 4,
+        "time_seconds": 3.0,
+        "selection_reason": "shot_progress",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0004.jpg",
+        "metrics": {
+          "mean_luma": 125.35004166666724,
+          "mean_rgb": [
+            122.55652006172839,
+            125.97202932098766,
+            127.41454475308642
+          ],
+          "luma_histogram_16": [
+            578,
+            506,
+            143,
+            101,
+            411,
+            159,
+            647,
+            52,
+            100,
+            587,
+            187,
+            518,
+            56,
+            147,
+            480,
+            512
+          ]
+        },
+        "delta_from_previous": 0.03309958242556282,
+        "shot_index": 1,
+        "shot_start": 0.0,
+        "shot_end": 9.0
+      },
+      {
+        "index": 5,
+        "time_seconds": 4.5,
+        "selection_reason": "shot_representative",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0005.jpg",
+        "metrics": {
+          "mean_luma": 125.35842515432151,
+          "mean_rgb": [
+            121.77662037037037,
+            126.25887345679013,
+            126.98572530864197
+          ],
+          "luma_histogram_16": [
+            599,
+            510,
+            135,
+            63,
+            413,
+            165,
+            627,
+            64,
+            107,
+            617,
+            168,
+            546,
+            50,
+            129,
+            479,
+            512
+          ]
+        },
+        "delta_from_previous": 0.06324260671346728,
+        "shot_index": 1,
+        "shot_start": 0.0,
+        "shot_end": 9.0
+      },
+      {
+        "index": 6,
+        "time_seconds": 6.75,
+        "selection_reason": "interval",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0006.jpg",
+        "metrics": {
+          "mean_luma": 125.67165570987684,
+          "mean_rgb": [
+            121.88599537037037,
+            126.50559413580247,
+            128.55806327160494
+          ],
+          "luma_histogram_16": [
+            587,
+            493,
+            124,
+            76,
+            443,
+            169,
+            623,
+            73,
+            110,
+            584,
+            192,
+            534,
+            44,
+            140,
+            482,
+            510
+          ]
+        },
+        "delta_from_previous": 0.09313145525699992,
+        "motion_peak": true,
+        "motion_peak_source_reason": "interval"
+      },
+      {
+        "index": 7,
+        "time_seconds": 8.55,
+        "selection_reason": "last_usable",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0007.jpg",
+        "metrics": {
+          "mean_luma": 126.03259344135826,
+          "mean_rgb": [
+            123.1394675925926,
+            126.64583333333333,
+            128.47704475308643
+          ],
+          "luma_histogram_16": [
+            572,
+            494,
+            131,
+            106,
+            415,
+            171,
+            631,
+            54,
+            105,
+            618,
+            155,
+            538,
+            53,
+            144,
+            485,
+            512
+          ]
+        },
+        "delta_from_previous": 0.0733879508593561
+      },
+      {
+        "index": 8,
+        "time_seconds": 8.917,
+        "selection_reason": "shot_end",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0008.jpg",
+        "metrics": {
+          "mean_luma": 125.99496940586474,
+          "mean_rgb": [
+            123.14293981481481,
+            126.62827932098766,
+            128.1195987654321
+          ],
+          "luma_histogram_16": [
+            572,
+            494,
+            146,
+            98,
+            407,
+            163,
+            644,
+            60,
+            99,
+            594,
+            179,
+            526,
+            60,
+            147,
+            483,
+            512
+          ]
+        },
+        "delta_from_previous": 0.015574820463164689,
+        "boundary_role": "last_frame_in_shot",
+        "shot_index": 1,
+        "shot_start": 0.0,
+        "shot_end": 9.0
+      }
+    ],
+    "cut_analysis": {
+      "success": true,
+      "source": "ffmpeg_scene_detection",
+      "threshold": 0.3,
+      "fps": 24.0,
+      "frame_step_seconds": 0.041666666666666664,
+      "duration_seconds": 9.0,
+      "cut_count": 0,
+      "cut_density_per_minute": 0.0,
+      "likely_edited_sequence": false,
+      "cut_points": [],
+      "raw_shot_ranges": [
+        {
+          "index": 1,
+          "start": 0.0,
+          "end": 9.0,
+          "duration": 9.0,
+          "start_frame": 0,
+          "end_frame": 216
+        }
+      ],
+      "shot_ranges": [
+        {
+          "index": 1,
+          "start": 0.0,
+          "end": 9.0,
+          "duration": 9.0,
+          "start_frame": 0,
+          "end_frame": 216,
+          "first_sample_time_seconds": 0.08333333333333333,
+          "last_sample_time_seconds": 8.916666666666666,
+          "first_sample_frame": 2,
+          "last_sample_frame": 214
+        }
+      ],
+      "short_shot_candidates": [],
+      "flash_frame_candidates": [],
+      "notes": [
+        "FFmpeg scene detection reads the full video stream; boundary frames are sampled for visual confirmation when available.",
+        "Short scene-bounded ranges are candidates only until LLM/frame review distinguishes flash frames from deliberate cuts or high motion."
+      ]
+    }
+  },
+  "transcription": {
+    "success": false,
+    "backend": "whisper_cli",
+    "error": "whisper CLI produced no JSON output"
+  },
+  "visual": {
+    "success": true,
+    "status": "skipped",
+    "reason": "vision disabled"
+  },
+  "analysis_keyframes": [
+    {
+      "index": 1,
+      "time_seconds": 0.083,
+      "selection_reason": "shot_start",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0001.jpg",
+      "metrics": {
+        "mean_luma": 125.95581709104961,
+        "mean_rgb": [
+          121.84047067901234,
+          126.92573302469135,
+          128.46604938271605
+        ],
+        "luma_histogram_16": [
+          580,
+          500,
+          134,
+          74,
+          422,
+          181,
+          621,
+          72,
+          97,
+          576,
+          178,
+          559,
+          64,
+          131,
+          483,
+          512
+        ]
+      },
+      "delta_from_previous": null,
+      "boundary_role": "first_frame_in_shot",
+      "shot_index": 1,
+      "shot_start": 0.0,
+      "shot_end": 9.0
+    },
+    {
+      "index": 2,
+      "time_seconds": 0.45,
+      "selection_reason": "first_usable",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0002.jpg",
+      "metrics": {
+        "mean_luma": 125.76741859567943,
+        "mean_rgb": [
+          121.81635802469135,
+          126.66570216049382,
+          128.50347222222223
+        ],
+        "luma_histogram_16": [
+          580,
+          499,
+          128,
+          74,
+          431,
+          186,
+          628,
+          68,
+          94,
+          572,
+          195,
+          552,
+          44,
+          134,
+          487,
+          512
+        ]
+      },
+      "delta_from_previous": 0.015700143226014686
+    },
+    {
+      "index": 3,
+      "time_seconds": 2.25,
+      "selection_reason": "interval",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0003.jpg",
+      "metrics": {
+        "mean_luma": 125.43373668981506,
+        "mean_rgb": [
+          122.50829475308642,
+          126.02835648148148,
+          128.15779320987653
+        ],
+        "luma_histogram_16": [
+          590,
+          495,
+          135,
+          99,
+          421,
+          161,
+          632,
+          55,
+          107,
+          591,
+          172,
+          547,
+          37,
+          147,
+          485,
+          510
+        ]
+      },
+      "delta_from_previous": 0.07472237351730815
+    },
+    {
+      "index": 4,
+      "time_seconds": 3.0,
+      "selection_reason": "shot_progress",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0004.jpg",
+      "metrics": {
+        "mean_luma": 125.35004166666724,
+        "mean_rgb": [
+          122.55652006172839,
+          125.97202932098766,
+          127.41454475308642
+        ],
+        "luma_histogram_16": [
+          578,
+          506,
+          143,
+          101,
+          411,
+          159,
+          647,
+          52,
+          100,
+          587,
+          187,
+          518,
+          56,
+          147,
+          480,
+          512
+        ]
+      },
+      "delta_from_previous": 0.03309958242556282,
+      "shot_index": 1,
+      "shot_start": 0.0,
+      "shot_end": 9.0
+    },
+    {
+      "index": 5,
+      "time_seconds": 4.5,
+      "selection_reason": "shot_representative",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0005.jpg",
+      "metrics": {
+        "mean_luma": 125.35842515432151,
+        "mean_rgb": [
+          121.77662037037037,
+          126.25887345679013,
+          126.98572530864197
+        ],
+        "luma_histogram_16": [
+          599,
+          510,
+          135,
+          63,
+          413,
+          165,
+          627,
+          64,
+          107,
+          617,
+          168,
+          546,
+          50,
+          129,
+          479,
+          512
+        ]
+      },
+      "delta_from_previous": 0.06324260671346728,
+      "shot_index": 1,
+      "shot_start": 0.0,
+      "shot_end": 9.0
+    },
+    {
+      "index": 6,
+      "time_seconds": 6.75,
+      "selection_reason": "interval",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0006.jpg",
+      "metrics": {
+        "mean_luma": 125.67165570987684,
+        "mean_rgb": [
+          121.88599537037037,
+          126.50559413580247,
+          128.55806327160494
+        ],
+        "luma_histogram_16": [
+          587,
+          493,
+          124,
+          76,
+          443,
+          169,
+          623,
+          73,
+          110,
+          584,
+          192,
+          534,
+          44,
+          140,
+          482,
+          510
+        ]
+      },
+      "delta_from_previous": 0.09313145525699992,
+      "motion_peak": true,
+      "motion_peak_source_reason": "interval"
+    },
+    {
+      "index": 7,
+      "time_seconds": 8.55,
+      "selection_reason": "last_usable",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0007.jpg",
+      "metrics": {
+        "mean_luma": 126.03259344135826,
+        "mean_rgb": [
+          123.1394675925926,
+          126.64583333333333,
+          128.47704475308643
+        ],
+        "luma_histogram_16": [
+          572,
+          494,
+          131,
+          106,
+          415,
+          171,
+          631,
+          54,
+          105,
+          618,
+          155,
+          538,
+          53,
+          144,
+          485,
+          512
+        ]
+      },
+      "delta_from_previous": 0.0733879508593561
+    },
+    {
+      "index": 8,
+      "time_seconds": 8.917,
+      "selection_reason": "shot_end",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/frames/sampled_0008.jpg",
+      "metrics": {
+        "mean_luma": 125.99496940586474,
+        "mean_rgb": [
+          123.14293981481481,
+          126.62827932098766,
+          128.1195987654321
+        ],
+        "luma_histogram_16": [
+          572,
+          494,
+          146,
+          98,
+          407,
+          163,
+          644,
+          60,
+          99,
+          594,
+          179,
+          526,
+          60,
+          147,
+          483,
+          512
+        ]
+      },
+      "delta_from_previous": 0.015574820463164689,
+      "boundary_role": "last_frame_in_shot",
+      "shot_index": 1,
+      "shot_start": 0.0,
+      "shot_end": 9.0
+    }
+  ],
+  "clip_analysis_markers": {
+    "success": true,
+    "schema": "davinci_resolve_mcp.clip_analysis_markers.v1",
+    "analysis_version": "0.2",
+    "analysis_signature": {
+      "analysis_keyframe_budget": 8,
+      "analysis_sampling": {
+        "frame_ceiling": 80,
+        "frame_floor": 3,
+        "frames_per_minute": 4.0,
+        "mode": "adaptive_capped"
+      },
+      "analysis_version": "0.2",
+      "depth": "standard",
+      "layers": {
+        "cut_boundary_analysis": {
+          "enabled": true,
+          "hard_frame_cap": 512,
+          "version": 1
+        },
+        "marker_plan": {
+          "colors_hash": "bf21a9e8fbc5",
+          "enabled": true,
+          "min_shot_duration_seconds": null
+        },
+        "motion": true,
+        "readthrough": true,
+        "technical": true,
+        "transcription": {
+          "backend": null,
+          "enabled": true,
+          "language": null,
+          "model": null
+        },
+        "vision": {
+          "enabled": false,
+          "prompt_hash": "65439baf62ac",
+          "provider": null
+        }
+      },
+      "signature_hash": "f9c9dcbcd195",
+      "source_file": {
+        "exists": true,
+        "mtime_ns": 1784754697677463391,
+        "path": "/tmp/drm-montage-media-2cmprkxl/broll_a.mov",
+        "size_bytes": 17695580
+      }
+    },
+    "clip": {
+      "bin_path": "Footage",
+      "clip_id": "9a024767-9cc8-4e76-a943-3f2d25ffeb29",
+      "clip_name": "broll_a.mov",
+      "clip_properties_error": null,
+      "duration": "00:00:09:00",
+      "file_path": "/tmp/drm-montage-media-2cmprkxl/broll_a.mov",
+      "fps": 24.0,
+      "media_id": "6c558e05-f3c9-4dc1-89ce-66a00e4dd3c0",
+      "media_type": "Video",
+      "resolution": "1280x720"
+    },
+    "fps": 24.0,
+    "duration_seconds": 9.0,
+    "color_scheme": {
+      "shot": "Blue",
+      "best_moment": "Green",
+      "qc_warning": "Red",
+      "black_or_title": "Red"
+    },
+    "write_to_resolve_default": true,
+    "resolve_marker_writeback": {
+      "optional": true,
+      "enabled": true,
+      "default_behavior": "Written during executed Resolve-target analysis and metadata publish unless timed_markers=no or dry_run=true.",
+      "write_action": "publish_clip_metadata",
+      "disable_flags": {
+        "timed_markers": "no",
+        "dry_run": true,
+        "publish_metadata": false
+      }
+    },
+    "transcript_index": {
+      "available": false,
+      "segments": 0,
+      "word_timestamps": false,
+      "words": 0
+    },
+    "timeline_occurrences": [],
+    "cut_analysis": {
+      "cut_count": 0,
+      "likely_edited_sequence": false,
+      "flash_frame_candidates": 0
+    },
+    "marker_count": 1,
+    "markers": [
+      {
+        "id": "shot-001",
+        "type": "shot",
+        "color": "Blue",
+        "name": "Shot 001",
+        "start_seconds": 0.0,
+        "end_seconds": 9.0,
+        "start_frame": 0,
+        "duration_frames": 216,
+        "visual_description": "Visual description unavailable from this analysis pass.",
+        "sound_note": "Sound: no transcript excerpt available for this range.",
+        "source": "scene_detection",
+        "confidence": "computed",
+        "write_to_resolve": true
+      }
+    ],
+    "untimed_notes": [],
+    "motion_summary": {
+      "overall_motion_level": "medium",
+      "average_frame_delta": 0.05269413320883909,
+      "max_frame_delta": 0.09313145525699992
+    },
+    "path": "/home/jon/Documents/davinci-resolve-mcp-analysis/montage_pilot_221136-2ed06090c2/clips/broll_a.mov-54dadac5801b/clip_analysis_markers.json"
+  }
+}

@@ -1,0 +1,1458 @@
+{
+  "success": true,
+  "analysis_version": "0.2",
+  "analysis_signature": {
+    "analysis_keyframe_budget": 8,
+    "analysis_sampling": {
+      "frame_ceiling": 80,
+      "frame_floor": 3,
+      "frames_per_minute": 4.0,
+      "mode": "adaptive_capped"
+    },
+    "analysis_version": "0.2",
+    "depth": "standard",
+    "layers": {
+      "cut_boundary_analysis": {
+        "enabled": true,
+        "hard_frame_cap": 512,
+        "version": 1
+      },
+      "marker_plan": {
+        "colors_hash": "bf21a9e8fbc5",
+        "enabled": true,
+        "min_shot_duration_seconds": null
+      },
+      "motion": true,
+      "readthrough": true,
+      "technical": true,
+      "transcription": {
+        "backend": null,
+        "enabled": true,
+        "language": null,
+        "model": null
+      },
+      "vision": {
+        "enabled": false,
+        "prompt_hash": "65439baf62ac",
+        "provider": null
+      }
+    },
+    "signature_hash": "2d47f1d03f41",
+    "source_file": {
+      "exists": true,
+      "mtime_ns": 1784546157357892392,
+      "path": "/tmp/drm-auto-edit-media-_c1593_p/interview.mov",
+      "size_bytes": 60310177
+    }
+  },
+  "analysis_profile": {
+    "depth": "standard",
+    "analysis_keyframe_budget": 8,
+    "transcription_enabled": true,
+    "vision_enabled": false,
+    "source_trust": "auto"
+  },
+  "analyzed_at": "2026-07-20T11:16:09Z",
+  "source_file": "/tmp/drm-auto-edit-media-_c1593_p/interview.mov",
+  "clip": {
+    "bin_path": "Footage",
+    "clip_id": "343ac6b5-4bf2-465a-ac55-cb92afdff763",
+    "clip_name": "interview.mov",
+    "clip_properties_error": null,
+    "duration": "00:00:30:00",
+    "file_path": "/tmp/drm-auto-edit-media-_c1593_p/interview.mov",
+    "fps": 24.0,
+    "media_id": "fae1accb-5ef0-4809-8bcb-6a7a48f5ae46",
+    "media_type": "Video + Audio",
+    "resolution": "1280x720"
+  },
+  "summary": "interview.mov, 30.0s, medium motion",
+  "technical_warnings": [],
+  "technical": {
+    "format": {
+      "filename": "/tmp/drm-auto-edit-media-_c1593_p/interview.mov",
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "duration_seconds": 30.0,
+      "size_bytes": 60310177,
+      "bit_rate": 16082713,
+      "tags": {
+        "major_brand": "qt  ",
+        "minor_version": "512",
+        "compatible_brands": "qt  ",
+        "encoder": "Lavf62.12.102"
+      }
+    },
+    "video": [
+      {
+        "index": 0,
+        "codec": "dnxhd",
+        "codec_long": "VC3/DNxHD",
+        "profile": "DNXHR LB",
+        "pixel_format": "yuv422p",
+        "width": 1280,
+        "height": 720,
+        "r_frame_rate": "24/1",
+        "avg_frame_rate": "24/1",
+        "frame_rate": 24.0,
+        "is_vfr": false,
+        "color_primaries": null,
+        "transfer_characteristics": null,
+        "matrix_coefficients": "bt709",
+        "field_order": null,
+        "duration_seconds": 30.0,
+        "frame_count": 720
+      }
+    ],
+    "audio": [
+      {
+        "index": 1,
+        "codec": "pcm_s16le",
+        "codec_long": "PCM signed 16-bit little-endian",
+        "sample_rate": 22050,
+        "channels": 1,
+        "channel_layout": "mono",
+        "duration_seconds": 30.0
+      }
+    ],
+    "chapters": [],
+    "warnings": []
+  },
+  "readthrough": {
+    "success": true,
+    "loudness": {
+      "success": true,
+      "metrics": {
+        "integrated_lufs": -16.2,
+        "loudness_range_lu": 4.5,
+        "true_peak_dbtp": 0.0
+      }
+    },
+    "scenes": {
+      "success": true,
+      "items": [],
+      "threshold": 0.15,
+      "threshold_stats": {
+        "n": 719,
+        "mean": 0.0008,
+        "sd": 0.00256,
+        "p95": 0.00359,
+        "p99": 0.0152,
+        "candidate": 0.0072,
+        "min_floor": 0.15,
+        "k_sd": 2.5,
+        "threshold_cap": 0.4,
+        "chosen": 0.15,
+        "source": "adaptive"
+      }
+    },
+    "black_frames": {
+      "success": true,
+      "items": []
+    },
+    "silence": {
+      "success": true,
+      "items": [
+        {
+          "start": 8.801859,
+          "end": 30.0,
+          "duration": 21.198141
+        }
+      ]
+    },
+    "interlace": {
+      "success": true,
+      "metrics": {
+        "tff": 0,
+        "bff": 0,
+        "progressive": 0,
+        "undetermined": 0,
+        "dominant": "tff"
+      }
+    },
+    "cut_analysis": {
+      "success": true,
+      "source": "ffmpeg_scene_detection",
+      "threshold": 0.3,
+      "fps": 24.0,
+      "frame_step_seconds": 0.041666666666666664,
+      "duration_seconds": 30.0,
+      "cut_count": 0,
+      "cut_density_per_minute": 0.0,
+      "likely_edited_sequence": false,
+      "cut_points": [],
+      "raw_shot_ranges": [
+        {
+          "index": 1,
+          "start": 0.0,
+          "end": 30.0,
+          "duration": 30.0,
+          "start_frame": 0,
+          "end_frame": 720
+        }
+      ],
+      "shot_ranges": [
+        {
+          "index": 1,
+          "start": 0.0,
+          "end": 30.0,
+          "duration": 30.0,
+          "start_frame": 0,
+          "end_frame": 720,
+          "first_sample_time_seconds": 0.08333333333333333,
+          "last_sample_time_seconds": 29.916666666666668,
+          "first_sample_frame": 2,
+          "last_sample_frame": 718
+        }
+      ],
+      "short_shot_candidates": [],
+      "flash_frame_candidates": [],
+      "notes": [
+        "FFmpeg scene detection reads the full video stream; boundary frames are sampled for visual confirmation when available.",
+        "Short scene-bounded ranges are candidates only until LLM/frame review distinguishes flash frames from deliberate cuts or high motion."
+      ]
+    }
+  },
+  "cut_analysis": {
+    "success": true,
+    "source": "ffmpeg_scene_detection",
+    "threshold": 0.3,
+    "fps": 24.0,
+    "frame_step_seconds": 0.041666666666666664,
+    "duration_seconds": 30.0,
+    "cut_count": 0,
+    "cut_density_per_minute": 0.0,
+    "likely_edited_sequence": false,
+    "cut_points": [],
+    "raw_shot_ranges": [
+      {
+        "index": 1,
+        "start": 0.0,
+        "end": 30.0,
+        "duration": 30.0,
+        "start_frame": 0,
+        "end_frame": 720
+      }
+    ],
+    "shot_ranges": [
+      {
+        "index": 1,
+        "start": 0.0,
+        "end": 30.0,
+        "duration": 30.0,
+        "start_frame": 0,
+        "end_frame": 720,
+        "first_sample_time_seconds": 0.08333333333333333,
+        "last_sample_time_seconds": 29.916666666666668,
+        "first_sample_frame": 2,
+        "last_sample_frame": 718
+      }
+    ],
+    "short_shot_candidates": [],
+    "flash_frame_candidates": [],
+    "notes": [
+      "FFmpeg scene detection reads the full video stream; boundary frames are sampled for visual confirmation when available.",
+      "Short scene-bounded ranges are candidates only until LLM/frame review distinguishes flash frames from deliberate cuts or high motion."
+    ]
+  },
+  "motion": {
+    "success": true,
+    "requested_sample_budget": 8,
+    "effective_sample_budget": 9,
+    "hard_frame_cap": 512,
+    "cut_boundary_frames_requested": 0,
+    "cut_boundary_sampling_capped": false,
+    "cut_boundary_pairs_total": 0,
+    "cut_boundary_pairs_sampled": 0,
+    "cut_boundary_pair_coverage": 1.0,
+    "sample_count": 9,
+    "overall_motion_level": "medium",
+    "average_frame_delta": 0.0535747246429436,
+    "max_frame_delta": 0.10791348946986201,
+    "analysis_keyframes": [
+      {
+        "index": 1,
+        "time_seconds": 0.083,
+        "selection_reason": "shot_start",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0001.jpg",
+        "metrics": {
+          "mean_luma": 125.95581709104961,
+          "mean_rgb": [
+            121.84047067901234,
+            126.92573302469135,
+            128.46604938271605
+          ],
+          "luma_histogram_16": [
+            580,
+            500,
+            134,
+            74,
+            422,
+            181,
+            621,
+            72,
+            97,
+            576,
+            178,
+            559,
+            64,
+            131,
+            483,
+            512
+          ]
+        },
+        "delta_from_previous": null,
+        "boundary_role": "first_frame_in_shot",
+        "shot_index": 1,
+        "shot_start": 0.0,
+        "shot_end": 30.0
+      },
+      {
+        "index": 2,
+        "time_seconds": 1.5,
+        "selection_reason": "first_usable",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0002.jpg",
+        "metrics": {
+          "mean_luma": 124.21359224537082,
+          "mean_rgb": [
+            120.98881172839506,
+            124.8761574074074,
+            127.1460262345679
+          ],
+          "luma_histogram_16": [
+            614,
+            502,
+            148,
+            88,
+            431,
+            172,
+            606,
+            65,
+            101,
+            565,
+            193,
+            540,
+            29,
+            126,
+            490,
+            514
+          ]
+        },
+        "delta_from_previous": 0.06122786048575809
+      },
+      {
+        "index": 3,
+        "time_seconds": 7.5,
+        "selection_reason": "interval",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0003.jpg",
+        "metrics": {
+          "mean_luma": 124.56876265432139,
+          "mean_rgb": [
+            121.3323688271605,
+            125.234375,
+            127.50520833333333
+          ],
+          "luma_histogram_16": [
+            601,
+            503,
+            148,
+            88,
+            431,
+            172,
+            612,
+            65,
+            100,
+            566,
+            193,
+            540,
+            30,
+            129,
+            492,
+            514
+          ]
+        },
+        "delta_from_previous": 0.0014393205842007585
+      },
+      {
+        "index": 4,
+        "time_seconds": 10.0,
+        "selection_reason": "shot_progress",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0004.jpg",
+        "metrics": {
+          "mean_luma": 123.6682537037047,
+          "mean_rgb": [
+            120.06442901234568,
+            124.24961419753086,
+            128.52121913580248
+          ],
+          "luma_histogram_16": [
+            681,
+            515,
+            128,
+            89,
+            372,
+            167,
+            634,
+            45,
+            83,
+            553,
+            174,
+            541,
+            49,
+            154,
+            483,
+            516
+          ]
+        },
+        "delta_from_previous": 0.10791348946986201,
+        "shot_index": 1,
+        "shot_start": 0.0,
+        "shot_end": 30.0,
+        "motion_peak": true,
+        "motion_peak_source_reason": "shot_progress"
+      },
+      {
+        "index": 5,
+        "time_seconds": 15.0,
+        "selection_reason": "shot_representative",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0005.jpg",
+        "metrics": {
+          "mean_luma": 122.9095315586429,
+          "mean_rgb": [
+            119.79089506172839,
+            123.29359567901234,
+            128.28819444444446
+          ],
+          "luma_histogram_16": [
+            698,
+            501,
+            146,
+            101,
+            365,
+            145,
+            649,
+            52,
+            74,
+            536,
+            204,
+            518,
+            56,
+            147,
+            480,
+            512
+          ]
+        },
+        "delta_from_previous": 0.044604817235536186,
+        "shot_index": 1,
+        "shot_start": 0.0,
+        "shot_end": 30.0
+      },
+      {
+        "index": 6,
+        "time_seconds": 20.0,
+        "selection_reason": "shot_progress",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0006.jpg",
+        "metrics": {
+          "mean_luma": 124.33852364969196,
+          "mean_rgb": [
+            121.08217592592592,
+            124.68576388888889,
+            130.4874614197531
+          ],
+          "luma_histogram_16": [
+            652,
+            499,
+            149,
+            97,
+            383,
+            148,
+            655,
+            56,
+            91,
+            501,
+            196,
+            548,
+            39,
+            142,
+            506,
+            522
+          ]
+        },
+        "delta_from_previous": 0.05131828451545227,
+        "shot_index": 1,
+        "shot_start": 0.0,
+        "shot_end": 30.0
+      },
+      {
+        "index": 7,
+        "time_seconds": 22.5,
+        "selection_reason": "interval",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0007.jpg",
+        "metrics": {
+          "mean_luma": 124.35655574845742,
+          "mean_rgb": [
+            120.42264660493827,
+            125.02719907407408,
+            129.29706790123456
+          ],
+          "luma_histogram_16": [
+            675,
+            502,
+            135,
+            61,
+            372,
+            147,
+            657,
+            60,
+            85,
+            564,
+            188,
+            546,
+            52,
+            135,
+            487,
+            518
+          ]
+        },
+        "delta_from_previous": 0.09878459614298395
+      },
+      {
+        "index": 8,
+        "time_seconds": 29.5,
+        "selection_reason": "last_usable",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0008.jpg",
+        "metrics": {
+          "mean_luma": 124.53804467592647,
+          "mean_rgb": [
+            120.18711419753086,
+            125.28452932098766,
+            129.95524691358025
+          ],
+          "luma_histogram_16": [
+            661,
+            497,
+            152,
+            78,
+            389,
+            151,
+            621,
+            39,
+            99,
+            540,
+            207,
+            535,
+            75,
+            133,
+            487,
+            520
+          ]
+        },
+        "delta_from_previous": 0.0443367727749536
+      },
+      {
+        "index": 9,
+        "time_seconds": 29.917,
+        "selection_reason": "shot_end",
+        "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0009.jpg",
+        "metrics": {
+          "mean_luma": 124.60010833333403,
+          "mean_rgb": [
+            120.1863425925926,
+            125.33371913580247,
+            130.32986111111111
+          ],
+          "luma_histogram_16": [
+            661,
+            496,
+            146,
+            68,
+            386,
+            165,
+            631,
+            61,
+            88,
+            521,
+            200,
+            554,
+            69,
+            131,
+            487,
+            520
+          ]
+        },
+        "delta_from_previous": 0.018972655934801904,
+        "boundary_role": "last_frame_in_shot",
+        "shot_index": 1,
+        "shot_start": 0.0,
+        "shot_end": 30.0
+      }
+    ],
+    "cut_analysis": {
+      "success": true,
+      "source": "ffmpeg_scene_detection",
+      "threshold": 0.3,
+      "fps": 24.0,
+      "frame_step_seconds": 0.041666666666666664,
+      "duration_seconds": 30.0,
+      "cut_count": 0,
+      "cut_density_per_minute": 0.0,
+      "likely_edited_sequence": false,
+      "cut_points": [],
+      "raw_shot_ranges": [
+        {
+          "index": 1,
+          "start": 0.0,
+          "end": 30.0,
+          "duration": 30.0,
+          "start_frame": 0,
+          "end_frame": 720
+        }
+      ],
+      "shot_ranges": [
+        {
+          "index": 1,
+          "start": 0.0,
+          "end": 30.0,
+          "duration": 30.0,
+          "start_frame": 0,
+          "end_frame": 720,
+          "first_sample_time_seconds": 0.08333333333333333,
+          "last_sample_time_seconds": 29.916666666666668,
+          "first_sample_frame": 2,
+          "last_sample_frame": 718
+        }
+      ],
+      "short_shot_candidates": [],
+      "flash_frame_candidates": [],
+      "notes": [
+        "FFmpeg scene detection reads the full video stream; boundary frames are sampled for visual confirmation when available.",
+        "Short scene-bounded ranges are candidates only until LLM/frame review distinguishes flash frames from deliberate cuts or high motion."
+      ]
+    }
+  },
+  "transcription": {
+    "success": true,
+    "backend": "whisper_cli",
+    "language": "en",
+    "text": " Welcome to the pilot. Um, this is the, this is the main interview line. You know, it has filler is on purpose. The closing thought arrives after a long pause.",
+    "segments": [
+      {
+        "start": 0.0,
+        "end": 3.62,
+        "text": "Welcome to the pilot. Um, this is the, this is the main interview line.",
+        "words": [
+          {
+            "word": "Welcome",
+            "start": 0.0,
+            "end": 0.3,
+            "probability": 0.945880651473999
+          },
+          {
+            "word": "to",
+            "start": 0.3,
+            "end": 0.54,
+            "probability": 0.9943680167198181
+          },
+          {
+            "word": "the",
+            "start": 0.54,
+            "end": 0.62,
+            "probability": 0.8930560946464539
+          },
+          {
+            "word": "pilot.",
+            "start": 0.62,
+            "end": 0.9,
+            "probability": 0.77126145362854
+          },
+          {
+            "word": "Um,",
+            "start": 1.28,
+            "end": 1.4,
+            "probability": 0.734031617641449
+          },
+          {
+            "word": "this",
+            "start": 1.52,
+            "end": 1.64,
+            "probability": 0.9589162468910217
+          },
+          {
+            "word": "is",
+            "start": 1.64,
+            "end": 1.8,
+            "probability": 0.9980971217155457
+          },
+          {
+            "word": "the,",
+            "start": 1.8,
+            "end": 1.98,
+            "probability": 0.9629222750663757
+          },
+          {
+            "word": "this",
+            "start": 2.2,
+            "end": 2.52,
+            "probability": 0.8368546366691589
+          },
+          {
+            "word": "is",
+            "start": 2.52,
+            "end": 2.64,
+            "probability": 0.9969584941864014
+          },
+          {
+            "word": "the",
+            "start": 2.64,
+            "end": 2.78,
+            "probability": 0.9859258532524109
+          },
+          {
+            "word": "main",
+            "start": 2.78,
+            "end": 2.92,
+            "probability": 0.9868553280830383
+          },
+          {
+            "word": "interview",
+            "start": 2.92,
+            "end": 3.26,
+            "probability": 0.9829548001289368
+          },
+          {
+            "word": "line.",
+            "start": 3.26,
+            "end": 3.62,
+            "probability": 0.9614594578742981
+          }
+        ]
+      },
+      {
+        "start": 4.0,
+        "end": 8.58,
+        "text": "You know, it has filler is on purpose. The closing thought arrives after a long pause.",
+        "words": [
+          {
+            "word": "You",
+            "start": 4.0,
+            "end": 4.14,
+            "probability": 0.9828665852546692
+          },
+          {
+            "word": "know,",
+            "start": 4.14,
+            "end": 4.32,
+            "probability": 0.9982436895370483
+          },
+          {
+            "word": "it",
+            "start": 4.68,
+            "end": 4.82,
+            "probability": 0.9756156802177429
+          },
+          {
+            "word": "has",
+            "start": 4.82,
+            "end": 4.98,
+            "probability": 0.9968151450157166
+          },
+          {
+            "word": "filler",
+            "start": 4.98,
+            "end": 5.22,
+            "probability": 0.5008085370063782
+          },
+          {
+            "word": "is",
+            "start": 5.22,
+            "end": 5.42,
+            "probability": 0.7051253914833069
+          },
+          {
+            "word": "on",
+            "start": 5.42,
+            "end": 5.54,
+            "probability": 0.997980535030365
+          },
+          {
+            "word": "purpose.",
+            "start": 5.54,
+            "end": 5.8,
+            "probability": 0.9891188144683838
+          },
+          {
+            "word": "The",
+            "start": 6.3,
+            "end": 6.42,
+            "probability": 0.9807360172271729
+          },
+          {
+            "word": "closing",
+            "start": 6.42,
+            "end": 6.7,
+            "probability": 0.9839733242988586
+          },
+          {
+            "word": "thought",
+            "start": 6.7,
+            "end": 7.0,
+            "probability": 0.9761764407157898
+          },
+          {
+            "word": "arrives",
+            "start": 7.0,
+            "end": 7.42,
+            "probability": 0.9828553199768066
+          },
+          {
+            "word": "after",
+            "start": 7.42,
+            "end": 7.88,
+            "probability": 0.9983915686607361
+          },
+          {
+            "word": "a",
+            "start": 7.88,
+            "end": 7.98,
+            "probability": 0.9813165664672852
+          },
+          {
+            "word": "long",
+            "start": 7.98,
+            "end": 8.2,
+            "probability": 0.9995203018188477
+          },
+          {
+            "word": "pause.",
+            "start": 8.2,
+            "end": 8.58,
+            "probability": 0.9984304308891296
+          }
+        ]
+      }
+    ],
+    "words": [
+      {
+        "word": "Welcome",
+        "start": 0.0,
+        "end": 0.3,
+        "probability": 0.945880651473999
+      },
+      {
+        "word": "to",
+        "start": 0.3,
+        "end": 0.54,
+        "probability": 0.9943680167198181
+      },
+      {
+        "word": "the",
+        "start": 0.54,
+        "end": 0.62,
+        "probability": 0.8930560946464539
+      },
+      {
+        "word": "pilot.",
+        "start": 0.62,
+        "end": 0.9,
+        "probability": 0.77126145362854
+      },
+      {
+        "word": "Um,",
+        "start": 1.28,
+        "end": 1.4,
+        "probability": 0.734031617641449
+      },
+      {
+        "word": "this",
+        "start": 1.52,
+        "end": 1.64,
+        "probability": 0.9589162468910217
+      },
+      {
+        "word": "is",
+        "start": 1.64,
+        "end": 1.8,
+        "probability": 0.9980971217155457
+      },
+      {
+        "word": "the,",
+        "start": 1.8,
+        "end": 1.98,
+        "probability": 0.9629222750663757
+      },
+      {
+        "word": "this",
+        "start": 2.2,
+        "end": 2.52,
+        "probability": 0.8368546366691589
+      },
+      {
+        "word": "is",
+        "start": 2.52,
+        "end": 2.64,
+        "probability": 0.9969584941864014
+      },
+      {
+        "word": "the",
+        "start": 2.64,
+        "end": 2.78,
+        "probability": 0.9859258532524109
+      },
+      {
+        "word": "main",
+        "start": 2.78,
+        "end": 2.92,
+        "probability": 0.9868553280830383
+      },
+      {
+        "word": "interview",
+        "start": 2.92,
+        "end": 3.26,
+        "probability": 0.9829548001289368
+      },
+      {
+        "word": "line.",
+        "start": 3.26,
+        "end": 3.62,
+        "probability": 0.9614594578742981
+      },
+      {
+        "word": "You",
+        "start": 4.0,
+        "end": 4.14,
+        "probability": 0.9828665852546692
+      },
+      {
+        "word": "know,",
+        "start": 4.14,
+        "end": 4.32,
+        "probability": 0.9982436895370483
+      },
+      {
+        "word": "it",
+        "start": 4.68,
+        "end": 4.82,
+        "probability": 0.9756156802177429
+      },
+      {
+        "word": "has",
+        "start": 4.82,
+        "end": 4.98,
+        "probability": 0.9968151450157166
+      },
+      {
+        "word": "filler",
+        "start": 4.98,
+        "end": 5.22,
+        "probability": 0.5008085370063782
+      },
+      {
+        "word": "is",
+        "start": 5.22,
+        "end": 5.42,
+        "probability": 0.7051253914833069
+      },
+      {
+        "word": "on",
+        "start": 5.42,
+        "end": 5.54,
+        "probability": 0.997980535030365
+      },
+      {
+        "word": "purpose.",
+        "start": 5.54,
+        "end": 5.8,
+        "probability": 0.9891188144683838
+      },
+      {
+        "word": "The",
+        "start": 6.3,
+        "end": 6.42,
+        "probability": 0.9807360172271729
+      },
+      {
+        "word": "closing",
+        "start": 6.42,
+        "end": 6.7,
+        "probability": 0.9839733242988586
+      },
+      {
+        "word": "thought",
+        "start": 6.7,
+        "end": 7.0,
+        "probability": 0.9761764407157898
+      },
+      {
+        "word": "arrives",
+        "start": 7.0,
+        "end": 7.42,
+        "probability": 0.9828553199768066
+      },
+      {
+        "word": "after",
+        "start": 7.42,
+        "end": 7.88,
+        "probability": 0.9983915686607361
+      },
+      {
+        "word": "a",
+        "start": 7.88,
+        "end": 7.98,
+        "probability": 0.9813165664672852
+      },
+      {
+        "word": "long",
+        "start": 7.98,
+        "end": 8.2,
+        "probability": 0.9995203018188477
+      },
+      {
+        "word": "pause.",
+        "start": 8.2,
+        "end": 8.58,
+        "probability": 0.9984304308891296
+      }
+    ]
+  },
+  "visual": {
+    "success": true,
+    "status": "skipped",
+    "reason": "vision disabled"
+  },
+  "analysis_keyframes": [
+    {
+      "index": 1,
+      "time_seconds": 0.083,
+      "selection_reason": "shot_start",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0001.jpg",
+      "metrics": {
+        "mean_luma": 125.95581709104961,
+        "mean_rgb": [
+          121.84047067901234,
+          126.92573302469135,
+          128.46604938271605
+        ],
+        "luma_histogram_16": [
+          580,
+          500,
+          134,
+          74,
+          422,
+          181,
+          621,
+          72,
+          97,
+          576,
+          178,
+          559,
+          64,
+          131,
+          483,
+          512
+        ]
+      },
+      "delta_from_previous": null,
+      "boundary_role": "first_frame_in_shot",
+      "shot_index": 1,
+      "shot_start": 0.0,
+      "shot_end": 30.0
+    },
+    {
+      "index": 2,
+      "time_seconds": 1.5,
+      "selection_reason": "first_usable",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0002.jpg",
+      "metrics": {
+        "mean_luma": 124.21359224537082,
+        "mean_rgb": [
+          120.98881172839506,
+          124.8761574074074,
+          127.1460262345679
+        ],
+        "luma_histogram_16": [
+          614,
+          502,
+          148,
+          88,
+          431,
+          172,
+          606,
+          65,
+          101,
+          565,
+          193,
+          540,
+          29,
+          126,
+          490,
+          514
+        ]
+      },
+      "delta_from_previous": 0.06122786048575809
+    },
+    {
+      "index": 3,
+      "time_seconds": 7.5,
+      "selection_reason": "interval",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0003.jpg",
+      "metrics": {
+        "mean_luma": 124.56876265432139,
+        "mean_rgb": [
+          121.3323688271605,
+          125.234375,
+          127.50520833333333
+        ],
+        "luma_histogram_16": [
+          601,
+          503,
+          148,
+          88,
+          431,
+          172,
+          612,
+          65,
+          100,
+          566,
+          193,
+          540,
+          30,
+          129,
+          492,
+          514
+        ]
+      },
+      "delta_from_previous": 0.0014393205842007585
+    },
+    {
+      "index": 4,
+      "time_seconds": 10.0,
+      "selection_reason": "shot_progress",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0004.jpg",
+      "metrics": {
+        "mean_luma": 123.6682537037047,
+        "mean_rgb": [
+          120.06442901234568,
+          124.24961419753086,
+          128.52121913580248
+        ],
+        "luma_histogram_16": [
+          681,
+          515,
+          128,
+          89,
+          372,
+          167,
+          634,
+          45,
+          83,
+          553,
+          174,
+          541,
+          49,
+          154,
+          483,
+          516
+        ]
+      },
+      "delta_from_previous": 0.10791348946986201,
+      "shot_index": 1,
+      "shot_start": 0.0,
+      "shot_end": 30.0,
+      "motion_peak": true,
+      "motion_peak_source_reason": "shot_progress"
+    },
+    {
+      "index": 5,
+      "time_seconds": 15.0,
+      "selection_reason": "shot_representative",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0005.jpg",
+      "metrics": {
+        "mean_luma": 122.9095315586429,
+        "mean_rgb": [
+          119.79089506172839,
+          123.29359567901234,
+          128.28819444444446
+        ],
+        "luma_histogram_16": [
+          698,
+          501,
+          146,
+          101,
+          365,
+          145,
+          649,
+          52,
+          74,
+          536,
+          204,
+          518,
+          56,
+          147,
+          480,
+          512
+        ]
+      },
+      "delta_from_previous": 0.044604817235536186,
+      "shot_index": 1,
+      "shot_start": 0.0,
+      "shot_end": 30.0
+    },
+    {
+      "index": 6,
+      "time_seconds": 20.0,
+      "selection_reason": "shot_progress",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0006.jpg",
+      "metrics": {
+        "mean_luma": 124.33852364969196,
+        "mean_rgb": [
+          121.08217592592592,
+          124.68576388888889,
+          130.4874614197531
+        ],
+        "luma_histogram_16": [
+          652,
+          499,
+          149,
+          97,
+          383,
+          148,
+          655,
+          56,
+          91,
+          501,
+          196,
+          548,
+          39,
+          142,
+          506,
+          522
+        ]
+      },
+      "delta_from_previous": 0.05131828451545227,
+      "shot_index": 1,
+      "shot_start": 0.0,
+      "shot_end": 30.0
+    },
+    {
+      "index": 7,
+      "time_seconds": 22.5,
+      "selection_reason": "interval",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0007.jpg",
+      "metrics": {
+        "mean_luma": 124.35655574845742,
+        "mean_rgb": [
+          120.42264660493827,
+          125.02719907407408,
+          129.29706790123456
+        ],
+        "luma_histogram_16": [
+          675,
+          502,
+          135,
+          61,
+          372,
+          147,
+          657,
+          60,
+          85,
+          564,
+          188,
+          546,
+          52,
+          135,
+          487,
+          518
+        ]
+      },
+      "delta_from_previous": 0.09878459614298395
+    },
+    {
+      "index": 8,
+      "time_seconds": 29.5,
+      "selection_reason": "last_usable",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0008.jpg",
+      "metrics": {
+        "mean_luma": 124.53804467592647,
+        "mean_rgb": [
+          120.18711419753086,
+          125.28452932098766,
+          129.95524691358025
+        ],
+        "luma_histogram_16": [
+          661,
+          497,
+          152,
+          78,
+          389,
+          151,
+          621,
+          39,
+          99,
+          540,
+          207,
+          535,
+          75,
+          133,
+          487,
+          520
+        ]
+      },
+      "delta_from_previous": 0.0443367727749536
+    },
+    {
+      "index": 9,
+      "time_seconds": 29.917,
+      "selection_reason": "shot_end",
+      "frame_path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/frames/sampled_0009.jpg",
+      "metrics": {
+        "mean_luma": 124.60010833333403,
+        "mean_rgb": [
+          120.1863425925926,
+          125.33371913580247,
+          130.32986111111111
+        ],
+        "luma_histogram_16": [
+          661,
+          496,
+          146,
+          68,
+          386,
+          165,
+          631,
+          61,
+          88,
+          521,
+          200,
+          554,
+          69,
+          131,
+          487,
+          520
+        ]
+      },
+      "delta_from_previous": 0.018972655934801904,
+      "boundary_role": "last_frame_in_shot",
+      "shot_index": 1,
+      "shot_start": 0.0,
+      "shot_end": 30.0
+    }
+  ],
+  "clip_analysis_markers": {
+    "success": true,
+    "schema": "davinci_resolve_mcp.clip_analysis_markers.v1",
+    "analysis_version": "0.2",
+    "analysis_signature": {
+      "analysis_keyframe_budget": 8,
+      "analysis_sampling": {
+        "frame_ceiling": 80,
+        "frame_floor": 3,
+        "frames_per_minute": 4.0,
+        "mode": "adaptive_capped"
+      },
+      "analysis_version": "0.2",
+      "depth": "standard",
+      "layers": {
+        "cut_boundary_analysis": {
+          "enabled": true,
+          "hard_frame_cap": 512,
+          "version": 1
+        },
+        "marker_plan": {
+          "colors_hash": "bf21a9e8fbc5",
+          "enabled": true,
+          "min_shot_duration_seconds": null
+        },
+        "motion": true,
+        "readthrough": true,
+        "technical": true,
+        "transcription": {
+          "backend": null,
+          "enabled": true,
+          "language": null,
+          "model": null
+        },
+        "vision": {
+          "enabled": false,
+          "prompt_hash": "65439baf62ac",
+          "provider": null
+        }
+      },
+      "signature_hash": "2d47f1d03f41",
+      "source_file": {
+        "exists": true,
+        "mtime_ns": 1784546157357892392,
+        "path": "/tmp/drm-auto-edit-media-_c1593_p/interview.mov",
+        "size_bytes": 60310177
+      }
+    },
+    "clip": {
+      "bin_path": "Footage",
+      "clip_id": "343ac6b5-4bf2-465a-ac55-cb92afdff763",
+      "clip_name": "interview.mov",
+      "clip_properties_error": null,
+      "duration": "00:00:30:00",
+      "file_path": "/tmp/drm-auto-edit-media-_c1593_p/interview.mov",
+      "fps": 24.0,
+      "media_id": "fae1accb-5ef0-4809-8bcb-6a7a48f5ae46",
+      "media_type": "Video + Audio",
+      "resolution": "1280x720"
+    },
+    "fps": 24.0,
+    "duration_seconds": 30.0,
+    "color_scheme": {
+      "shot": "Blue",
+      "best_moment": "Green",
+      "qc_warning": "Red",
+      "black_or_title": "Red"
+    },
+    "write_to_resolve_default": true,
+    "resolve_marker_writeback": {
+      "optional": true,
+      "enabled": true,
+      "default_behavior": "Written during executed Resolve-target analysis and metadata publish unless timed_markers=no or dry_run=true.",
+      "write_action": "publish_clip_metadata",
+      "disable_flags": {
+        "timed_markers": "no",
+        "dry_run": true,
+        "publish_metadata": false
+      }
+    },
+    "transcript_index": {
+      "available": true,
+      "segments": 2,
+      "word_timestamps": true,
+      "words": 30
+    },
+    "timeline_occurrences": [],
+    "cut_analysis": {
+      "cut_count": 0,
+      "likely_edited_sequence": false,
+      "flash_frame_candidates": 0
+    },
+    "marker_count": 1,
+    "markers": [
+      {
+        "id": "shot-001",
+        "type": "shot",
+        "color": "Blue",
+        "name": "Shot 001",
+        "start_seconds": 0.0,
+        "end_seconds": 30.0,
+        "start_frame": 0,
+        "duration_frames": 720,
+        "visual_description": "Visual description unavailable from this analysis pass.",
+        "sound_note": "Transcript: Welcome to the pilot. Um, this is the, this is the main interview line. You know, it has filler is on purpose. The closing thought arrives after a long pause.",
+        "transcript_text": "Welcome to the pilot. Um, this is the, this is the main interview line. You know, it has filler is on purpose. The closing thought arrives after a long pause.",
+        "source": "scene_detection",
+        "confidence": "computed",
+        "write_to_resolve": true
+      }
+    ],
+    "untimed_notes": [],
+    "motion_summary": {
+      "overall_motion_level": "medium",
+      "average_frame_delta": 0.0535747246429436,
+      "max_frame_delta": 0.10791348946986201
+    },
+    "path": "/home/jon/Documents/davinci-resolve-mcp-analysis/duck_pipe_121554-55c4e99ac8/clips/interview.mov-f04bb94d0e28/clip_analysis_markers.json"
+  }
+}

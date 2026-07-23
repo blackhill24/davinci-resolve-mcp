@@ -28,6 +28,10 @@ folder.
   open_project); `--require open|project|timeline`, `--json`; exit 0 ready, 2 not ready,
   3 no scripting. Every `live_*` `__main__` calls `gate()` — new live harnesses must too.
 - `test-after-restart.sh` / `.bat` (root) — post-restart validation harness.
+- `fixtures/analysis_sample/` — a real analysis root (2 verbatim `analysis.json`) checked in
+  so the media-analysis round-trip/backfill guards always have real input and can never
+  skip; see its README before touching. Discovery helpers live in
+  `domains/media_analysis/test_analysis_store.py` (`real_sample_roots`).
 
 ## Conventions & gotchas
 

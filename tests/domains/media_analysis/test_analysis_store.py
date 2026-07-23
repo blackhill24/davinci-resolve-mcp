@@ -18,18 +18,25 @@ import unittest
 from src.core import timeline_brain_db
 from src.domains.media_analysis.utils import analysis_store
 
-# Real analyzed roots, for the guards that round-trip actual reports rather
-# than a handwritten one. This used to be pinned to a single directory name
-# (20260517_sample-…) that only ever existed on the box that made it, so the
-# guards skipped everywhere — including here — and never ran at all. Discover
-# instead: any root under the analysis dir carrying clip reports qualifies.
-# Both env vars are escape hatches — pin one root, or point at another
-# analysis dir entirely.
+# Real analyzed roots, for the guards that round-trip reports the analyzer
+# actually emitted rather than a handwritten stand-in.
+#
+# These used to be pinned to one directory name (20260517_sample-…) that only
+# ever existed on the box that produced it, so the guards skipped everywhere —
+# including here — and had never once run. The fix is two-part: a real root is
+# checked in at tests/fixtures/analysis_sample so there is ALWAYS input and the
+# guards cannot skip, and any analyzed roots sitting under the machine's
+# analysis dir are added on top as extra coverage.
 #
 # Read-only, always: reports are opened for reading and every row written goes
-# to a throwaway temp DB. Nothing under the analysis dir is touched.
+# to a throwaway temp DB. Nothing under either directory is touched.
 ANALYSIS_DIR = os.path.expanduser(
     os.environ.get("RESOLVE_MCP_ANALYSIS_DIR", "~/Documents/davinci-resolve-mcp-analysis")
+)
+FIXTURE_ROOT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "fixtures",
+    "analysis_sample",
 )
 
 
@@ -47,7 +54,11 @@ def clip_reports_in(root):
 
 
 def real_sample_roots():
-    """Analysis roots on this machine that hold at least one clip report.
+    """Analysis roots to round-trip: the checked-in one, plus this machine's.
+
+    Never empty — the fixture ships with the repo, so a caller that gets back
+    an empty list has a missing/emptied fixture, which is a failure, not a
+    reason to skip.
 
     Each root is returned separately on purpose: the same source clip is
     commonly analyzed by several runs, so ingesting two roots into one DB
@@ -58,13 +69,14 @@ def real_sample_roots():
     if pinned:
         pinned = os.path.expanduser(pinned)
         return [pinned] if clip_reports_in(pinned) else []
-    if not os.path.isdir(ANALYSIS_DIR):
-        return []
-    return [
-        os.path.join(ANALYSIS_DIR, name)
-        for name in sorted(os.listdir(ANALYSIS_DIR))
-        if clip_reports_in(os.path.join(ANALYSIS_DIR, name))
-    ]
+    roots = [FIXTURE_ROOT] if clip_reports_in(FIXTURE_ROOT) else []
+    if os.path.isdir(ANALYSIS_DIR):
+        roots += [
+            os.path.join(ANALYSIS_DIR, name)
+            for name in sorted(os.listdir(ANALYSIS_DIR))
+            if clip_reports_in(os.path.join(ANALYSIS_DIR, name))
+        ]
+    return roots
 
 
 def make_report(**overrides):
@@ -202,8 +214,10 @@ class AnalysisStoreTests(unittest.TestCase):
 
     def test_round_trip_real_sample_roots(self) -> None:
         roots = real_sample_roots()
-        if not roots:
-            self.skipTest(f"no analyzed root with clip reports under {ANALYSIS_DIR}")
+        # Not a skip: the checked-in fixture guarantees at least one root, so
+        # an empty list means the fixture went missing and the guard would
+        # otherwise pass by doing nothing.
+        self.assertTrue(roots, f"no clip reports in the fixture ({FIXTURE_ROOT}) or {ANALYSIS_DIR}")
         round_tripped = 0
         for root in roots:
             # One DB per root — see real_sample_roots' docstring.

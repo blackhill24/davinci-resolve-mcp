@@ -18,6 +18,7 @@ from src.core import timeline_brain_db
 from src.domains.media_analysis.utils import analysis_store, strata
 from tests.domains.media_analysis.test_analysis_store import (
     ANALYSIS_DIR,
+    FIXTURE_ROOT,
     clip_reports_in,
     make_report,
     real_sample_roots,
@@ -266,8 +267,8 @@ class TranscriptWordsTests(unittest.TestCase):
 
     def test_backfill_real_sample_roots(self) -> None:
         roots = real_sample_roots()
-        if not roots:
-            self.skipTest(f"no analyzed root with clip reports under {ANALYSIS_DIR}")
+        # Not a skip — see the sibling guard in test_analysis_store.
+        self.assertTrue(roots, f"no clip reports in the fixture ({FIXTURE_ROOT}) or {ANALYSIS_DIR}")
         total = 0
         for root in roots:
             # One DB per root: two runs over the same source clip share a

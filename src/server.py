@@ -1030,6 +1030,39 @@ rejected before calling Resolve.
 Depth: docs/kernels/review-annotation-kernel.md."""
 
 
+@mcp.prompt(
+    name="server_ops_workflow",
+    title="Server Ops Workflow",
+    description="Route a connect/verify, surface-selection, or diagnostics task across setup, resolve_control, timeline_versioning, the control panel, and the MCP resources.",
+)
+def server_ops_workflow() -> str:
+    return """Server ops is the connector's own "is it alive and configured correctly" layer —
+live-only, cross-cutting infrastructure, not a Resolve-content domain.
+
+- Live: setup (schema/get_defaults/set_defaults/clear_defaults — conversational
+  defaults), resolve_control (launch/get_version/get_page/open_page, the control
+  panel lifecycle, api_truth/verification_stats/env_audit, MCP update policy),
+  timeline_versioning (begin_run/end_run/list_versions/diff_versions/rollback —
+  snapshot + rollback safety net used by other domains' guarded actions).
+- Surface toggle: compound (default, one tool per domain) vs granular (`--full`,
+  one tool per underlying API method) — see docs/SKILL.md for the tool-count table.
+- Diagnostics: `scripts/doctor.py` (environment/dependency check), the advanced
+  server's `capabilities` tool (native-dep detection + install hints),
+  `capabilities://install_guidance` resource, `src/batch_cli.py` (headless batch
+  runner), `src/control_panel.py` + `src/dashboard/` (local browser control panel).
+- Resources (no tool call needed): status://mcp_version, status://resolve_connection,
+  status://current_project, status://current_timeline, status://caps_preset,
+  analysis://recent_reports, capabilities://installed_tools,
+  capabilities://install_guidance.
+
+Rule of thumb: call resolve_control(action="launch") first in a new session — it
+connects to or starts Resolve and is safe to call when already running.
+timeline_versioning underlies other domains' snapshot/rollback guarantees; it is
+not itself a content-editing tool.
+
+Depth: docs/kernels/server-ops-kernel.md."""
+
+
 # ─── Python Version Check ────────────────────────────────────────────────────
 
 _py_ver = sys.version_info[:2]

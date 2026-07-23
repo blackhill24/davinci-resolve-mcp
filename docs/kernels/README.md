@@ -5,7 +5,7 @@ Resolve Scripting API. They are tracked separately from API method coverage:
 API coverage answers "can MCP reach every Blackmagic method?", while kernel
 coverage answers "which higher-level, guarded agent workflows are available?".
 
-Current kernel coverage: **166 actions** across **11 compound MCP tools**.
+Current kernel coverage: **207 actions** across **14 compound MCP tools**.
 
 | Kernel | MCP Tool | Actions |
 |--------|----------|---------|
@@ -22,6 +22,9 @@ Current kernel coverage: **166 actions** across **11 compound MCP tools**.
 | Extension authoring | `script_plugin` | `extension_capabilities`, `probe_fuse_lifecycle`, `probe_dctl_lifecycle`, `probe_script_lifecycle`, `safe_install_extension`, `safe_remove_extension`, `refresh_or_restart_required`, `extension_boundary_report` |
 | Auto edit (brief → render) | `auto_edit` | `start_brief`, `brief_status`, `status`, `plan_cut`, `revise_cut`, `get_cut_summary`, `approve_cut`, `build_timeline`, `finish`, `list_briefs` |
 | Orchestrate (ingest → deliver) | `orchestrate` | `start_job`, `job_status`, `list_jobs`, `check_resume`, `force_replan_stage`, `plan_stage`, `revise_stage`, `approve_gate`, `run_stage`, `rollback_stage`, `finish_job` |
+| Server ops — setup | `setup` | `schema`, `get_defaults`, `set_defaults`, `clear_defaults` |
+| Server ops — connect/verify/panel | `resolve_control` | `api_truth`, `verification_stats`, `env_audit`, `job_status`, `list_jobs`, `open_control_panel`, `control_panel_status`, `close_control_panel`, `save_state`, `restore_state`, `mcp_update_status`, `set_mcp_update_policy`, `ignore_mcp_update`, `snooze_mcp_update`, `clear_mcp_update_preferences`, `launch`, `get_version`, `get_page`, `open_page`, `get_keyframe_mode`, `set_keyframe_mode`, `quit`, `get_fairlight_presets`, `set_high_priority`, `disable_background_tasks_for_current_session` |
+| Server ops — snapshot/rollback | `timeline_versioning` | `begin_run`, `end_run`, `list_runs`, `archive_current`, `list_versions`, `diff_versions`, `diff_timelines`, `get_history`, `rollback`, `prune`, `registry`, `media_pool_changes` |
 
 ## Advanced (offline) server
 
@@ -43,7 +46,7 @@ Per-domain Claude Code skills route craft ↔ live ↔ offline automatically and
 in `.claude/skills/`: `resolve-color-grade`, `resolve-timeline-edit`, `resolve-timeline-conform-interchange`,
 `resolve-render-deliver`, `resolve-fusion-composition`, `resolve-audio-fairlight`, `resolve-media-pool-ingest`,
 `resolve-media-analysis`, `resolve-auto-edit`, `resolve-orchestration`, `resolve-project-lifecycle`,
-`resolve-review-annotation`, `resolve-extension-authoring`. The index/map skill is `resolve-mcp`
+`resolve-review-annotation`, `resolve-extension-authoring`, `resolve-server-ops`. The index/map skill is `resolve-mcp`
 (`.claude/skills/resolve-mcp/SKILL.md`). `docs/SKILL.md` is the top-level brief for both servers.
 
 Helper-tool details that need more than an action list live in guides. See

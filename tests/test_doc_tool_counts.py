@@ -5,6 +5,9 @@ guards so this runs in the dependency-light publish gate):
   - compound  = `@mcp.tool(` decorators in `src/server.py`
   - granular  = `@mcp.tool(` decorators across `src/granular/*.py`
   - advanced  = entries in the `TOOLS` array in `resolve-advanced/server/index.mjs`
+  - kernel_actions = the `**N actions**` figure parsed from `docs/kernels/README.md`
+    (the same pattern `scripts/agent-rules/generate.mjs` uses) — README.md's Key
+    Stats table must quote the same number.
 
 Docs (README, contributing, SKILL, api-coverage, copilot-instructions) quote those
 counts by hand and drift. This asserts the docs still match — a stale count fails the
@@ -39,6 +42,14 @@ def _advanced_count() -> int:
     return len([t for t in m.group(1).split(",") if t.strip()])
 
 
+def _kernel_action_count() -> int:
+    readme = (ROOT / "docs" / "kernels" / "README.md").read_text(encoding="utf-8")
+    m = re.search(r"\*\*(\d+)\s*actions\*\*", readme)
+    if not m:
+        raise AssertionError("could not find the '**N actions**' figure in docs/kernels/README.md")
+    return int(m.group(1))
+
+
 class DocToolCountsDriftTest(unittest.TestCase):
     def test_doc_counts_match_reality(self):
         # server.py kept only 3 cross-cutting tools after the restructure epic
@@ -46,6 +57,7 @@ class DocToolCountsDriftTest(unittest.TestCase):
         comp = _count_decorators("src/server.py", "src/domains/*/actions.py")
         gran = _count_decorators("src/granular/*.py")
         adv = _advanced_count()
+        kernel_actions = _kernel_action_count()
 
         # (file, required substring) — each must be present verbatim.
         checks = [
@@ -53,6 +65,7 @@ class DocToolCountsDriftTest(unittest.TestCase):
             ("README.md", f"**{comp}** compound / **{gran}** granular"),
             ("README.md", f"Advanced (offline) tools | **{adv}**"),
             ("README.md", f"Advanced%20(offline)-{adv}%20tools"),
+            ("README.md", f"**{kernel_actions}** guarded workflow actions"),
             ("resolve-advanced/README.md", f"## Tools ({adv})"),
             ("src/server.py", f"{comp} compound tools"),
             ("src/resolve_mcp_server.py", f"({gran} granular tools)"),
@@ -75,7 +88,7 @@ class DocToolCountsDriftTest(unittest.TestCase):
             stale,
             [],
             "Doc tool counts are stale (authoritative: "
-            f"compound={comp}, granular={gran}, advanced={adv}). "
+            f"compound={comp}, granular={gran}, advanced={adv}, kernel_actions={kernel_actions}). "
             "Update these docs:\n  " + "\n  ".join(stale),
         )
 

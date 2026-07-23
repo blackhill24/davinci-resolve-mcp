@@ -1,9 +1,8 @@
 """Live Resolve validation for the add_keyframe BezierSpline fix (PR #56).
 
-Connects to a running DaVinci Resolve, finds the disposable "Fusion
-Composition" clip on the current timeline, adds a Transform tool, and applies
-the EXACT technique used by the fixed `fusion_comp(action="add_keyframe")`
-handler:
+Connects to a running DaVinci Resolve, builds a disposable project holding one
+Fusion Composition clip, adds a Transform tool, and applies the EXACT technique
+used by the fixed `fusion_comp(action="add_keyframe")` handler:
 
     if not inp.GetConnectedOutput():
         tool.AddModifier(input_name, "BezierSpline")
@@ -13,18 +12,26 @@ Then it reads the interpolated value at several frames and the keyframe list.
 This validates the Fusion technique against the live app, independent of the
 long-running MCP server process (which may still be serving pre-fix code).
 
-Run AFTER setting up a timeline whose video track 1 holds a Fusion Composition
-clip. Pass --tool-name to target a specific Transform (default: a fresh one).
-Read-only against source media; touches only the disposable comp.
+Self-setting-up: creates its own project + timeline + Fusion comp, then deletes
+the project and restores the original on exit, so it runs unattended in a batch.
+Never touches the user's project, timeline, or any source media.
+
+Run:
+  RESOLVE_SCRIPT_API=/opt/resolve/Developer/Scripting \
+  RESOLVE_SCRIPT_LIB=/opt/resolve/libs/Fusion/fusionscript.so \
+  PYTHONPATH=.:/opt/resolve/Developer/Scripting/Modules \
+  .venv/bin/python tests/domains/fusion_composition/live_fusion_keyframe_validation.py
 """
 
 import os
 import sys
+import time
 
-PROJECT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-sys.path.insert(0, PROJECT)
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
-from src.core.platform import get_resolve_paths
+from src.core.platform import get_resolve_paths  # noqa: E402
 
 paths = get_resolve_paths()
 os.environ["RESOLVE_SCRIPT_API"] = paths["api_path"]
@@ -33,28 +40,20 @@ sys.path.insert(0, paths["modules_path"])
 
 import DaVinciResolveScript as dvr_script  # noqa: E402
 
+from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely  # noqa: E402
 
-def main():
-    resolve = dvr_script.scriptapp("Resolve")
-    if resolve is None:
-        print("FATAL: cannot connect to Resolve")
-        return 1
+PROJECT_NAME = "ZZ_fusion_keyframe_validation"
 
-    pm = resolve.GetProjectManager()
-    project = pm.GetCurrentProject()
-    timeline = project.GetCurrentTimeline()
-    print(f"project={project.GetName()!r} timeline={timeline.GetName()!r}")
 
-    # Find the Fusion Composition clip on video track 1.
-    item = None
+def _fusion_item(timeline):
+    """The first timeline item on V1 that carries a Fusion comp."""
     for clip in timeline.GetItemListInTrack("video", 1) or []:
         if clip.GetFusionCompCount() > 0:
-            item = clip
-            break
-    if item is None:
-        print("FATAL: no timeline item with a Fusion comp on V1")
-        return 1
+            return clip
+    return None
 
+
+def _validate(item) -> int:
     comp = item.GetFusionCompByIndex(1)
     tool_name = "MCPKeyTestLive"
 
@@ -112,7 +111,52 @@ def main():
     return 0 if ok else 1
 
 
+def main():
+    resolve = dvr_script.scriptapp("Resolve")
+    if resolve is None:
+        print("FATAL: cannot connect to Resolve")
+        return 1
+    print(f"Connected: {resolve.GetProductName()} {resolve.GetVersionString()}")
+
+    pm = resolve.GetProjectManager()
+    original = pm.GetCurrentProject()
+    original_name = original.GetName() if original else None
+
+    project = pm.LoadProject(PROJECT_NAME) or pm.CreateProject(PROJECT_NAME)
+    if not project:
+        print("FATAL: could not load or create disposable project")
+        return 1
+    try:
+        timeline = project.GetMediaPool().CreateEmptyTimeline(f"ZZ_fusion_kf_tl_{int(time.time())}")
+        if not timeline:
+            print("FATAL: CreateEmptyTimeline failed")
+            return 1
+        project.SetCurrentTimeline(timeline)
+        if not timeline.InsertFusionCompositionIntoTimeline():
+            print("FATAL: InsertFusionCompositionIntoTimeline failed")
+            return 1
+        print(f"project={project.GetName()!r} timeline={timeline.GetName()!r}")
+
+        item = _fusion_item(timeline)
+        if item is None:
+            print("FATAL: no timeline item with a Fusion comp on V1")
+            return 1
+        return _validate(item)
+    finally:
+        try:
+            cleanup = delete_project_safely(pm, PROJECT_NAME, switch_to=original_name, retries=2)
+            print(f"\ncleanup delete_project: {cleanup}")
+        except Exception as e:
+            print(f"cleanup delete error: {e}")
+        try:
+            if original_name:
+                pm.LoadProject(original_name)
+                print(f"restored project: {original_name}")
+        except Exception as e:
+            print(f"restore error: {e}")
+
+
 if __name__ == "__main__":
     from tests.preflight import gate
-    gate("project")
+    gate("open")
     sys.exit(main())

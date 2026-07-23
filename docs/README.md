@@ -47,15 +47,20 @@ Per-domain skills in `.claude/skills/` route craft ↔ live tools ↔ offline
 advanced tools automatically when an agent works in that domain. They are thin
 bridges — the authoritative depth stays in the kernels and guides above.
 
-- `resolve-mcp` (`.claude/skills/resolve.md`) — orientation/index: the map to the domain skills below (self-trigger; not an auto-loader)
-- `resolve-color-grade` (`.claude/skills/color-grade.md`) — grading, looks, shot match, LUT/CDL/DRX
-- `resolve-timeline-edit` (`.claude/skills/timeline-edit.md`) — cutting, ranges, variants, changelist
-- `resolve-timeline-conform-interchange` (`.claude/skills/timeline-conform-interchange.md`) — conform, relink, finishing QC, grade tracing
-- `resolve-render-deliver` (`.claude/skills/render-deliver.md`) — render, deliverable QC, media/provenance
-- `resolve-fusion-composition` (`.claude/skills/fusion-composition.md`) — Fusion comps (titles, motion graphics, VFX)
-- `resolve-audio-fairlight` (`.claude/skills/audio-fairlight.md`) — audio/Fairlight tracks, buses, loudness, sync
-- `resolve-media-pool-ingest` (`.claude/skills/media-pool-ingest.md`) — media pool ingest, organize, multicam
-- `resolve-media-analysis` (`.claude/skills/media-analysis.md`) — source-safe media intelligence
+- `resolve-mcp` (`.claude/skills/resolve-mcp/SKILL.md`) — orientation/index: the map to the domain skills below (self-trigger; not an auto-loader)
+- `resolve-color-grade` (`.claude/skills/resolve-color-grade/SKILL.md`) — grading, looks, shot match, LUT/CDL/DRX
+- `resolve-timeline-edit` (`.claude/skills/resolve-timeline-edit/SKILL.md`) — cutting, ranges, variants, changelist
+- `resolve-timeline-conform-interchange` (`.claude/skills/resolve-timeline-conform-interchange/SKILL.md`) — conform, relink, finishing QC, grade tracing
+- `resolve-render-deliver` (`.claude/skills/resolve-render-deliver/SKILL.md`) — render, deliverable QC, media/provenance
+- `resolve-fusion-composition` (`.claude/skills/resolve-fusion-composition/SKILL.md`) — Fusion comps (titles, motion graphics, VFX)
+- `resolve-audio-fairlight` (`.claude/skills/resolve-audio-fairlight/SKILL.md`) — audio/Fairlight tracks, buses, loudness, sync
+- `resolve-media-pool-ingest` (`.claude/skills/resolve-media-pool-ingest/SKILL.md`) — media pool ingest, organize, multicam
+- `resolve-media-analysis` (`.claude/skills/resolve-media-analysis/SKILL.md`) — source-safe media intelligence
+- `resolve-auto-edit` (`.claude/skills/resolve-auto-edit/SKILL.md`) — brief-to-rendered-video pipeline (talking-head, montage)
+- `resolve-orchestration` (`.claude/skills/resolve-orchestration/SKILL.md`) — resumable ingest-to-deliver conductor across domains
+- `resolve-project-lifecycle` (`.claude/skills/resolve-project-lifecycle/SKILL.md`) — project/database/archive lifecycle, presets
+- `resolve-review-annotation` (`.claude/skills/resolve-review-annotation/SKILL.md`) — markers, flags, clip color, review reports
+- `resolve-extension-authoring` (`.claude/skills/resolve-extension-authoring/SKILL.md`) — Fuse/DCTL/script extension authoring
 
 The offline half of every one is the advanced server; see
 [Advanced Server](../resolve-advanced/README.md).

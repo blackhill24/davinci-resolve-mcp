@@ -24,5 +24,5 @@ verifying media ingest, or producing a provenance/episode report. Prompt:
 
 > Upkeep: when files here change (add/remove/rename), fix the table above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root.
-> Kernel: `docs/kernels/render-deliver-kernel.md`. Skill: `.claude/skills/render-deliver.md`.
+> Kernel: `docs/kernels/render-deliver-kernel.md`. Skill: `.claude/skills/resolve-render-deliver/SKILL.md`.
 > Keep this file ≲40 lines.

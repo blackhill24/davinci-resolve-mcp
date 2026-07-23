@@ -29,4 +29,4 @@ calls from `auto_edit` (export/import checked) and `media_pool_ingest` (readback
 > Upkeep: when files here change (add/remove/rename), fix the table above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root.
 > Kernel: `docs/kernels/timeline-conform-interchange-kernel.md`.
-> Skill: `.claude/skills/timeline-conform-interchange.md`. Keep this file ≲40 lines.
+> Skill: `.claude/skills/resolve-timeline-conform-interchange/SKILL.md`. Keep this file ≲40 lines.

@@ -607,7 +607,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "f819c38355cf82fc",
+      "fingerprint": "c283acfa537fb5ab",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -679,7 +679,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "a1cd56b42fea2671",
+      "fingerprint": "4e681bfeae933578",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -877,6 +877,7 @@
         "tests/test_action_list_drift.py",
         "tests/test_agent_rules_drift.py",
         "tests/test_batch_cli.py",
+        "tests/test_claude_skills.py",
         "tests/test_compound_disconnected_smoke.py",
         "tests/test_custom_timeline.py",
         "tests/test_description_xml_shape.py",

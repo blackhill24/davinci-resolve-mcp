@@ -41,8 +41,10 @@ two:
 
 Per-domain Claude Code skills route craft ↔ live ↔ offline automatically and live
 in `.claude/skills/`: `resolve-color-grade`, `resolve-timeline-edit`, `resolve-timeline-conform-interchange`,
-`resolve-render-deliver` (plus `resolve-media-analysis` and `resolve-auto-edit`). `docs/SKILL.md` is the
-top-level brief for both servers.
+`resolve-render-deliver`, `resolve-fusion-composition`, `resolve-audio-fairlight`, `resolve-media-pool-ingest`,
+`resolve-media-analysis`, `resolve-auto-edit`, `resolve-orchestration`, `resolve-project-lifecycle`,
+`resolve-review-annotation`, `resolve-extension-authoring`. The index/map skill is `resolve-mcp`
+(`.claude/skills/resolve-mcp/SKILL.md`). `docs/SKILL.md` is the top-level brief for both servers.
 
 Helper-tool details that need more than an action list live in guides. See
 [Multicam Setup Helper Guide](../guides/multicam-setup-guide.md) for the

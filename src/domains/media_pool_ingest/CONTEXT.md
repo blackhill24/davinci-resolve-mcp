@@ -31,4 +31,4 @@ normalizing metadata, or verifying/inventorying a card before ingest. Prompt:
 > Upkeep: when files here change (add/remove/rename), fix the table above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root.
 > Kernel: `docs/kernels/media-pool-ingest-kernel.md` + `docs/guides/multicam-setup-guide.md`.
-> Skill: `.claude/skills/media-pool-ingest.md`. Keep this file ≲40 lines.
+> Skill: `.claude/skills/resolve-media-pool-ingest/SKILL.md`. Keep this file ≲40 lines.

@@ -11,7 +11,7 @@ reference, authoring formats, and release process. Route here; don't duplicate i
 |------|------|------|--------------|
 | Get per-domain action depth | `kernels/<domain>-kernel.md` (index: `kernels/README.md`) | `authoring/` | matching `.claude/skills/` |
 | Make a color/edit decision | `guides/color-decision-guide.md`, `guides/editorial-decision-guide.md` | `kernels/` | — |
-| Auto-edit pipeline depth | `kernels/auto-edit-kernel.md`, `guides/editorial-decision-guide.md` (Auto-Edit Heuristics) | `authoring/` | `.claude/skills/auto-edit.md` |
+| Auto-edit pipeline depth | `kernels/auto-edit-kernel.md`, `guides/editorial-decision-guide.md` (Auto-Edit Heuristics) | `authoring/` | `.claude/skills/resolve-auto-edit/SKILL.md` |
 | Source-safe media analysis | `guides/media-analysis-guide.md` | `reference/` | — |
 | Check API coverage / limitations | `reference/api-coverage.md`, `reference/api-limitations.md` | `authoring/` | `scripts/gen_api_limitations.py` |
 | Author Fuse/DCTL/settings files | `authoring/` (`fuse-dctl-authoring.md`, `setting-files/`) | `kernels/` | — |

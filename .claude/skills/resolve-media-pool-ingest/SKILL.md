@@ -1,5 +1,5 @@
 ---
-name: resolve-media-pool-ingest-ingest
+name: resolve-media-pool-ingest
 description: Media pool ingest and organization in the DaVinci Resolve MCP. Apply when importing media, building multicam timelines, organizing/relinking clips, normalizing metadata, setting clip marks, or verifying/inventorying a card before ingest — live in a running Resolve OR offline. Routes to the live media_pool tools and the offline media front-end tool. For reading/analyzing footage content use resolve-media-analysis; for deliverable-side media QC use resolve-render-deliver.
 ---
 

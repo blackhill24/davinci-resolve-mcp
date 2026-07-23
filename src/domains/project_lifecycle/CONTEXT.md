@@ -33,5 +33,5 @@ Prompt: `/project_lifecycle_workflow`.
 
 > Upkeep: when files here change (add/remove/rename), fix the table above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root.
-> Kernel: `docs/kernels/project-lifecycle-kernel.md`. Skill: `.claude/skills/project-lifecycle.md`.
+> Kernel: `docs/kernels/project-lifecycle-kernel.md`. Skill: `.claude/skills/resolve-project-lifecycle/SKILL.md`.
 > Keep this file ≲40 lines.

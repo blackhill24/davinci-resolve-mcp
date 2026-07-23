@@ -223,6 +223,92 @@ class NonLinuxTest(unittest.TestCase):
         self.assertFalse(status["installed"])
 
 
+class LaunchAdvisoryTest(LaunchShimTestBase):
+    """The advisory fires only for the silent-bypass case (issue #95)."""
+
+    def _install(self):
+        with mock.patch.object(launch_shim, "_desktop_entry_source", return_value=SYSTEM_ENTRY):
+            launch_shim.install()
+
+    def test_silent_when_shim_not_installed(self):
+        """Declining the shim is a legitimate choice, not something to nag about."""
+        with mock.patch("shutil.which", return_value="/opt/resolve/bin/resolve"):
+            self.assertIsNone(launch_shim.launch_advisory())
+
+    def test_silent_when_shim_is_effective(self):
+        self._install()
+        with mock.patch("shutil.which", return_value=launch_shim.shim_path()):
+            self.assertIsNone(launch_shim.launch_advisory())
+
+    def test_fires_when_shadowed_on_path(self):
+        self._install()
+        with mock.patch("shutil.which", return_value="/opt/resolve/bin/resolve"):
+            advisory = launch_shim.launch_advisory()
+
+        self.assertIsNotNone(advisory)
+        self.assertTrue(advisory["installed"])
+        self.assertFalse(advisory["effective"])
+        self.assertEqual(advisory["resolve_on_path"], "/opt/resolve/bin/resolve")
+        self.assertTrue(advisory["warnings"])
+        self.assertIn("wedge", advisory["impact"])
+
+    def test_fires_when_absent_from_path(self):
+        self._install()
+        with mock.patch("shutil.which", return_value=None):
+            advisory = launch_shim.launch_advisory()
+
+        self.assertIsNotNone(advisory)
+        self.assertFalse(advisory["effective"])
+
+    def test_never_raises(self):
+        """An advisory must not be able to fail a launch."""
+        self._install()
+        with mock.patch.object(launch_shim, "status", side_effect=RuntimeError("boom")):
+            self.assertIsNone(launch_shim.launch_advisory())
+
+    def test_silent_off_linux(self):
+        with mock.patch.object(launch_shim, "_is_linux", return_value=False):
+            self.assertIsNone(launch_shim.launch_advisory())
+
+
+class LaunchAdvisoryWiringTest(unittest.TestCase):
+    """Both pre-render entry points carry the advisory."""
+
+    def test_resolve_control_launch_includes_advisory_when_bypassed(self):
+        import src.server as compound
+
+        advisory = {"installed": True, "effective": False, "warnings": ["w"], "impact": "x"}
+        with mock.patch.object(compound, "get_resolve", return_value=object()), \
+                mock.patch.object(compound._launch_shim, "launch_advisory", return_value=advisory):
+            out = compound.resolve_control("launch")
+
+        self.assertTrue(out["success"])
+        self.assertEqual(out["launch_shim"], advisory)
+
+    def test_resolve_control_launch_omits_advisory_when_healthy(self):
+        import src.server as compound
+
+        with mock.patch.object(compound, "get_resolve", return_value=object()), \
+                mock.patch.object(compound._launch_shim, "launch_advisory", return_value=None):
+            out = compound.resolve_control("launch")
+
+        self.assertTrue(out["success"])
+        self.assertNotIn("launch_shim", out)
+
+    def test_preflight_advisory_swallows_import_and_call_failures(self):
+        import tests.preflight as preflight
+
+        with mock.patch.object(launch_shim, "launch_advisory", side_effect=RuntimeError("boom")):
+            self.assertIsNone(preflight._launch_shim_advisory())
+
+    def test_preflight_advisory_passes_through(self):
+        import tests.preflight as preflight
+
+        advisory = {"installed": True, "effective": False, "warnings": [], "impact": "x"}
+        with mock.patch.object(launch_shim, "launch_advisory", return_value=advisory):
+            self.assertEqual(preflight._launch_shim_advisory(), advisory)
+
+
 class DispatchTest(unittest.TestCase):
     """The three actions must be reachable through resolve_control without a
     live Resolve — the whole point is fixing how Resolve gets started."""

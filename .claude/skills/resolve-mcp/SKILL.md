@@ -48,6 +48,23 @@ index rather than its own skill:
   with gates + provenance + drift: advanced `pipeline` tool →
   `resolve-advanced/README.md`.
 
+## Other surfaces (no domain table row — named here so nothing is invisible)
+
+- **Granular (`--full`)** — one tool per underlying Scripting API method (341
+  tools) instead of the 36 guarded compound tools above. `src/resolve_mcp_server.py`
+  / `src/granular/*.py`. Reach for it only when a compound action doesn't expose
+  the call you need — each domain skill notes its own granular pointers (or their
+  honest absence). See `resolve-server-ops` for the toggle itself.
+- **MCP prompts (20)** — the 14 domain-table prompts above, plus 6 more in
+  `src/server.py`: `davinci_resolve_workflow` (overview), `analyze_and_propose_grade`,
+  `match_bin_to_hero`, `verify_timeline_coverage`, `open_and_analyze_selection`,
+  `prep_color_handoff`. Usable from any MCP client, not just Claude Code.
+- **MCP resources (8)** — `status://mcp_version`, `status://resolve_connection`,
+  `status://current_project`, `status://current_timeline`, `status://caps_preset`,
+  `analysis://recent_reports`, `capabilities://installed_tools`,
+  `capabilities://install_guidance`. Cheaper than a tool call for a plain read;
+  see `resolve-server-ops`.
+
 ## Cross-cutting rules (always)
 
 - **Source media is sacred** (AGENTS.md): never modify, transcode, convert, proxy,

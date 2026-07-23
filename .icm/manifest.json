@@ -679,7 +679,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "bc3fb436e6737162",
+      "fingerprint": "a1cd56b42fea2671",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -863,6 +863,9 @@
         "tests/domains/timeline_edit/test_timeline_kernel_probe.py",
         "tests/domains/timeline_edit/test_timeline_title_text_utils.py",
         "tests/domains/timeline_edit/test_variant_item_placement.py",
+        "tests/fixtures/analysis_sample/README.md",
+        "tests/fixtures/analysis_sample/clips/broll_a.mov-54dadac5801b/analysis.json",
+        "tests/fixtures/analysis_sample/clips/interview.mov-f04bb94d0e28/analysis.json",
         "tests/live_api_gap_verification.py",
         "tests/live_enum_settings_check.py",
         "tests/live_resolve21_stage2_validation.py",

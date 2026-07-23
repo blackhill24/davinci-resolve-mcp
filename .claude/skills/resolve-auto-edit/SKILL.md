@@ -39,6 +39,15 @@ approval (`approve_cut`) sits between planning and execution.
 - Report honestly: if analysis lacked word timestamps the plan says
   `basis: cues`; tell the user detection ran coarser than usual.
 
+## Granular (`--full`) + prompt/resource
+
+`auto_edit` is kernel-only — no one-per-method granular twin; the decision
+layer above is the sole implementation, live-only (no `resolve-advanced`
+counterpart — `cut_ir` is an internal module, not a Node offline tool).
+**Prompt** — `auto_edit_workflow` (`src/server.py`) starts the loop above.
+**Resources** — `status://current_project`, `analysis://recent_reports`
+(the analysis batch's output), `capabilities://installed_tools`.
+
 ## Depth
 
 - Action boundary: `docs/kernels/auto-edit-kernel.md`

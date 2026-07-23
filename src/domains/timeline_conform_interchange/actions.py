@@ -672,6 +672,8 @@ def _import_timeline_checked(proj, mp, p: Dict[str, Any]):
     ext = os.path.splitext(path)[1].lower()
     if ext == ".prproj":
         return _err(_PRPROJ_REFUSAL, category="invalid_input")
+    if p.get("verify_visually") or p.get("reference_movie") or p.get("verify_threshold") is not None:
+        return _err(_VISUAL_VERIFY_REFUSAL, category="invalid_input")
     # AAF (and any binary interchange) is read natively by Resolve. The XML
     # sanitize/relink path parses the file as text, so it must be SKIPPED for AAF
     # even when sanitize_media / relink_search_roots is passed; fuzzy XML relink is
@@ -727,12 +729,6 @@ def _import_timeline_checked(proj, mp, p: Dict[str, Any]):
             san_kwargs["search_roots"] = list(search_roots)
             if p.get("relink_min_confidence") is not None:
                 san_kwargs["min_confidence"] = float(p["relink_min_confidence"])
-            if p.get("verify_visually") or p.get("reference_movie"):
-                san_kwargs["verify_visually"] = True
-            if p.get("reference_movie"):
-                san_kwargs["reference_movie"] = p["reference_movie"]
-            if p.get("verify_threshold") is not None:
-                san_kwargs["verify_threshold"] = float(p["verify_threshold"])
         try:
             sres = sanitize_timeline_xml(path, **san_kwargs)
         except Exception as e:
@@ -745,7 +741,6 @@ def _import_timeline_checked(proj, mp, p: Dict[str, Any]):
                 "removed_total", "missing_media_count", "generator_count",
                 "missing_media", "generators", "relinked_count", "relinked",
                 "ambiguous_count", "ambiguous", "scan",
-                "verified_count", "flagged_count", "flagged", "unverified_count",
             ) if k in sres
         }
 
@@ -1332,6 +1327,20 @@ _PRPROJ_REFUSAL = (
 
 
 _BINARY_INTERCHANGE_EXTS = {".aaf"}
+
+# Relink here matches by NAME (see utils/timeline_xml.match_references). Confirming a
+# relink is the right PICTURE means sampling frames and diffing them against a
+# reference render — that engine lives on the advanced MCP, so we refuse the argument
+# outright instead of accepting it and quietly not verifying anything.
+_VISUAL_VERIFY_REFUSAL = (
+    "Visual relink verification (verify_visually / reference_movie / verify_threshold) is not "
+    "available on this server — relink here matches by name only, and `sanitize.relinked` "
+    "reports the tier that matched (exact/case_insensitive/ext_agnostic/normalized) plus "
+    "anything `ambiguous`. For frame-accurate confirmation use the advanced MCP's `conform` "
+    "tool: relink_scalefix (repoint + scale-fix against real footage roots) and qc (per-cut "
+    "frame diff vs a reference render -> MATCH/OFFSET/WRONG). Re-run without these arguments "
+    "to relink by name."
+)
 
 
 _SEQ_CONTAINER_RE = re.compile(r"(^|/)SeqContainer(\d*\.xml|/[^/]+\.xml)$")

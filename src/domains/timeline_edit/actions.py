@@ -3653,17 +3653,18 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         otherwise abort the scripting-API import and leave the whole timeline offline.
         Returns `sanitize` with the kept/removed breakdown. The original is only read;
         the sanitized copy goes to a temp dir (no require_temp_path needed when sanitizing).
-        relink_search_roots (str|list) enables fuzzy relink: clips missing at their
-        original path are matched against media under those roots (exact/ext-agnostic/
-        normalized/reel + IDF true-source) and their pathurl rewritten so they relink
-        instead of being dropped. relink_min_confidence (default 0.7) gates matches;
-        `sanitize.relinked` / `sanitize.ambiguous` report the outcome.
-        verify_visually=True (or passing reference_movie) frame-checks each proposed
-        relink against a reference (reference_movie at the clip's record position, else
-        the offline proxy at the original path) using a brightness-robust SSIM-structure
-        metric; a conflicting relink is VETOED — reverted and reported under
-        `sanitize.flagged` for human review, never silently applied. verify_threshold
-        (default 0.90) sets the structural-match bar.
+        relink_search_roots (str|list) enables relink-by-name: clips missing at their
+        original path are matched against media under those roots and their pathurl
+        rewritten so they relink instead of being dropped. Match tiers, strictest
+        first: exact / case_insensitive / ext_agnostic / normalized (alphanumeric-only
+        stem). Only a UNIQUE hit in the first tier that matches is applied — several
+        hits are reported under `sanitize.ambiguous` and nothing is rewritten, since
+        guessing between same-named files is how a conform silently goes wrong.
+        relink_min_confidence (default 0.7) gates which tiers may apply (1.0 / 0.95 /
+        0.9 / 0.8 respectively); `sanitize.relinked` reports the tier that matched and
+        `sanitize.scan` the bounded candidate scan. Matching is by name only — for
+        frame-accurate confirmation that a relink is the right picture, use the
+        advanced MCP's `conform` tool (relink_scalefix, qc).
       import_from_drp(drpPath, timelineNames?|timelineIndexes?, import_source_clips?, dry_run?) -> {success, selected, imported, available, results}
         Extract chosen timelines from a .drp (offline zip surgery → temp .drt each) and
         import each into the running Resolve. Omit the selector to import ALL. Enumerate

@@ -26,17 +26,20 @@ conform XMLs.
 from __future__ import annotations
 
 import os
+import re
 import tempfile
+import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional
 
-# NOTE: the fuzzy media matcher (formerly src.utils.media_conform) + the conform
-# oracle/verify helpers moved to the Node davinci-resolve-advanced MCP, where the
-# whole conform/relink/frame-verify surface lives (editorial.match_references +
-# conform tools). They are imported LAZILY below only when the opt-in auto-relink
-# (search_roots) / visual-verify features are actually used, so plain XML sanitize
-# — the default and only critical path — never depends on them.
+# NOTE: FRAME-based verification of a proposed relink (sample the candidate, compare
+# it structurally against a reference render) is NOT done here — that whole surface
+# lives in the Node davinci-resolve-advanced MCP (`conform relink_scalefix` /
+# `conform qc`). This module only rewrites paths by NAME, and says so: a match is
+# reported with the tier that produced it, and anything ambiguous is reported rather
+# than guessed. Plain XML sanitize — the default and only critical path — does no
+# matching at all.
 
 
 def _pathurl_to_disk(pathurl: Optional[str]) -> Optional[str]:
@@ -71,39 +74,129 @@ def _full_file_elements(seq: ET.Element) -> Dict[str, ET.Element]:
     return out
 
 
+_NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _normalize_stem(stem: str) -> str:
+    """Fold a filename stem for the loosest match tier: lowercase, alphanumerics only.
+
+    ``A001_C003_0704AB.mov`` and ``a001-c003-0704ab.mxf`` normalize alike; unrelated
+    names still do not collide, because every alphanumeric character is preserved.
+    """
+    return _NORMALIZE_RE.sub("", stem.lower())
+
+
+def scan_candidates(search_roots: List[str], max_files: int = 50000,
+                    max_seconds: float = 20.0,
+                    max_depth: Optional[int] = None) -> Dict[str, Any]:
+    """Walk ``search_roots`` once, under hard bounds, collecting candidate media paths.
+
+    Bounded the same way as the live ``build_relink_plan`` scan: a runaway root (a
+    network mount, ``/``) stops at ``max_files``/``max_seconds`` and reports
+    ``truncated`` rather than hanging the import. One walk serves every missing
+    reference, so cost is independent of how many clips are offline.
+    """
+    started = time.monotonic()
+    max_files = max(1, int(max_files))
+    max_seconds = max(0.1, float(max_seconds))
+    candidates: List[str] = []
+    roots_missing: List[str] = []
+    scanned = 0
+    truncated = False
+
+    for root in search_roots:
+        if not isinstance(root, str) or not os.path.isdir(root):
+            roots_missing.append(root)
+            continue
+        root_depth = len(os.path.abspath(root).rstrip(os.sep).split(os.sep))
+        for dirpath, dirnames, filenames in os.walk(root):
+            if max_depth is not None:
+                depth = len(os.path.abspath(dirpath).rstrip(os.sep).split(os.sep)) - root_depth
+                if depth >= max_depth:
+                    dirnames[:] = []
+            for name in filenames:
+                candidates.append(os.path.join(dirpath, name))
+            scanned += len(filenames)
+            if scanned >= max_files or time.monotonic() - started >= max_seconds:
+                truncated = True
+                break
+        if truncated:
+            break
+
+    return {"candidates": candidates, "scanned": scanned,
+            "truncated": truncated, "roots_missing": roots_missing}
+
+
+# Match tiers, strictest first. Each maps a filename to the key it matches on; the
+# first tier that yields any candidate decides the outcome, so a weaker tier can
+# never override an exact hit. Confidences are TIER LABELS, not learned scores.
+_MATCH_TIERS = (
+    ("exact", 1.0, lambda name: name),
+    ("case_insensitive", 0.95, lambda name: name.lower()),
+    ("ext_agnostic", 0.9, lambda name: os.path.splitext(name)[0].lower()),
+    ("normalized", 0.8, lambda name: _normalize_stem(os.path.splitext(name)[0])),
+)
+
+
+def match_references(refs: List[Dict[str, Any]], candidates: List[str]) -> Dict[str, Any]:
+    """Match each missing reference to on-disk candidates by NAME, tier by tier.
+
+    Returns ``{"items": [...]}`` parallel to ``refs``, each item
+    ``{status, method, confidence, assetId?, assetIds?}``:
+
+    - ``matched`` — exactly one candidate in the strictest tier that hit.
+    - ``ambiguous`` — several candidates hit; every path is reported and NOTHING is
+      chosen. Guessing between two files with the same name is how a conform silently
+      goes wrong, so this is a deliberate refusal, not a limitation.
+    - ``unmatched`` — no tier hit.
+    """
+    indexes: List[Dict[str, List[str]]] = []
+    for _, _, key_of in _MATCH_TIERS:
+        index: Dict[str, List[str]] = {}
+        for path in candidates:
+            index.setdefault(key_of(os.path.basename(path)), []).append(path)
+        indexes.append(index)
+
+    items: List[Dict[str, Any]] = []
+    for ref in refs:
+        name = ref.get("name") or ""
+        item = {"status": "unmatched", "method": None, "confidence": 0.0}
+        for (method, confidence, key_of), index in zip(_MATCH_TIERS, indexes):
+            hits = sorted(set(index.get(key_of(name), [])))
+            if not hits:
+                continue
+            if len(hits) == 1:
+                item = {"status": "matched", "method": method,
+                        "confidence": confidence, "assetId": hits[0]}
+            else:
+                item = {"status": "ambiguous", "method": method,
+                        "confidence": confidence, "assetIds": hits}
+            break
+        items.append(item)
+    return {"items": items}
+
+
 def _relink_missing_files(seq: ET.Element, file_elems: Dict[str, ET.Element],
                           search_roots: List[str], min_confidence: float,
                           scan_caps: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Fuzzy-match every missing file definition against on-disk candidates and
-    rewrite its ``<pathurl>`` in place when a unique confident match is found.
+    """Match every missing file definition against on-disk candidates and rewrite its
+    ``<pathurl>`` in place when exactly one confident match is found.
 
     Returns {relinked, ambiguous, scan} for the report. Mutates ``seq``.
     """
-    missing_refs: List[Dict[str, str]] = []
-    ref_to_fid: Dict[int, str] = {}
+    fids: List[str] = []
+    missing_refs: List[Dict[str, Any]] = []
     for fid, elem in file_elems.items():
         purl = elem.findtext("pathurl")
         if purl is None or _media_exists(purl):
             continue
         disk = _pathurl_to_disk(purl)
         name = os.path.basename(disk) if disk else (elem.findtext("name") or "")
-        stem, ext = os.path.splitext(name)
-        ref = {"name": name, "basename": stem, "ext": ext, "reel": None, "_old": disk}
-        ref_to_fid[id(ref)] = fid
-        missing_refs.append(ref)
+        fids.append(fid)
+        missing_refs.append({"name": name, "old_path": disk})
 
     if not missing_refs:
         return {"relinked": [], "ambiguous": [], "scan": None}
-
-    try:
-        from src.utils.media_conform import match_references, scan_candidates
-    except ImportError as e:
-        raise RuntimeError(
-            "Auto-relink (search_roots) needs the media-conform matcher, which now "
-            "lives in the davinci-resolve-advanced MCP (use its `editorial` "
-            "match_references + `conform` tools). Omit search_roots for plain XML "
-            "sanitize, which needs nothing extra."
-        ) from e
 
     caps = scan_caps or {}
     scan = scan_candidates(search_roots, **caps)
@@ -111,99 +204,21 @@ def _relink_missing_files(seq: ET.Element, file_elems: Dict[str, ET.Element],
 
     relinked: List[Dict[str, Any]] = []
     ambiguous: List[Dict[str, Any]] = []
-    for ref, item in zip(missing_refs, conform["items"]):
-        fid = ref_to_fid[id(ref)]
+    for fid, ref, item in zip(fids, missing_refs, conform["items"]):
         if item["status"] == "matched" and item["confidence"] >= min_confidence:
             new_path = item["assetId"]
-            elem = file_elems[fid]
-            pe = elem.find("pathurl")
-            old_url = pe.text
-            pe.text = _disk_to_pathurl(new_path)
-            relinked.append({"name": ref["name"], "old_path": ref["_old"],
+            file_elems[fid].find("pathurl").text = _disk_to_pathurl(new_path)
+            relinked.append({"name": ref["name"], "old_path": ref["old_path"],
                              "new_path": new_path, "method": item["method"],
-                             "confidence": item["confidence"],
-                             "_fid": fid, "_old_url": old_url})
+                             "confidence": item["confidence"]})
         elif item["status"] == "ambiguous":
-            ambiguous.append({"name": ref["name"], "old_path": ref["_old"],
+            ambiguous.append({"name": ref["name"], "old_path": ref["old_path"],
                               "candidates": item.get("assetIds", []),
                               "method": item["method"]})
 
     return {"relinked": relinked, "ambiguous": ambiguous,
             "scan": {"scanned": scan["scanned"], "truncated": scan["truncated"],
                      "roots_missing": scan["roots_missing"]}}
-
-
-def _verify_relinks(file_elems: Dict[str, ET.Element], relinked: List[Dict[str, Any]],
-                    src_path: str, reference_movie: Optional[str], threshold: float,
-                    sampler=None) -> Dict[str, Any]:
-    """Visually verify each proposed relink and VETO (revert) the WRONG ones.
-
-    Per the flag-never-auto-apply rule: a relink that frame-matches its reference is
-    confirmed (``verified``); one that conflicts is reverted to its original (offline)
-    path and reported under ``flagged`` for human review; one with no available
-    reference stays relinked but ``unverified``. Mutates the file elements on veto.
-    """
-    try:
-        from src.utils import conform_oracle, conform_verify
-    except ImportError as e:
-        raise RuntimeError(
-            "Visual relink-verify (verify_visually/reference_movie) needs the conform "
-            "oracle + comparator, which now live in the davinci-resolve-advanced MCP "
-            "(`conform` tool). Run sanitize/relink without visual verify to skip it."
-        ) from e
-
-    parsed = conform_oracle.parse_clips(src_path)
-    ctx = {"fps": parsed["fps"], "sequence_width": parsed["sequence_width"]}
-    # representative clip per original disk path (prefer non-retimed, valid record range)
-    rep: Dict[str, Dict[str, Any]] = {}
-    for c in parsed["clips"]:
-        dp = c.get("disk_path")
-        if not dp:
-            continue
-        o = conform_oracle.derive(c, ctx)
-        score = (0 if o["retimed"] else 2) + (1 if (c.get("rec_start") or -1) >= 0 else 0)
-        cur = rep.get(dp)
-        if cur is None or score > cur["_score"]:
-            rep[dp] = {"clip": c, "oracle": o, "_score": score}
-
-    verified: List[Dict[str, Any]] = []
-    flagged: List[Dict[str, Any]] = []
-    unverified: List[Dict[str, Any]] = []
-    kept: List[Dict[str, Any]] = []
-    for entry in relinked:
-        info = rep.get(entry["old_path"])
-        if info is None:
-            unverified.append(entry)
-            kept.append(entry)
-            continue
-        reference = conform_verify.build_reference(
-            info["clip"], info["oracle"],
-            reference_movie=reference_movie, media_exists=_media_exists)
-        if reference is None:
-            unverified.append(entry)
-            kept.append(entry)
-            continue
-        res = conform_verify.verify_proposal(
-            reference, entry["new_path"],
-            reference.get("candidate_frame", info["oracle"]["sample_frame"]),
-            parsed["fps"], threshold=threshold, sampler=sampler)
-        verdict = res.get("verdict")
-        rec = {**entry, "structure": res.get("structure"),
-               "reference_kind": res.get("reference_kind")}
-        if verdict == "MATCH":
-            verified.append(rec)
-            kept.append(rec)
-        elif verdict == "WRONG":
-            # veto: revert pathurl so the clip falls back to missing -> dropped + flagged
-            elem = file_elems.get(entry["_fid"])
-            if elem is not None and entry.get("_old_url") is not None:
-                elem.find("pathurl").text = entry["_old_url"]
-            flagged.append(rec)
-        else:  # UNREADABLE / no comparison
-            unverified.append(rec)
-            kept.append(rec)
-    return {"relinked": kept, "verified": verified, "flagged": flagged,
-            "unverified": unverified}
 
 
 def _build_file_map(seq: ET.Element) -> Dict[str, str]:
@@ -291,30 +306,25 @@ def analyze_timeline_xml(path: str) -> Dict[str, Any]:
 def sanitize_timeline_xml(path: str, out_dir: Optional[str] = None,
                           search_roots: Optional[List[str]] = None,
                           min_confidence: float = 0.7,
-                          scan_caps: Optional[Dict[str, Any]] = None,
-                          verify_visually: bool = False,
-                          reference_movie: Optional[str] = None,
-                          verify_threshold: float = 0.90,
-                          verify_sampler=None) -> Dict[str, Any]:
+                          scan_caps: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Write a sanitized copy of the timeline XML to a temp file.
 
     Removes clipitems that reference missing media or are generators (no pathurl),
     preserving everything else. Returns ``{temp_path, report}`` where ``report`` is
     the same shape as :func:`analyze_timeline_xml` plus ``output_path``.
 
-    When ``search_roots`` is given, each clip whose media is missing at its
-    original path is first fuzzy-matched (layered exact/ext-agnostic/normalized/reel +
-    IDF true-source via :mod:`src.utils.media_conform`) against media files found under
-    those roots; a unique match at/above ``min_confidence`` rewrites the clip's
-    ``<pathurl>`` so it relinks instead of being dropped.
+    When ``search_roots`` is given, each clip whose media is missing at its original
+    path is first matched by name against media found under those roots (tiers:
+    exact / case-insensitive / ext-agnostic / normalized stem — see
+    :func:`match_references`); a UNIQUE match at/above ``min_confidence`` rewrites
+    the clip's ``<pathurl>`` so it relinks instead of being dropped. Several matches
+    in the same tier are reported under ``ambiguous`` and nothing is rewritten.
+    Clips that still cannot be resolved (and generators) are removed. ``scan_caps``
+    overrides the candidate-scan bounds.
 
-    When ``verify_visually`` is set (or a ``reference_movie`` is given), each proposed
-    relink is frame-checked against a reference (the reference movie at the clip's
-    record position, else the offline proxy at the original path) using the
-    brightness-robust SSIM-structure metric. A relink that conflicts is VETOED —
-    reverted to its original path and reported under ``flagged`` for human review,
-    never silently applied. Clips that still cannot be resolved (and generators) are
-    removed. ``scan_caps`` overrides the candidate-scan bounds.
+    Matching is by NAME only. To confirm a relink is the right *picture* — sample the
+    frame and compare it against a reference render — use the advanced MCP's
+    ``conform relink_scalefix`` / ``conform qc``.
     """
     with open(path, "r", encoding="utf-8-sig") as fh:
         raw = fh.read()
@@ -324,15 +334,9 @@ def sanitize_timeline_xml(path: str, out_dir: Optional[str] = None,
         raise ValueError("No <sequence> element found; not an FCP7 xmeml timeline")
 
     relink = {"relinked": [], "ambiguous": [], "scan": None}
-    verify = None
     if search_roots:
-        file_elems = _full_file_elements(seq)
-        relink = _relink_missing_files(seq, file_elems, search_roots,
+        relink = _relink_missing_files(seq, _full_file_elements(seq), search_roots,
                                        min_confidence, scan_caps)
-        if (verify_visually or reference_movie) and relink["relinked"]:
-            verify = _verify_relinks(file_elems, relink["relinked"], path,
-                                     reference_movie, verify_threshold, verify_sampler)
-            relink["relinked"] = verify["relinked"]
 
     file_map = _build_file_map(seq)
 
@@ -377,9 +381,6 @@ def sanitize_timeline_xml(path: str, out_dir: Optional[str] = None,
         fh.write(body)
         fh.write("\n")
 
-    def _clean(entries):
-        return [{k: v for k, v in e.items() if not k.startswith("_")} for e in entries]
-
     seq_name = seq.findtext("name") or base
     report = {
         "output_path": out_path,
@@ -391,15 +392,10 @@ def sanitize_timeline_xml(path: str, out_dir: Optional[str] = None,
         "missing_media_count": len(missing),
         "generators": generators,
         "generator_count": len(generators),
-        "relinked": _clean(relink["relinked"]),
+        "relinked": relink["relinked"],
         "relinked_count": len(relink["relinked"]),
         "ambiguous": relink["ambiguous"],
         "ambiguous_count": len(relink["ambiguous"]),
         "scan": relink["scan"],
     }
-    if verify is not None:
-        report["verified_count"] = len(verify["verified"])
-        report["flagged"] = _clean(verify["flagged"])
-        report["flagged_count"] = len(verify["flagged"])
-        report["unverified_count"] = len(verify["unverified"])
     return report

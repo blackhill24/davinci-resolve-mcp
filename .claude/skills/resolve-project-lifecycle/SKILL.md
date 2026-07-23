@@ -31,6 +31,14 @@ Thin router; depth stays in the kernel.
 - Safe archive defaults all media/cache/proxy flags to false and rejects any
   true flag unless `allow_media_archive=True`.
 
+**Granular (`--full`).** `src/granular/project.py` (`archive_project`,
+`import_project_from_file`, `export_project_to_file`, database/preset
+get-set, cloud-project import) and `src/granular/resolve_control.py`
+(layout/render/burn-in preset CRUD) — one method per API call beneath the
+guarded `safe_*` compound actions. **Prompt** — `project_lifecycle_workflow`
+(`src/server.py`). **Resources** — `status://current_project`,
+`capabilities://installed_tools`.
+
 ## Gotchas
 
 - `ProjectManager.ArchiveProject` and `RestoreProject` have returned `false`

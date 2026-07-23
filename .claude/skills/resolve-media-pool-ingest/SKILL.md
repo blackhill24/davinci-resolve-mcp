@@ -29,6 +29,15 @@ Thin router; depth stays in the kernel.
 Rule of thumb: verify + inventory the card offline *before* importing, then import
 and organize live.
 
+**Granular (`--full`).** `src/granular/media_pool.py` (`import_media`,
+`import_timeline_from_file`, `move_clips_to_folder`, `delete_media_pool_clips`,
+clip-matte/stereo/selection helpers), `src/granular/folder.py`
+(`get_folder_clip_list`, folder export), `src/granular/media_storage.py`
+(matte attach) — one method per API call when a compound action doesn't cover
+it. **Prompts** — `media_pool_workflow`, `orchestrate_workflow` (`src/server.py`).
+**Resources** — `status://current_project`, `capabilities://installed_tools`
+(ffmpeg gate for `media`).
+
 ## Boundaries & safety (AGENTS.md)
 
 - Non-media files are not imported; the kernel never creates proxies, transcodes,

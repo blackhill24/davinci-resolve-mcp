@@ -7,7 +7,7 @@
  *
  * Ground truth — reverse-engineered by export-diff on Resolve Studio 21.0.2.4
  * (level set by hand in the Inspector, two samples +12.0 dB and +3.7 dB diffed
- * against a unity baseline; recorded in src/utils/api_truth.py, issue=14):
+ * against a unity baseline; recorded in src/core/api_truth.py, issue=14):
  *
  *   At unity (0 dB) the audio clip's <EffectFiltersBA/> is EMPTY.
  *   A non-unity level writes a fixed audio-volume effect-filter blob whose only

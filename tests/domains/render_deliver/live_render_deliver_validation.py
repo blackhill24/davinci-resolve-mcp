@@ -96,6 +96,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    from preflight import gate
+    from tests.preflight import gate
     gate("idle")
     raise SystemExit(main())

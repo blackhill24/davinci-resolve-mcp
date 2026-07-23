@@ -17,8 +17,17 @@ PROJECT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.pat
 sys.path.insert(0, PROJECT)
 
 # Stub MCP imports so we can use src.server functions without spinning up the
-# full MCP server.
+# full MCP server — but only if the real SDK isn't installed; a partial stub
+# would otherwise shadow it and break unrelated imports (e.g. mcp.types).
 import types
+
+try:
+    import mcp.server.fastmcp  # noqa: F401
+
+    _NEED_MCP_STUB = False
+except ImportError:
+    _NEED_MCP_STUB = True
+
 
 class _FastMCP:
     def __init__(self, *a, **k): pass
@@ -29,19 +38,30 @@ class _FastMCP:
         def deco(fn): return fn
         return deco
 
-mcp_mod = types.ModuleType("mcp")
-sub = types.ModuleType("mcp.server")
-fast = types.ModuleType("mcp.server.fastmcp")
-stdio = types.ModuleType("mcp.server.stdio")
-fast.FastMCP = _FastMCP
-stdio.stdio_server = lambda *a, **k: None
-anyio = types.ModuleType("anyio")
-anyio.run = lambda f: f()
-sys.modules.setdefault("anyio", anyio)
-sys.modules.setdefault("mcp", mcp_mod)
-sys.modules.setdefault("mcp.server", sub)
-sys.modules.setdefault("mcp.server.fastmcp", fast)
-sys.modules.setdefault("mcp.server.stdio", stdio)
+class _Context:
+    pass
+
+class _Image:
+    def __init__(self, *a, **k):
+        self.args = a
+        self.kwargs = k
+
+if _NEED_MCP_STUB:
+    mcp_mod = types.ModuleType("mcp")
+    sub = types.ModuleType("mcp.server")
+    fast = types.ModuleType("mcp.server.fastmcp")
+    stdio = types.ModuleType("mcp.server.stdio")
+    fast.FastMCP = _FastMCP
+    fast.Context = _Context
+    fast.Image = _Image
+    stdio.stdio_server = lambda *a, **k: None
+    anyio = types.ModuleType("anyio")
+    anyio.run = lambda f: f()
+    sys.modules.setdefault("anyio", anyio)
+    sys.modules.setdefault("mcp", mcp_mod)
+    sys.modules.setdefault("mcp.server", sub)
+    sys.modules.setdefault("mcp.server.fastmcp", fast)
+    sys.modules.setdefault("mcp.server.stdio", stdio)
 
 from src.core.platform import get_resolve_paths  # noqa: E402
 
@@ -138,6 +158,6 @@ def main():
 
 
 if __name__ == "__main__":
-    from preflight import gate
+    from tests.preflight import gate
     gate("project")
     main()

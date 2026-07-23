@@ -308,7 +308,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    from preflight import gate
+    from tests.preflight import gate
     gate("open")
     code = main()
     passed = sum(1 for _, ok, _ in CHECKS if ok)

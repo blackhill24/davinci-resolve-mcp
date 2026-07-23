@@ -14,6 +14,9 @@ Run:
   venv/bin/python tests/live_auto_sync_settings_check.py
 """
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import src.server as s
 
@@ -73,6 +76,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    from preflight import gate
+    from tests.preflight import gate
     gate("open")
     sys.exit(main())

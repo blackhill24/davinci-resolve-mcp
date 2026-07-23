@@ -9,7 +9,7 @@
  *
  * This is the WRITE counterpart to panel-bridge.mjs (which is a deliberate
  * read-only inspection allowlist). The Python live server drives drt/drp surgery
- * through here on a scratch copy — never on source media (src/utils/advanced_bridge.py
+ * through here on a scratch copy — never on source media (src/core/advanced_bridge.py
  * owns the scratch discipline). Timelines are stateless artifacts: an op reads a
  * drpPath and writes a mutated buffer to outputPath.
  *

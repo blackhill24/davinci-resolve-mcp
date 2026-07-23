@@ -3,7 +3,7 @@
   "layers": 3,
   "root_nav": "CLAUDE.md",
   "synced": "2026-07-23",
-  "_root_structure": "75479c43f99da814",
+  "_root_structure": "01f545d69a3b321e",
   "workspaces": {
     "live-server": {
       "path": "src",
@@ -173,7 +173,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "9a157a78ad801da4",
+      "fingerprint": "0abd596267b903bd",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -679,7 +679,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "072a11cc61162ec9",
+      "fingerprint": "628b8ba1ec3f1c41",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",

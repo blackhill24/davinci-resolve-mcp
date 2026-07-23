@@ -30,7 +30,7 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
-import tests.live_auto_edit_validation as V  # reuse media synth + helpers  # noqa: E402
+import tests.domains.auto_edit.live_auto_edit_validation as V  # reuse media synth + helpers  # noqa: E402
 
 PILOT = f"duck_pipe_{time.strftime('%H%M%S')}"
 CHECKS: list[tuple[str, bool, str]] = []
@@ -165,6 +165,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    from preflight import gate
+    from tests.preflight import gate
     gate("open")
     sys.exit(main())

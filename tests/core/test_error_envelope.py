@@ -121,14 +121,15 @@ class ErrorEnvelopeContractTest(unittest.TestCase):
 
     def test_check_emits_structured_not_connected_when_resolve_absent(self):
         """Integration smoke: _check returns a NOT_CONNECTED error when Resolve is unreachable."""
+        import src.core.envelope as envelope
         import src.server as compound
 
-        original = compound.get_resolve
-        compound.get_resolve = lambda: None
+        original = envelope.get_resolve
+        envelope.get_resolve = lambda: None
         try:
             _, _, err = compound._check()
         finally:
-            compound.get_resolve = original
+            envelope.get_resolve = original
 
         self.assertIsNotNone(err)
         body = err["error"]

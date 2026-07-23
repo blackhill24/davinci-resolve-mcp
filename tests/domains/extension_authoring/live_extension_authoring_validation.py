@@ -9,6 +9,8 @@ import tempfile
 import types
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
 
 def _install_mcp_stubs() -> None:
     try:
@@ -91,6 +93,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    from preflight import gate
+    from tests.preflight import gate
     gate("open")
     raise SystemExit(main())

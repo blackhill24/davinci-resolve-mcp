@@ -58,6 +58,7 @@ from src.core.api_truth import lookup_api_truth, VERIFIED_ON as _API_TRUTH_VERIF
 from src.core.contracts import validate as _validate_params
 from src.domains.project_lifecycle.utils.cloud_operations import cloud_sync_status_label
 from src.domains.auto_edit.utils.cut_ir import build_cut_list as _build_cut_list
+from src.core import launch_shim as _launch_shim
 from src.core.page_lock import open_page_serialized as _open_page_serialized
 from src.core.proc import preload_audit, resolve_spawn_env, safe_run, sanitized_spawn_env
 from src.core.readback import verify_by_readback, verification_stats as _verification_stats
@@ -2895,6 +2896,14 @@ def resolve_control(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
       get_fairlight_presets() -> {presets}
       set_high_priority() -> {success}
       disable_background_tasks_for_current_session() -> {success}  — Resolve 21+
+      install_launch_shim() -> {success, installed, shim, desktop_entry, warnings}
+        — Linux only. Installs a user-scoped shim (~/.local/bin/resolve plus a
+          user-level .desktop override) so the Fairlight raw-hw ALSA config is
+          applied however Resolve is started, not only when this connector
+          spawns it. Without it, a desktop-launcher or terminal start wedges
+          renders mid-run. Idempotent; refuses to overwrite files it did not write.
+      uninstall_launch_shim() -> {success, removed, skipped_not_ours}
+      launch_shim_status() -> {supported, installed, shim, desktop_entry, resolve_on_path, warnings}
       open_control_panel(port?, host?, open_browser?) -> {success, url, pid, port, status}
         — Launches the analysis control panel (src/dashboard/) as a background process.
           Idempotent: returns the existing URL if already running.
@@ -2943,6 +2952,15 @@ def resolve_control(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         return _resolve_save_state()
     elif action == "restore_state":
         return _resolve_restore_state(p)
+
+    # Launch-shim lifecycle: no Resolve connection needed (the whole point is
+    # fixing how Resolve gets started in the first place).
+    elif action == "install_launch_shim":
+        return _launch_shim.install()
+    elif action == "uninstall_launch_shim":
+        return _launch_shim.uninstall()
+    elif action == "launch_shim_status":
+        return _launch_shim.status()
 
     if action == "mcp_update_status":
         return _mcp_update_status_payload(
@@ -3021,7 +3039,7 @@ def resolve_control(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             return missing
         r.DisableBackgroundTasksForCurrentResolveSession()
         return _ok()
-    return _unknown(action, ["launch","get_version","api_truth","verification_stats","env_audit","job_status","list_jobs","mcp_update_status","set_mcp_update_policy","ignore_mcp_update","snooze_mcp_update","clear_mcp_update_preferences","get_page","open_page","get_keyframe_mode","set_keyframe_mode","quit","get_fairlight_presets","set_high_priority","disable_background_tasks_for_current_session","open_control_panel","control_panel_status","close_control_panel","save_state","restore_state"])
+    return _unknown(action, ["launch","get_version","api_truth","verification_stats","env_audit","job_status","list_jobs","mcp_update_status","set_mcp_update_policy","ignore_mcp_update","snooze_mcp_update","clear_mcp_update_preferences","get_page","open_page","get_keyframe_mode","set_keyframe_mode","quit","get_fairlight_presets","set_high_priority","disable_background_tasks_for_current_session","open_control_panel","control_panel_status","close_control_panel","save_state","restore_state","install_launch_shim","uninstall_launch_shim","launch_shim_status"])
 
 
 # ─── V2 C4: Per-field corrections with provenance + changelog ────────────────

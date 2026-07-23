@@ -663,7 +663,7 @@ def downscale_frame_if_needed(image_path: str, max_dim: Optional[int]) -> str:
     try:
         from PIL import Image as PILImage
     except ImportError:
-        logger.debug("Pillow not installed — frame downscale skipped")
+        logger.debug("Pillow not installed - frame downscale skipped")
         return image_path
     try:
         with PILImage.open(image_path) as img:

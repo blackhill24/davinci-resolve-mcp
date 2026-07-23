@@ -205,7 +205,7 @@ def log_brain_edit(
 ) -> Dict[str, Any]:
     """Persist a brain-edit row + update the cross-project registry."""
     if target_metric is not None and target_metric not in METRIC_REGISTRY:
-        logger.warning("Unknown metric '%s' — logging anyway", target_metric)
+        logger.warning("Unknown metric '%s' - logging anyway", target_metric)
     if metric_direction is not None and metric_direction not in DIRECTIONS:
         return {"success": False, "error": f"Invalid direction: {metric_direction}"}
 

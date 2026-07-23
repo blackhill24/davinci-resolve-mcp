@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
-"""Live Audio / Fairlight boundary probe."""
+"""Live Audio / Fairlight boundary probe.
+
+Subtitle *generation* (the native ``Timeline.CreateSubtitlesFromAudio``) is
+opt-in via ``RESOLVE_PROBE_ALLOW_SUBTITLE_GENERATION=1``. On Linux
+(Resolve Studio 21.0.2.4, verified 2/2 reproductions) that call takes the whole
+Resolve process down mid-probe, which kills the run and leaves the disposable
+project behind because the cleanup ``finally`` never executes. Default runs
+therefore exercise the dry ``allow_generate=False`` path, which still validates
+settings normalisation and capability reporting without the crash.
+"""
 
 from __future__ import annotations
 
 import json
+import os
 import platform
 import shutil
 import subprocess
@@ -14,6 +24,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from src.domains.timeline_edit.utils.timeline_kernel_probe import ProbeRecorder, render_markdown_report, utc_timestamp
+
+ENV_ALLOW_SUBTITLE_GENERATION = "RESOLVE_PROBE_ALLOW_SUBTITLE_GENERATION"
 
 
 def _require_success(label: str, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -204,14 +216,24 @@ def run_probe(server, output_dir: Path, keep_open: bool = False) -> Dict[str, An
                 expected_status=None if clear.get("success") else "version_or_page_dependent",
             )
 
-        subtitles = server.timeline("subtitle_generation_probe", {"settings": {}, "allow_generate": True})
+        allow_generate = os.environ.get(ENV_ALLOW_SUBTITLE_GENERATION, "").strip().lower() in {"1", "true", "yes"}
+        subtitles = server.timeline("subtitle_generation_probe", {"settings": {}, "allow_generate": allow_generate})
         _record_tool_result(
             recorder,
             "subtitles",
-            "subtitle_generation_probe_execute",
+            "subtitle_generation_probe_execute" if allow_generate else "subtitle_generation_probe_dry",
             subtitles,
             expected_status=None if subtitles.get("success") else "version_or_page_dependent",
         )
+        if not allow_generate:
+            recorder.record(
+                "subtitles",
+                "subtitle_generation_probe_execute",
+                "version_or_page_dependent",
+                details={
+                    "reason": f"native CreateSubtitlesFromAudio crashes Resolve on this platform; set {ENV_ALLOW_SUBTITLE_GENERATION}=1 to run it anyway",
+                },
+            )
 
         _record_tool_result(
             recorder,

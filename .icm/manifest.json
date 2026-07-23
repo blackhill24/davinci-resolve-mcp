@@ -679,7 +679,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "55ffc7b4154d670b",
+      "fingerprint": "bc3fb436e6737162",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",

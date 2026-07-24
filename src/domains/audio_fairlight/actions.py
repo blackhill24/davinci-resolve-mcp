@@ -89,7 +89,12 @@ from src.domains.media_analysis.utils.media_analysis_jobs import (
     resume_batch_job as resume_media_analysis_batch_job,
     run_batch_job_slice as run_media_analysis_batch_job_slice,
 )
-from src.core.platform import get_resolve_paths, get_resolve_plugin_paths, subtitle_generation_guard
+from src.core.platform import (
+    get_resolve_paths,
+    get_resolve_plugin_paths,
+    subtitle_generation_guard,
+    subtitle_generation_override_active,
+)
 from src.domains.color_grade.utils.lut_paths import master_lut_dir, ensure_lut_in_master
 from src.domains.extension_authoring.utils import fuse_templates, dctl_templates, script_templates
 from src.domains.timeline_edit.utils.timeline_title_text import (
@@ -849,9 +854,16 @@ def _subtitle_generation_probe(tl, p: Dict[str, Any]):
         )
     if not _has_method(tl, "CreateSubtitlesFromAudio"):
         return _err("CreateSubtitlesFromAudio unavailable")
-    return _run_maybe_background(
+    res = _run_maybe_background(
         "timeline.create_subtitles_from_audio", p, lambda: _safe_create_subtitles(tl, p)
     )
+    if subtitle_generation_override_active() and isinstance(res, dict) and "error" not in res:
+        res.setdefault("warnings", []).append(
+            "crash guard bypassed via RESOLVE_ALLOW_SUBTITLE_GENERATION: native "
+            "CreateSubtitlesFromAudio is proven to kill the Resolve process on this "
+            "platform (issue #90). Prefer offline generation + timeline import_srt."
+        )
+    return res
 
 def _fairlight_boundary_report(proj, mp, tl, p: Dict[str, Any]):
     fairlight_presets = None

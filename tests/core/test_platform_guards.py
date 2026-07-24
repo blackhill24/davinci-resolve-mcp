@@ -11,6 +11,7 @@ from unittest import mock
 from src.core.platform import (
     ENV_ALLOW_SUBTITLE_GENERATION,
     subtitle_generation_guard,
+    subtitle_generation_override_active,
 )
 
 
@@ -42,6 +43,18 @@ class SubtitleGenerationGuardTest(unittest.TestCase):
         for platform_name in ("darwin", "windows"):
             with mock.patch("src.core.platform.get_platform", return_value=platform_name):
                 self.assertIsNone(subtitle_generation_guard(), platform_name)
+
+    def test_override_active_only_on_linux_with_env(self):
+        with mock.patch("src.core.platform.get_platform", return_value="linux"), \
+             mock.patch.dict("os.environ", {ENV_ALLOW_SUBTITLE_GENERATION: "1"}):
+            self.assertTrue(subtitle_generation_override_active())
+        with mock.patch("src.core.platform.get_platform", return_value="linux"), \
+             mock.patch.dict("os.environ", {ENV_ALLOW_SUBTITLE_GENERATION: "0"}):
+            self.assertFalse(subtitle_generation_override_active())
+        # on an unguarded platform the env var is meaningless, not an "override"
+        with mock.patch("src.core.platform.get_platform", return_value="darwin"), \
+             mock.patch.dict("os.environ", {ENV_ALLOW_SUBTITLE_GENERATION: "1"}):
+            self.assertFalse(subtitle_generation_override_active())
 
 
 if __name__ == "__main__":

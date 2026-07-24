@@ -156,6 +156,20 @@ SUBTITLE_GENERATION_CRASH_ISSUE = (
 )
 
 
+def subtitle_generation_override_active():
+    """True when RESOLVE_ALLOW_SUBTITLE_GENERATION opts into the crash-prone
+    native subtitle call on a platform where the crash is proven (Linux).
+
+    Callers that proceed under this override should surface a warning in their
+    result — the env var may be inherited from a launcher shell the caller
+    never sees, and a silent bypass of a process-killing guard is worse than
+    the refusal (issue #90).
+    """
+    if get_platform() != "linux":
+        return False
+    return os.environ.get(ENV_ALLOW_SUBTITLE_GENERATION, "").strip().lower() in {"1", "true", "yes"}
+
+
 def subtitle_generation_guard():
     """Guard for Timeline.CreateSubtitlesFromAudio (issue #90).
 
@@ -171,7 +185,7 @@ def subtitle_generation_guard():
     """
     if get_platform() != "linux":
         return None
-    if os.environ.get(ENV_ALLOW_SUBTITLE_GENERATION, "").strip().lower() in {"1", "true", "yes"}:
+    if subtitle_generation_override_active():
         return None
     return {
         "blocked_call": "Timeline.CreateSubtitlesFromAudio",
@@ -186,7 +200,8 @@ def subtitle_generation_guard():
         "issue": SUBTITLE_GENERATION_CRASH_ISSUE,
         "alternative": (
             "Generate subtitles offline (e.g. Whisper via media-analysis) "
-            "and import the SRT into the timeline instead."
+            "and bring them in with timeline(action='import_srt') instead — "
+            "that path is live-proven on this platform."
         ),
     }
 

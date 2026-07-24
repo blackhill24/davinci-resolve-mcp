@@ -2,7 +2,10 @@
 
 from src.granular.common import *  # noqa: F401,F403
 
-from src.core.platform import subtitle_generation_guard as _subtitle_crash_guard
+from src.core.platform import (
+    subtitle_generation_guard as _subtitle_crash_guard,
+    subtitle_generation_override_active as _subtitle_override_active,
+)
 
 resolve = ResolveProxy()
 
@@ -877,7 +880,14 @@ def timeline_create_subtitles_from_audio(
             "crash_guard": guard,
         }
     result = tl.CreateSubtitlesFromAudio(settings)
-    return {"success": bool(result)}
+    out: Dict[str, Any] = {"success": bool(result)}
+    if _subtitle_override_active():
+        out["warnings"] = [
+            "crash guard bypassed via RESOLVE_ALLOW_SUBTITLE_GENERATION: native "
+            "CreateSubtitlesFromAudio is proven to kill the Resolve process on this "
+            "platform (issue #90)."
+        ]
+    return out
 
 
 @mcp.tool()

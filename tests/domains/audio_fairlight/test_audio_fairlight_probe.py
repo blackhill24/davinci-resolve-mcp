@@ -228,7 +228,9 @@ class AudioFairlightProbeTest(unittest.TestCase):
         self.assertEqual(result["error"]["category"], "unsupported")
         self.assertFalse(timeline.subtitle_calls)
 
-    def test_allow_generate_env_override_reaches_api(self):
+    def test_allow_generate_env_override_reaches_api_with_warning(self):
+        # The override must not be silent: the env var may come from a launcher
+        # shell the caller never sees, so the result carries an explicit warning.
         timeline = TimelineStub()
         with mock.patch("src.core.platform.get_platform", return_value="linux"), \
              mock.patch.dict("os.environ", {"RESOLVE_ALLOW_SUBTITLE_GENERATION": "1"}):
@@ -238,6 +240,8 @@ class AudioFairlightProbeTest(unittest.TestCase):
 
         self.assertNotIn("error", result)
         self.assertTrue(timeline.subtitle_calls)
+        self.assertTrue(any("crash guard bypassed" in w for w in result.get("warnings", [])),
+                        result.get("warnings"))
 
     def test_allow_generate_unguarded_off_linux(self):
         timeline = TimelineStub()
@@ -248,6 +252,7 @@ class AudioFairlightProbeTest(unittest.TestCase):
 
         self.assertNotIn("error", result)
         self.assertTrue(timeline.subtitle_calls)
+        self.assertNotIn("warnings", result)
 
 
 if __name__ == "__main__":

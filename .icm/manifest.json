@@ -3,11 +3,11 @@
   "layers": 3,
   "root_nav": "CLAUDE.md",
   "synced": "2026-07-24",
-  "_root_structure": "ac35a1da4c806b15",
+  "_root_structure": "ea48082c286b80ee",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "876b7e9be14f1124",
+      "fingerprint": "c6974efdb1b4263a",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -38,6 +38,7 @@
         "src/core/resolve_ai_ledger.py",
         "src/core/resolve_busy.py",
         "src/core/resolve_connection.py",
+        "src/core/resolve_launch.py",
         "src/core/structural_diff.py",
         "src/core/timeline_brain_db.py",
         "src/core/timeline_lookup.py",
@@ -174,7 +175,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "2a8bb74e8e79e832",
+      "fingerprint": "35fdc58face700dc",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -184,6 +185,7 @@
         "resolve-advanced/scripts/calib-harness.mjs",
         "resolve-advanced/scripts/drp-bridge.mjs",
         "resolve-advanced/scripts/panel-bridge.mjs",
+        "resolve-advanced/scripts/preflight-native.mjs",
         "resolve-advanced/server/aaf.mjs",
         "resolve-advanced/server/aaf_probe.py",
         "resolve-advanced/server/author-interchange.mjs",
@@ -327,6 +329,7 @@
         "resolve-advanced/test/matte-finesse-calibration.test.mjs",
         "resolve-advanced/test/media-ops.test.mjs",
         "resolve-advanced/test/motion-effects-scales.test.mjs",
+        "resolve-advanced/test/native-preflight.test.mjs",
         "resolve-advanced/test/node-color-calibration.test.mjs",
         "resolve-advanced/test/node-graph-relayout.test.mjs",
         "resolve-advanced/test/node-lut-ref-calibration.test.mjs",
@@ -681,7 +684,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "01c57a0e6549f4d4",
+      "fingerprint": "ff9b67a33b3f0797",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/cloud-test-setup.md",
@@ -692,6 +695,7 @@
         "tests/core/test_api_limitations_doc.py",
         "tests/core/test_api_truth.py",
         "tests/core/test_api_truth_mitigations.py",
+        "tests/core/test_app_control_restart.py",
         "tests/core/test_auto_run.py",
         "tests/core/test_background_jobs.py",
         "tests/core/test_brain_edits.py",
@@ -723,6 +727,7 @@
         "tests/dashboard/test_advanced_bridge.py",
         "tests/dashboard/test_ai_console_dispatch.py",
         "tests/dashboard/test_dashboard_transport.py",
+        "tests/dashboard/test_handler_helpers.py",
         "tests/dashboard/test_inventory_exclude_bins.py",
         "tests/dashboard/test_open_control_panel.py",
         "tests/dashboard/test_panel_docs_drift.py",
@@ -913,7 +918,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "e03b675b39ed4bbd",
+      "fingerprint": "bb23182415785f8b",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

@@ -141,6 +141,83 @@ class ResolveSpawnEnvTest(unittest.TestCase):
         self.assertNotIn("LD_PRELOAD", env)
 
 
+class AlsaDeviceRankingTest(unittest.TestCase):
+    """Autodetect must rank free substreams by likely-usable, not take the
+    first one PipeWire left open — which picked dead HDMI pins and changed the
+    pair run to run (#99). Verified via the generated conf's slave hw lines."""
+
+    def _fake_asound(self, root, devices, eld=None):
+        """devices: (card, dev, name, direction, status).
+        eld: {(card, index): monitor_present_int}."""
+        lines = []
+        for card, dev, name, direction, status in devices:
+            lines.append(f"{card:02d}-{dev:02d}: {name} : {name} : {direction} 1\n")
+            sub = os.path.join(root, f"card{card}", f"pcm{dev}{direction[0]}", "sub0")
+            os.makedirs(sub, exist_ok=True)
+            with open(os.path.join(sub, "status"), "w", encoding="utf-8") as fh:
+                fh.write(status)
+        with open(os.path.join(root, "pcm"), "w", encoding="utf-8") as fh:
+            fh.writelines(lines)
+        for (card, index), present in (eld or {}).items():
+            path = os.path.join(root, f"card{card}", f"eld#{card}.{index}")
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(f"monitor_present\t\t{present}\neld_valid\t\t{present}\n")
+
+    def _conf(self, root):
+        env = resolve_spawn_env({}, proc_asound=root, conf_dir=root)
+        path = env.get("ALSA_CONFIG_PATH")
+        self.assertTrue(path and os.path.exists(path))
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_prefers_analog_over_free_hdmi(self):
+        # The take-first bug would pick the HDMI pin (card 0, listed first);
+        # ranking must reach the analog output instead.
+        with tempfile.TemporaryDirectory() as root:
+            self._fake_asound(root, [
+                (0, 3, "HDMI 0", "playback", "closed"),
+                (1, 0, "ALC897 Analog", "playback", "closed"),
+                (1, 0, "ALC897 Analog", "capture", "closed"),
+            ], eld={(0, 0): 1})
+            conf = self._conf(root)
+            self.assertIn("playback.pcm { type plug; slave.pcm { type hw; card 1; device 0 }", conf)
+
+    def test_prefers_connected_hdmi_over_dead_pin(self):
+        # No analog available; among HDMI pins the one with a monitor wins even
+        # though a dead pin has a lower device number.
+        with tempfile.TemporaryDirectory() as root:
+            self._fake_asound(root, [
+                (0, 3, "HDMI 0", "playback", "closed"),   # eld index 0 -> dead
+                (0, 7, "HDMI 1", "playback", "closed"),   # eld index 1 -> connected
+                (1, 0, "ALC897 Analog", "capture", "closed"),
+            ], eld={(0, 0): 0, (0, 1): 1})
+            conf = self._conf(root)
+            self.assertIn("card 0; device 7", conf)
+
+    def test_deterministic_lowest_when_equal_rank(self):
+        # Two equal-tier analog outputs -> always the lower (card, device).
+        with tempfile.TemporaryDirectory() as root:
+            self._fake_asound(root, [
+                (1, 2, "ALC897 Analog", "playback", "closed"),
+                (1, 0, "ALC897 Analog", "playback", "closed"),
+                (1, 0, "ALC897 Analog", "capture", "closed"),
+            ])
+            conf = self._conf(root)
+            self.assertIn("playback.pcm { type plug; slave.pcm { type hw; card 1; device 0 }", conf)
+
+    def test_dead_hdmi_still_used_as_last_resort(self):
+        # A dead HDMI pin is worse than nothing? No — it still opens, so when
+        # it is the only free playback it must be selected, not refused.
+        with tempfile.TemporaryDirectory() as root:
+            self._fake_asound(root, [
+                (0, 3, "HDMI 0", "playback", "closed"),
+                (1, 0, "ALC897 Analog", "capture", "closed"),
+            ], eld={(0, 0): 0})
+            conf = self._conf(root)
+            self.assertIn("card 0; device 3", conf)
+
+
 class LaunchSitesUseSanitizedEnvTest(unittest.TestCase):
     """Every Linux Resolve spawn passes a sanitized env and detaches the session."""
 

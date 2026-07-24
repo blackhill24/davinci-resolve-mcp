@@ -43,9 +43,13 @@ jobs:
         # #111: test_live_harness_naming added — it keeps live-Resolve harnesses
         # out of test_*.py, which is what makes the pytest step below runnable
         # on a Resolve-less runner at all.
+        # #113: test_discarded_mutator_returns added — Resolve reports failure by
+        # return value, so a dropped return is an unconditional "it worked". That
+        # shape produced a bug in three consecutive audits (#110, #111 x2); the
+        # guard freezes the known set so a fourth one can't appear silently.
         run: |
           pip install pyflakes
-          python -m unittest tests.test_static_undefined_names tests.test_action_list_drift tests.dashboard.test_panel_docs_drift tests.core.test_api_limitations_doc tests.test_doc_tool_counts tests.test_live_harness_naming
+          python -m unittest tests.test_static_undefined_names tests.test_action_list_drift tests.dashboard.test_panel_docs_drift tests.core.test_api_limitations_doc tests.test_doc_tool_counts tests.test_live_harness_naming tests.test_discarded_mutator_returns
 
       - name: Run full Python offline test suite
         # #110 finding (packaging): the publish workflow used to run only a

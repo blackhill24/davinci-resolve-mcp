@@ -16,11 +16,16 @@ import array
 import math
 import os
 import statistics
+import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.domains.media_analysis.utils.technical_probe import _ffmpeg_stderr_filter, _parse_loudness, _run_command
 from src.core.proc import safe_run
+
+# Full-file PCM decode of a music bed. Generous — a long track on a slow disk is
+# legitimate — but bounded, so a wedged ffmpeg cannot hang the auto-edit run.
+DECODE_TIMEOUT_SECONDS = 10 * 60
 
 # Broadcast-style dialogue programs sit near -23 LUFS; a music bed reads well
 # roughly 7 dB under that. Both are overridable per call.
@@ -185,8 +190,10 @@ def _decode_pcm_mono(
         "-ac", "1", "-ar", str(sample_rate), "-f", "f32le", "-",
     ]
     try:
-        proc = safe_run(args, capture_output=True)
-    except OSError:
+        # #111 finding 8: this was the one safe_run() caller in src/ with no
+        # timeout, so a wedged ffmpeg blocked the auto-edit run indefinitely.
+        proc = safe_run(args, capture_output=True, timeout=DECODE_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
         return None, sample_rate
     if proc.returncode != 0:
         return None, sample_rate

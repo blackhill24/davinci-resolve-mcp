@@ -224,9 +224,31 @@ DEFAULT_EXIT_WAIT_SECONDS = 30
 
 # Per-platform "is Resolve still up?" query. pgrep exits 0 when a match exists
 # and 1 when none does; tasklist always exits 0, so its output is matched.
+#
+# The Linux entry matches the COMMAND LINE, not the process name, and both
+# halves of that matter (#111 finding 7):
+#
+#   * `pgrep -x resolve` (matching the process name) finds NOTHING on Linux,
+#     even with Resolve running: Resolve renames its main thread, so `comm` is
+#     "GUI Thread", not "resolve". Verified on 21.0.2.4 — `ps -eo pid,comm` shows
+#     `GUI Thread` for `/opt/resolve/bin/resolve`, and resolve_process_running()
+#     returned False while Resolve was up. That is the dangerous direction:
+#     wait_for_resolve_exit() would report the old process gone immediately and
+#     the restart would race the still-dying instance, which is the exact
+#     silent-abort failure #104 finding 3 added this query to prevent.
+#   * A plain `pgrep -f resolve` (matching the command line loosely) is a near-
+#     permanent FALSE POSITIVE: it matches `/usr/lib/systemd/systemd-resolved`,
+#     which runs on essentially every modern Linux desktop.
+#
+# So anchor the command-line match to a path boundary: `resolve` must start the
+# string or follow a `/`, and must end the string or be followed by whitespace.
+# `/opt/resolve/bin/resolve` matches; `systemd-resolved` does not (its "resolve"
+# follows a `-` and is trailed by `d`).
+_LINUX_RESOLVE_CMDLINE_RE = r'(^|/)resolve([[:space:]]|$)'
+
 _PROCESS_QUERIES = {
     'darwin': ['pgrep', '-x', 'DaVinci Resolve'],
-    'linux': ['pgrep', '-x', 'resolve'],
+    'linux': ['pgrep', '-f', _LINUX_RESOLVE_CMDLINE_RE],
     'windows': ['tasklist', '/FI', 'IMAGENAME eq Resolve.exe', '/NH'],
 }
 

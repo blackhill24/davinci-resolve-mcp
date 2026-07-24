@@ -70,6 +70,36 @@ MUSIC_BED_CONSENT_LINE = (
 )
 
 
+def _positive_frames(value: Any, fallback: int, label: str, notes: List[str]) -> int:
+    """A frame-count knob: strictly positive, else the default — and say so.
+
+    #111 finding 10: these were read with a bare `int(value or DEFAULT)`, so an
+    explicit 0 silently became the default. The repo already settled this policy
+    for frame knobs in #110 finding 7 (`positive_or_default`: strictly positive,
+    else fall back), and `no_dissolves` / `no_lower_thirds` are the documented
+    off-switches — a zero-length dissolve or a zero-duration lower-third is not a
+    meaningful op, so 0 stays out of contract rather than becoming "off".
+
+    What changes is that the substitution is no longer silent: an out-of-contract
+    value is reported in `notes`, so a caller who meant "off" finds out that the
+    default was used and which option actually turns the family off.
+    """
+    if value is None:
+        return int(fallback)
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        notes.append(f"{label}={value!r} is not a frame count — using {fallback}")
+        return int(fallback)
+    if number > 0:
+        return number
+    notes.append(
+        f"{label}={number} is not a positive frame count — using {fallback}; "
+        "use no_dissolves / no_lower_thirds to suppress these instead"
+    )
+    return int(fallback)
+
+
 # ── brief intake + state machine ─────────────────────────────────────────────
 
 
@@ -859,14 +889,19 @@ def plan_polish_ops(
     segments: List[Dict[str, Any]] = plan.get("segments") or []
     overlays: List[Dict[str, Any]] = plan.get("overlays") or []
     offset = int(record_offset)
-    dissolve_frames = int(opts.get("dissolve_frames") or DEFAULT_DISSOLVE_FRAMES)
-    lt_frames = int(opts.get("lower_third_frames") or DEFAULT_LOWER_THIRD_FRAMES)
-    # Lower-thirds sit above every used video track: V3 when b-roll overlays
-    # occupy V2, else V2.
-    lt_track = int(opts.get("lower_third_track") or (3 if overlays else 2))
 
     ops: List[Dict[str, Any]] = []
     notes: List[str] = []
+
+    dissolve_frames = _positive_frames(
+        opts.get("dissolve_frames"), DEFAULT_DISSOLVE_FRAMES, "options.dissolve_frames", notes)
+    lt_frames = _positive_frames(
+        opts.get("lower_third_frames"), DEFAULT_LOWER_THIRD_FRAMES,
+        "options.lower_third_frames", notes)
+    # Lower-thirds sit above every used video track: V3 when b-roll overlays
+    # occupy V2, else V2. Resolve tracks are 1-based, so `or` is right here —
+    # 0 is not an expressible track index.
+    lt_track = int(opts.get("lower_third_track") or (3 if overlays else 2))
 
     # A b-roll overlay over a segment IS the smoothing at that segment's opening
     # cut — don't stack a dissolve on top of it.
@@ -900,7 +935,9 @@ def plan_polish_ops(
                     f"segment {i}: dissolve skipped — b-roll overlay already smooths this cut")
                 continue
             rec = int(seg.get("record_start_frame", 0)) + offset
-            dur = int((seg.get("transition_in") or {}).get("duration_frames") or dissolve_frames)
+            dur = _positive_frames(
+                (seg.get("transition_in") or {}).get("duration_frames"), dissolve_frames,
+                f"segment {i} transition_in.duration_frames", notes)
             ops.append({
                 "op": "place_transition",
                 "args": {"track": SPEECH_VIDEO_TRACK, "atFrame": rec, "durationFrames": dur},
@@ -924,7 +961,9 @@ def plan_polish_ops(
                 ops.append(_lower_third_op(
                     text=str(lt["text"]).strip(), rec=rec,
                     track=int(lt.get("track_index") or lt_track),
-                    dur=int(lt.get("duration_frames") or lt_frames),
+                    dur=_positive_frames(
+                        lt.get("duration_frames"), lt_frames,
+                        f"lower_thirds[{k}].duration_frames", notes),
                     reason=f"explicit lower-third {k}"))
         else:
             last_beat = None

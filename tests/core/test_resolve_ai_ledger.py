@@ -47,7 +47,7 @@ class LedgerRecordQueryTest(unittest.TestCase):
 
     def test_timed_records_exception_and_reraises(self):
         with self.assertRaises(ValueError):
-            with L.timed(self.root, "analyze_for_slate", session_id="s1") as rec:
+            with L.timed(self.root, "analyze_for_slate", session_id="s1"):
                 raise ValueError("boom")
         rows = L.get_usage(project_root=self.root)
         self.assertEqual(len(rows), 1)

@@ -637,7 +637,7 @@ def _fusion_probe_group_published_inputs(comp, p: Dict[str, Any]) -> Dict[str, A
         max_inputs = int(max_inputs)
     except (TypeError, ValueError):
         max_inputs = 32
-    time = p.get("time", 0)
+    at_time = p.get("time", 0)
     live_inputs: List[Dict[str, Any]] = []
     for index in range(1, max_inputs + 1):
         slot = f"Input{index}"
@@ -655,11 +655,11 @@ def _fusion_probe_group_published_inputs(comp, p: Dict[str, Any]) -> Dict[str, A
         except Exception:
             pass
         try:
-            row["value"] = _ser(inp[time])
+            row["value"] = _ser(inp[at_time])
         except Exception as exc:
             row["value_error"] = str(exc)
         try:
-            row["expression"] = inp.GetExpression(time)
+            row["expression"] = inp.GetExpression(at_time)
         except Exception:
             row["expression"] = None
         live_inputs.append(row)

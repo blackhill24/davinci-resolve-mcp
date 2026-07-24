@@ -476,7 +476,7 @@ def plan_tighten(
             "note": f"min_pause_seconds={min_pause_seconds}; items without transcripts are skipped.",
         }
 
-    lifts.sort(key=lambda l: -l["duration_seconds"])
+    lifts.sort(key=lambda lift: -lift["duration_seconds"])
     if target_ratio:
         target_frames = timeline_total_frames * float(target_ratio)
         chosen: List[Dict[str, Any]] = []
@@ -488,7 +488,7 @@ def plan_tighten(
             removed += (lift["timeline_end_frame"] - lift["timeline_start_frame"])
         lifts = chosen
     # Latest-first application order so earlier spans stay valid.
-    lifts.sort(key=lambda l: -l["timeline_start_frame"])
+    lifts.sort(key=lambda lift: -lift["timeline_start_frame"])
 
     # Keep ranges: per item, the complement of its selected lifts, expressed as
     # media-pool SOURCE frame ranges. Execution assembles a tightened VARIANT
@@ -506,7 +506,7 @@ def plan_tighten(
         clip_fps = spec["clip_fps"]
         cursor = spec["src_start_sec"]
         segments: List[Tuple[float, float]] = []
-        for lift in sorted(lifts_by_item.get(spec["item_index"], []), key=lambda l: l["source_lift_seconds"][0]):
+        for lift in sorted(lifts_by_item.get(spec["item_index"], []), key=lambda entry: entry["source_lift_seconds"][0]):
             lift_start_sec, lift_end_sec = lift["source_lift_seconds"]
             if lift_start_sec - cursor > 0.05:
                 segments.append((cursor, lift_start_sec))
@@ -543,7 +543,7 @@ def plan_tighten(
                     "track_index": audio_index,
                 })
 
-    removed_frames = sum(l["timeline_end_frame"] - l["timeline_start_frame"] for l in lifts)
+    removed_frames = sum(lift["timeline_end_frame"] - lift["timeline_start_frame"] for lift in lifts)
     audio_keep_range_count = sum(1 for r in keep_ranges if r.get("track_type") == "audio")
     video_keep_range_count = len(keep_ranges) - audio_keep_range_count
     plan = save_plan(project_root, {

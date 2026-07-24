@@ -4,7 +4,6 @@ A FakeProject stands in for the Resolve Project object; GetSetting returns
 strings for numeric settings, mirroring how Resolve's API actually behaves.
 """
 import unittest
-from unittest import mock
 
 from src.domains.project_lifecycle.utils.project_properties import (
     get_all_project_properties,

@@ -15,7 +15,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
-from src.domains.auto_edit.utils import auto_edit, cut_ir, edit_engine, montage_edit
+from src.domains.auto_edit.utils import auto_edit, cut_ir, edit_engine
 
 
 def run(coro):
@@ -34,7 +34,7 @@ def make_montage_plan(root, *, n_segments=3, music=True):
         segments.append(cut_ir.make_cut_list_segment(
             role="montage", clip_id=f"clip-{i}", clip_uuid=f"uuid-{i}",
             source_start_frame=0, source_end_frame=48,
-            rationale=f"select_potential rank 2, pacing=moderate",
+            rationale="select_potential rank 2, pacing=moderate",
             evidence={"description": f"Shot {i}.", "pacing": "moderate"}))
     plan = cut_ir.make_cut_list(
         segments=segments, fps=24.0,

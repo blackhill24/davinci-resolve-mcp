@@ -31,7 +31,7 @@ import sqlite3
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.core import timeline_brain_db
 

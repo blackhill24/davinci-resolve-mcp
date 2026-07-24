@@ -1,5 +1,4 @@
 """Tests for the declarative parameter-contract validator and safe subprocess wrappers."""
-import subprocess
 import unittest
 
 from src.core.contracts import validate

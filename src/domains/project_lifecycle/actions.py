@@ -751,7 +751,6 @@ def _make_spec_hook_runner(timeout: float = 120.0):
     (e.g. ``bash -c "…"``) as its own argv, making the intent visible (EX1).
     """
     import shlex
-    import subprocess
 
     def _run(hook) -> bool:
         try:

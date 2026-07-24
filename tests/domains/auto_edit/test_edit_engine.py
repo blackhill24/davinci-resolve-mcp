@@ -255,7 +255,7 @@ class PlanTightenTests(EditEngineBase):
             self._item(timeline_start_frame=480, timeline_end_frame=960),
         ]
         plan = edit_engine.plan_tighten(self.root, items=items, timeline_name="TL", timeline_fps=24.0)
-        starts = [l["timeline_start_frame"] for l in plan["lifts"]]
+        starts = [lift["timeline_start_frame"] for lift in plan["lifts"]]
         self.assertEqual(starts, sorted(starts, reverse=True))
 
     def test_keep_ranges_mirror_audio_by_default(self) -> None:

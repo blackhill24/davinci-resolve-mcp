@@ -30,7 +30,7 @@ from src.dashboard.project_context import _resolve_all_project_contexts
 from src.dashboard.clip_review import apply_clip_correction, combined_clip_analysis, export_clip_selection, get_analyzed_clip, get_analyzed_clip_shot, get_analyzed_clip_shots, get_analyzed_clip_transcript, get_clip_frame_path, list_analyzed_clips, regenerate_clip_transcript, save_clip_transcript_corrections, _v2_semantic_search
 from src.dashboard.timeline_versions import _v2_create_timeline_from_clips, _v2_enrich_search_results, _v2_open_clip_in_resolve, get_edit_plan_payload, get_timeline_history_payload, list_edit_plans_payload, list_timelines_with_versions, proxy_timeline_versioning_action, read_clip_corrections
 from src.dashboard.media_inventory import resolve_media_inventory
-from src.dashboard.state import DashboardState, _advanced_capabilities_payload, _advanced_lineage_payload, _clear_restart_marker, _dashboard_doc, _inventory_prefs, _launch_claude_code_terminal, _mcp_install_payload, _mcp_status_payload, _mcp_uninstall_payload, _mcp_version, _native_directory_picker, _read_restart_marker, _repo_root, _request_is_loopback, _setup_defaults, _transport_start, _transport_stop, _update_apply_payload, _update_history_payload, _update_preview_payload, _update_rollback_payload, _update_status_payload
+from src.dashboard.state import DashboardState, _advanced_capabilities_payload, _advanced_lineage_payload, _clear_restart_marker, _dashboard_doc, _inventory_prefs, _launch_claude_code_terminal, _mcp_install_payload, _mcp_status_payload, _mcp_uninstall_payload, _mcp_version, _native_directory_picker, _read_restart_marker, _repo_root, _request_is_loopback, _request_origin_ok, _setup_defaults, _transport_start, _transport_stop, _update_apply_payload, _update_history_payload, _update_preview_payload, _update_rollback_payload, _update_status_payload
 
 
 _PANEL_HTML_PATH = os.path.join(os.path.dirname(__file__), "static", "panel.html")
@@ -129,12 +129,18 @@ class Handler(BaseHTTPRequestHandler):
         return payload if isinstance(payload, dict) else {}
 
     def do_GET(self) -> None:
+        if not _request_origin_ok(self):
+            self._json({"success": False, "error": "forbidden: non-localhost Host/Origin"}, HTTPStatus.FORBIDDEN)
+            return
         try:
             self._route_get()
         except Exception as exc:  # pragma: no cover - runtime safety for dashboard users
             self._json({"success": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def do_POST(self) -> None:
+        if not _request_origin_ok(self):
+            self._json({"success": False, "error": "forbidden: non-localhost Host/Origin"}, HTTPStatus.FORBIDDEN)
+            return
         try:
             self._route_post()
         except Exception as exc:  # pragma: no cover

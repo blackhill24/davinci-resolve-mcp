@@ -714,7 +714,7 @@ def edit_engine(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
                         if audio_keep_ranges
                         else "WARNING: variant is VIDEO-ONLY (silent) — plan has no audio ranges."
                     ),
-                    "estimated_removed_seconds": sum(l.get("duration_seconds") or 0 for l in lifts),
+                    "estimated_removed_seconds": sum(lift.get("duration_seconds") or 0 for lift in lifts),
                 },
             )
         blocked = _consume_confirm_token(action="edit_engine.execute_tighten", params=p)
@@ -786,8 +786,8 @@ def edit_engine(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
             "lifts_applied": len(lifts),
             "keep_ranges": len(keep_ranges),
             "lift_rationales": [
-                {"lift": [l["timeline_start_frame"], l["timeline_end_frame"]], "rationale": l.get("rationale")}
-                for l in lifts
+                {"lift": [lift["timeline_start_frame"], lift["timeline_end_frame"]], "rationale": lift.get("rationale")}
+                for lift in lifts
             ],
             "readback": {
                 "before": before,

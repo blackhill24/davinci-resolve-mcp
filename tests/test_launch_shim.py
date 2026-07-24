@@ -5,7 +5,6 @@ started, not only when the connector spawns it. These tests run fully offline:
 HOME is redirected to a temp dir so nothing touches the real ~/.local.
 """
 import os
-import platform
 import tempfile
 import unittest
 from unittest import mock

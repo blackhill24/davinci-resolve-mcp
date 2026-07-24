@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import math
-import os
 import shutil
 import struct
 import sys

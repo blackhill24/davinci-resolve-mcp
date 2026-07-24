@@ -838,7 +838,6 @@ def _drp_seq_containers(zf) -> List[Dict[str, Any]]:
 
 def _extract_seqcontainer_from_drp(drp_path: str, seq_entry: str, out_path: str) -> None:
     """Write a minimal .drt (zip) holding one SeqContainer as Primary1/SeqContainer1.xml."""
-    import zipfile
 
     with zipfile.ZipFile(drp_path, "r") as zf:
         xml = zf.read(seq_entry)
@@ -863,7 +862,6 @@ def _import_from_drp(proj, mp, p: Dict[str, Any]):
     running Resolve. Requires Resolve open. Mirrors: drt.extract_from_drp → import_timeline_checked,
     but as one call returning per-timeline results.
     """
-    import zipfile
 
     drp_path = p.get("drpPath") or p.get("drp_path") or p.get("path")
     if not drp_path:

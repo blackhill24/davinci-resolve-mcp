@@ -18,7 +18,7 @@ folder.
 | Add/find a dashboard test | `dashboard/test_*.py` | domain folders | — |
 | Add a repo-wide/drift-guard test | root `test_*.py` (e.g. `test_import.py`, `test_action_list_drift.py`) — only when it genuinely spans every domain | domain folders | — |
 | Cloud-project live test setup | `cloud-test-setup.md`, `domains/project_lifecycle/live_cloud_project_validation.py` | — | issue #25 |
-| Benchmark / set up a test timeline | `benchmark_server.py`, `create_test_timeline.py` (both root — shared across domains) | — | `scripts/measure_bridge_cost.py` |
+| Benchmark the bridge | `scripts/measure_bridge_cost.py` | — | — |
 
 ## Key files (only where the name doesn't say enough)
 
@@ -27,7 +27,6 @@ folder.
 - `preflight.py` (root) — pre-run Resolve status gate (closed / open_no_project /
   open_project); `--require open|project|timeline`, `--json`; exit 0 ready, 2 not ready,
   3 no scripting. Every `live_*` `__main__` calls `gate()` — new live harnesses must too.
-- `test-after-restart.sh` / `.bat` (root) — post-restart validation harness.
 - `fixtures/analysis_sample/` — a real analysis root (2 verbatim `analysis.json`) checked in
   so the media-analysis round-trip/backfill guards always have real input and can never
   skip; see its README before touching. Discovery helpers live in

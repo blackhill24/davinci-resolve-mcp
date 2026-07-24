@@ -25,7 +25,7 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
-from typing import Callable, Dict, Iterator, Optional, Tuple
+from typing import Callable, Dict, Iterator, Optional
 
 logger = logging.getLogger("resolve-mcp.timeline-brain-db")
 

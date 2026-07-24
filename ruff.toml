@@ -1,0 +1,41 @@
+# Lint gate for the Python side (src/, scripts/, tests/).
+# Scope is deliberately narrow: real-defect classes only (unused/redefined
+# names, syntax-level pyflakes errors, mutable default args, loop-variable
+# closure captures). Style/modernization rules stay off — the codebase
+# predates them and churning 4k lines for typing syntax buys nothing.
+# Run: .venv/bin/ruff check src scripts tests
+
+target-version = "py310"
+
+[lint]
+select = [
+    "E4",   # import placement
+    "E7",   # statement errors (comparison to literals, etc.)
+    "E9",   # syntax/indentation errors
+    "F",    # pyflakes: unused/undefined/redefined names, f-strings
+    "B006", # mutable default argument
+    "B008", # function call in default argument
+    "B023", # closure over loop variable
+]
+ignore = [
+    "E402", # imports after code — sys.path setup precedes imports across this repo
+    "E731", # `mutate = lambda: ...` is the verify_by_readback callback idiom here
+]
+
+[lint.per-file-ignores]
+# Granular modules build their namespace from src/granular/common on purpose.
+"src/granular/*.py" = ["F403", "F405"]
+# Package inits may re-export.
+"__init__.py" = ["F401"]
+# Import hubs: other modules (and tests) import these names *through* them —
+# "unused" here is a re-export, not dead weight. Verified the hard way: pruning
+# them broke `from src.server import ERROR_CATEGORIES`, `from
+# src.core.tool_kernel import _ser`, and every granular module's star-import
+# namespace at once.
+"src/server.py" = ["F401"]
+"src/core/tool_kernel.py" = ["F401"]
+"src/granular/common.py" = ["F401"]
+# Domain dispatch resolves helpers dynamically through each actions module's
+# namespace (and tests mock.patch.object() names on them) — imports that look
+# unused are the dispatch surface.
+"src/domains/*/actions.py" = ["F401"]

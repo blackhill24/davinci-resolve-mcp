@@ -3,11 +3,11 @@
   "layers": 3,
   "root_nav": "CLAUDE.md",
   "synced": "2026-07-24",
-  "_root_structure": "01f545d69a3b321e",
+  "_root_structure": "ac35a1da4c806b15",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "6ff2af4da44060e1",
+      "fingerprint": "876b7e9be14f1124",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -608,7 +608,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "04ef27078daec311",
+      "fingerprint": "31fea720636b61b9",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -681,10 +681,9 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "320d97e5fb6188f0",
+      "fingerprint": "01c57a0e6549f4d4",
       "files": [
         "tests/_error_envelope_helpers.py",
-        "tests/benchmark_server.py",
         "tests/cloud-test-setup.md",
         "tests/core/test_advanced_bridge_drx_compute.py",
         "tests/core/test_advanced_bridge_generic.py",
@@ -721,13 +720,13 @@
         "tests/core/test_tool_exposure.py",
         "tests/core/test_update_check.py",
         "tests/core/test_verification_stats.py",
-        "tests/create_test_timeline.py",
         "tests/dashboard/test_advanced_bridge.py",
         "tests/dashboard/test_ai_console_dispatch.py",
         "tests/dashboard/test_dashboard_transport.py",
         "tests/dashboard/test_inventory_exclude_bins.py",
         "tests/dashboard/test_open_control_panel.py",
         "tests/dashboard/test_panel_docs_drift.py",
+        "tests/dashboard/test_request_origin_guard.py",
         "tests/dashboard/test_update_hardening.py",
         "tests/domains/audio_fairlight/live_audio_clip_levels_sweep.py",
         "tests/domains/audio_fairlight/live_audio_fairlight_validation.py",
@@ -875,15 +874,12 @@
         "tests/live_v233_validation.py",
         "tests/preflight.py",
         "tests/render_scratch.py",
-        "tests/test-after-restart.bat",
-        "tests/test-after-restart.sh",
         "tests/test_action_help.py",
         "tests/test_action_list_drift.py",
         "tests/test_agent_rules_drift.py",
         "tests/test_batch_cli.py",
         "tests/test_claude_skills.py",
         "tests/test_compound_disconnected_smoke.py",
-        "tests/test_custom_timeline.py",
         "tests/test_description_xml_shape.py",
         "tests/test_destructive_decorator_coverage.py",
         "tests/test_destructive_registry_drift.py",
@@ -892,7 +888,6 @@
         "tests/test_exhaustive_wave_a.py",
         "tests/test_granular_disconnected_smoke.py",
         "tests/test_import.py",
-        "tests/test_improvements.py",
         "tests/test_launch_shim.py",
         "tests/test_live_api.py",
         "tests/test_mcp_prompts.py",
@@ -918,7 +913,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "0b44d0a19e06399e",
+      "fingerprint": "e03b675b39ed4bbd",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

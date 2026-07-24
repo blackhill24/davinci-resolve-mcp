@@ -8,7 +8,6 @@ are all covered offline.
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import tempfile
@@ -51,7 +50,7 @@ class EntitiesBase(unittest.TestCase):
         path = os.path.join(self.frames_dir, f"{clip_uuid}_{frame_index}.jpg")
         with open(path, "wb") as handle:
             handle.write(b"fake")
-        conn = timeline_brain_db.connect(self.root)
+        timeline_brain_db.connect(self.root)
         with timeline_brain_db.transaction(self.root) as txn:
             txn.execute(
                 "UPDATE frames SET frame_path = ? WHERE clip_uuid = ? AND frame_index = ?",

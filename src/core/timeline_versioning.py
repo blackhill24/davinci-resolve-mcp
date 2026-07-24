@@ -57,7 +57,8 @@ def _find_subfolder_by_name(folder: Any, name: str) -> Optional[Any]:
         try:
             if sub.GetName() == name:
                 return sub
-        except Exception:
+        except Exception as exc:
+            logger.debug("GetName failed on subfolder while looking for %r: %s", name, exc)
             continue
     return None
 
@@ -101,7 +102,8 @@ def _find_timeline_by_name(project: Any, name: str) -> Optional[Any]:
         try:
             if tl.GetName() == name:
                 return tl
-        except Exception:
+        except Exception as exc:
+            logger.debug("GetName failed on a timeline while looking for %r: %s", name, exc)
             continue
     return None
 
@@ -145,7 +147,8 @@ def archive_current_timeline(
     for existing_tl in _list_all_timelines(project):
         try:
             m = ARCHIVED_SUFFIX_PATTERN.match(existing_tl.GetName())
-        except Exception:
+        except Exception as exc:
+            logger.debug("GetName failed while scanning archived suffixes: %s", exc)
             continue
         if m and m.group("base") == working_name and m.group("v"):
             next_version = max(next_version, int(m.group("v")) + 1)
@@ -173,12 +176,12 @@ def archive_current_timeline(
     timeline_start_frame: Optional[int] = None
     try:
         timeline_fps = float(tl.GetSetting("timelineFrameRate") or 0) or None
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("could not read timelineFrameRate for version row: %s", exc)
     try:
         timeline_start_frame = int(tl.GetStartFrame())
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("could not read start frame for version row: %s", exc)
 
     with timeline_brain_db.transaction(project_root) as txn:
         cursor = txn.execute(
@@ -282,8 +285,8 @@ def _resolve_media_pool_item_id(item: Any) -> Optional[str]:
         mpi = item.GetMediaPoolItem()
         if mpi is not None and hasattr(mpi, "GetUniqueId"):
             return str(mpi.GetUniqueId())
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("GetMediaPoolItem/GetUniqueId failed on timeline item: %s", exc)
     try:
         return str(item.GetUniqueId()) if hasattr(item, "GetUniqueId") else None
     except Exception:
@@ -298,14 +301,16 @@ def capture_timeline_clip_usage(timeline: Any) -> List[Dict[str, Any]]:
     for tt in ("video", "audio", "subtitle"):
         try:
             count = timeline.GetTrackCount(tt)
-        except Exception:
+        except Exception as exc:
+            logger.debug("GetTrackCount(%s) failed — %s tracks skipped in snapshot: %s", tt, tt, exc)
             continue
         if not count:
             continue
         for ti in range(1, int(count) + 1):
             try:
                 items = timeline.GetItemListInTrack(tt, ti) or []
-            except Exception:
+            except Exception as exc:
+                logger.debug("GetItemListInTrack(%s, %d) failed — track skipped in snapshot: %s", tt, ti, exc)
                 continue
             for item in items:
                 mpi_id = _resolve_media_pool_item_id(item)
@@ -314,7 +319,8 @@ def capture_timeline_clip_usage(timeline: Any) -> List[Dict[str, Any]]:
                 try:
                     in_frame = int(item.GetStart())
                     out_frame = int(item.GetEnd())
-                except Exception:
+                except Exception as exc:
+                    logger.debug("GetStart/GetEnd failed — item skipped in snapshot: %s", exc)
                     continue
                 rows.append({
                     "media_pool_item_id": mpi_id,

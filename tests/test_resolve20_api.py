@@ -174,7 +174,6 @@ def main():
         if not clips:
             return 1
 
-        image_clip = find_clip_by_path(clips, image_path) or clips[0]
         audio_clip = find_clip_by_path(clips, wav_a)
         replacement_audio = wav_b
 

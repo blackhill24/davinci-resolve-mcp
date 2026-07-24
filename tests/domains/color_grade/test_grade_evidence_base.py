@@ -94,7 +94,6 @@ class GradeEvidenceBaseVersionExtractionTest(unittest.TestCase):
         original_snap = None
         original_probe = None
         try:
-            import src.server as compound
             import src.domains.color_grade.actions as _dom_color_grade
 
             original_snap = _dom_color_grade._grade_version_snapshot

@@ -3152,7 +3152,6 @@ def _pick_dashboard_python(repo_root: str) -> Tuple[str, Optional[str]]:
     Returns ``(executable, source)`` where ``source`` is "venv:<path>" when
     a venv was picked, ``"sys.executable"`` otherwise.
     """
-    import subprocess
     import sys as _sys
 
     candidates = [
@@ -3225,7 +3224,6 @@ def _port_owner_pid(host: str, port: int) -> Optional[int]:
     Host is informational only — lsof matches any local LISTEN socket on that
     port (which is what we care about for port-collision detection).
     """
-    import subprocess
     try:
         result = subprocess.run(
             ["lsof", "-nP", "-iTCP:" + str(port), "-sTCP:LISTEN", "-t"],
@@ -3242,7 +3240,6 @@ def _port_owner_pid(host: str, port: int) -> Optional[int]:
 
 
 def _open_control_panel(p: Dict[str, Any]) -> Dict[str, Any]:
-    import subprocess
     import socket
     import time as _t
 

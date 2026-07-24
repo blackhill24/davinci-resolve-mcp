@@ -8,6 +8,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler
 from typing import Any, Dict, List, Mapping, Optional, Tuple
+from urllib.parse import urlparse
 
 from src.core import timeline_brain_db as _timeline_brain_db
 from src.domains.media_analysis.utils.media_analysis_jobs import (
@@ -143,6 +144,58 @@ def _request_is_loopback(handler: BaseHTTPRequestHandler) -> bool:
     except Exception:
         return False
     return addr in {"127.0.0.1", "::1", "localhost"}
+
+
+_ALLOWED_REQUEST_HOSTNAMES = {"127.0.0.1", "::1", "localhost"}
+
+
+def _header_hostname(value: str) -> Optional[str]:
+    """Hostname part of a Host header or Origin URL, lowercased.
+
+    Handles ports and bracketed IPv6 (``[::1]:8899``). Returns None when the
+    value cannot be parsed — callers treat that as not-localhost.
+    """
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        if "://" in value:
+            return urlparse(value).hostname
+        return urlparse(f"//{value}").hostname
+    except ValueError:
+        return None
+
+
+def _request_origin_ok(handler: BaseHTTPRequestHandler) -> bool:
+    """Block DNS-rebinding and cross-site browser requests.
+
+    A loopback *client address* is not enough on its own: the user's browser is
+    itself a loopback client, so any web page it renders can fire requests at
+    this server — cross-site form/fetch POSTs directly, and reads via DNS
+    rebinding (an attacker hostname resolving to 127.0.0.1 puts the page
+    same-origin with us). So the Host header must name localhost, and when a
+    browser supplies an Origin it must be a localhost origin too. Requests
+    without Host/Origin (curl, the panel launcher) pass — they are not
+    browser-mediated, and loopback bind already limits who can connect.
+    """
+    # An explicit non-loopback bind (--host on main.py) is an operator opt-in
+    # to LAN use; legitimate Host values are then unknowable here (any of the
+    # machine's addresses), so the guard only enforces in the default
+    # loopback-bind mode — which is also the mode DNS rebinding targets.
+    try:
+        bound = str(handler.server.server_address[0]).lower()
+        if bound not in {"127.0.0.1", "::1", "localhost"}:
+            return True
+    except Exception:
+        pass
+    host = (handler.headers.get("Host") or "").strip()
+    if host and _header_hostname(host) not in _ALLOWED_REQUEST_HOSTNAMES:
+        return False
+    origin = (handler.headers.get("Origin") or "").strip()
+    # "null" (sandboxed iframe, file://) is still an attacker-reachable origin.
+    if origin and _header_hostname(origin) not in _ALLOWED_REQUEST_HOSTNAMES:
+        return False
+    return True
 
 
 def _launch_claude_code_terminal() -> Dict[str, Any]:

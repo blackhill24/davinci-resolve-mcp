@@ -9,9 +9,7 @@ Cleans up regardless of pass/fail.
 """
 
 import os
-import subprocess
 import sys
-import time
 
 PROJECT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, PROJECT)

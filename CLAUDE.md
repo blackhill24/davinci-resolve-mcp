@@ -40,7 +40,7 @@ method). Per-domain depth: `AGENTS.md` → Domain Routing + `docs/kernels/`. Liv
 
 ```
 src/  resolve-advanced/  docs/  tests/  scripts/  bin/  examples/
-install.py  package.json  requirements.txt  AGENTS.md  README.md  CHANGELOG.md
+install.py  package.json  requirements.txt  ruff.toml  AGENTS.md  README.md  CHANGELOG.md
 .claude/skills/   (Claude Code domain skills; mirrors in .cursor/ .roo/ etc.)
 ```
 

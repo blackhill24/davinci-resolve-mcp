@@ -1,5 +1,4 @@
 """Contract tests for B3 — auto-open brain-edit run on first destructive call."""
-import os
 import tempfile
 import time
 import unittest

@@ -775,7 +775,8 @@ def _activate_resolve_window() -> Dict[str, Any]:
                 "error": proc.stderr.strip() if proc.returncode != 0 else None,
             }
         # Linux: try wmctrl, then xdotool. Quietly no-op if neither present.
-        import subprocess, shutil
+        import subprocess
+        import shutil
         if shutil.which("wmctrl"):
             proc = subprocess.run(
                 ["wmctrl", "-a", "DaVinci Resolve"],
@@ -847,7 +848,8 @@ def _send_resolve_keystroke_go_to_mark_in() -> Dict[str, Any]:
                 "error": proc.stderr.strip() if proc.returncode != 0 else None,
             }
         # Linux: try xdotool only (wmctrl can't send keys).
-        import subprocess, shutil
+        import subprocess
+        import shutil
         if shutil.which("xdotool"):
             proc = subprocess.run(
                 ["xdotool", "search", "--name", "DaVinci Resolve", "key", "--window", "%@", "shift+i"],

@@ -67,7 +67,8 @@ async def run(s) -> int:
 
     r = s.get_resolve()
     if r is None:
-        print("Resolve not available — aborting"); return 2
+        print("Resolve not available — aborting")
+        return 2
     pm = r.GetProjectManager()
     previous = pm.GetCurrentProject().GetName() if pm.GetCurrentProject() else None
     proj = pm.CreateProject(PILOT)

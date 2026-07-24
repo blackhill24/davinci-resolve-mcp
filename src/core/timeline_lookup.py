@@ -5,132 +5,14 @@ CONTEXT.md for what lives here and why.
 """
 from __future__ import annotations
 
-import base64
 import os
-import sys
-import json
 import logging
-import math
-import platform
 import re
-import shutil
-import struct
-import subprocess
-import tempfile
-import threading
-import time
-import zipfile
-import zlib
 from typing import Dict, Any, Optional, List, Tuple
 
-from src.domains.color_grade.utils.cdl import normalize_cdl_payload
-from src.core.mcp_stdio import run_fastmcp_stdio
-from src.core.api_truth import lookup_api_truth, VERIFIED_ON as _API_TRUTH_VERIFIED_ON
 from src.core.contracts import validate as _validate_params
-from src.domains.project_lifecycle.utils.cloud_operations import cloud_sync_status_label
-from src.domains.auto_edit.utils.cut_ir import build_cut_list as _build_cut_list
-from src.core.page_lock import open_page_serialized as _open_page_serialized
-from src.core.proc import preload_audit, resolve_spawn_env, safe_run, sanitized_spawn_env
-from src.core.readback import verify_by_readback, verification_stats as _verification_stats
-from src.core.update_check import (
-    check_for_updates,
-    clear_update_prompt_preferences,
-    get_cached_update_status,
-    get_update_channel,
-    get_update_mode,
-    ignore_update_version,
-    set_update_mode,
-    snooze_update_prompt,
-    start_background_update_check,
-    update_prompt_decision,
-    update_state_path,
-)
-from src.domains.media_analysis.utils.caps_gating import (
-    HOST_CHAT_PATHS_PROVIDER,
-    HOST_CHAT_VISION_PROVIDERS,
-    DEFAULT_VISION_ANALYSIS_PROMPT,
-    VISION_SCHEMA_REFERENCE,
-)
-from src.domains.media_analysis.utils.clip_identity_registry import (
-    resolve_output_root as resolve_media_analysis_output_root,
-    short_hash,
-    slugify,
-)
-from src.domains.media_analysis.utils.capabilities_and_planning import (
-    build_plan as build_media_analysis_plan,
-    detect_capabilities as detect_media_analysis_capabilities,
-    install_guidance as media_analysis_install_guidance,
-)
-from src.domains.media_analysis.utils.execute_engine import (
-    execute_plan_async as execute_media_analysis_plan_async,
-    plan_requires_capabilities as media_analysis_plan_requires_capabilities,
-)
-from src.domains.media_analysis.utils.reports import (
-    build_coverage_report as build_media_analysis_coverage_report,
-    cleanup_artifacts as cleanup_media_analysis_artifacts,
-    commit_visual_analysis,
-    load_report as load_media_analysis_report,
-    summarize_reports as summarize_media_analysis_reports,
-)
-from src.domains.media_analysis.utils.analysis_index_build import build_analysis_index
-from src.domains.media_analysis.utils.analysis_index_query import (
-    analysis_index_status,
-    query_analysis_index,
-)
-from src.domains.media_analysis.utils.sync_detection import detect_sync_events_for_records as detect_media_sync_events
-from src.core import actor_identity, background_jobs, resolve_busy
-from src.core.resolve_busy import long_resolve_op
-from src.domains.media_analysis.utils.media_analysis_jobs import (
-    MEDIA_EXTENSIONS,
-    batch_job_status as media_analysis_batch_job_status,
-    cancel_batch_job as cancel_media_analysis_batch_job,
-    create_batch_job as create_media_analysis_batch_job,
-    list_batch_jobs as list_media_analysis_batch_jobs,
-    resume_batch_job as resume_media_analysis_batch_job,
-    run_batch_job_slice as run_media_analysis_batch_job_slice,
-)
-from src.core.platform import get_resolve_paths, get_resolve_plugin_paths
-from src.domains.color_grade.utils.lut_paths import master_lut_dir, ensure_lut_in_master
-from src.domains.extension_authoring.utils import fuse_templates, dctl_templates, script_templates
-from src.domains.timeline_edit.utils.timeline_title_text import (
-    candidate_title_property_keys as _candidate_title_property_keys,
-    plain_to_minimal_styled_xml as _plain_to_minimal_styled_xml,
-    timeline_item_get_property_map as _timeline_item_get_property_map,
-)
-from src.domains.media_pool_ingest.utils.multicam import build_multicam_setup_plan
-from src.domains.timeline_conform_interchange.utils.timeline_xml import analyze_timeline_xml, sanitize_timeline_xml
-from src.domains.fusion_composition.utils.fusion_group_settings import (
-    FUSION_COMMIT_CHECKLIST,
-    FUSION_GROUP_GUARDRAILS,
-    default_backup_path,
-    parse_setting_file,
-    splice_inputs_block,
-)
-from src.core import analysis_runs as _analysis_runs
-from src.core import brain_edits as _brain_edits
-from src.domains.auto_edit.utils import edit_engine as _edit_engine_mod
-from src.domains.auto_edit.utils import auto_edit as _auto_edit_mod
-from src.domains.auto_edit.utils import montage_edit as _montage_edit_mod
-from src.domains.orchestration.utils import orchestrate as _orchestrate_mod
-from src.core import advanced_bridge as _advanced_bridge
-from src.domains.auto_edit.utils import music_analysis as _music_analysis_mod
-from src.domains.media_pool_ingest.utils import media_pool_changes as _media_pool_changes
-from src.core import timeline_versioning as _timeline_versioning
-from src.domains.project_lifecycle.utils import project_spec as _project_spec
-from src.domains.project_lifecycle.utils import project_lint as _project_lint
-from src.domains.timeline_edit.utils import clip_query as _clip_query
-from src.core import destructive_hook as _destructive_hook
-from src.core.destructive_hook import destructive_op as _destructive_op
-import uuid as _ledger_uuid
-from src.core import resolve_ai_ledger as _resolve_ai_ledger
-from src.core import resolve_ai_governance as _resolve_ai_governance
-import hashlib as _hashlib
-import time as _time
-import uuid as _uuid
-from mcp.server.fastmcp import Context, FastMCP, Image
-from mcp import types as mcp_types
 from src.core.envelope import (
-    _err, _ok, _unknown, _ser,
+    _err, _ser,
     _callable_method_names, _check, _has_method, _safe_get_property, _safe_clip_call,
 )
 from src.core.live_connection import (
@@ -384,8 +266,8 @@ def _timeline_item_source_start(item):
             source_start = _frame_int(item.GetSourceStartFrame())
             if source_start is not None:
                 return source_start
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("GetSourceStartFrame failed, falling back to GetLeftOffset: %s", exc)
     try:
         return _frame_int(item.GetLeftOffset())
     except Exception:
@@ -403,8 +285,8 @@ def _timeline_item_duration(item, start: Optional[int] = None, end: Optional[int
             duration = _frame_int(item.GetDuration())
             if duration is not None:
                 return duration
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("GetDuration failed, falling back to end-start: %s", exc)
     if start is not None and end is not None:
         return end - start
     return None
@@ -428,8 +310,8 @@ def _timeline_item_summary(item, track_info=None):
     try:
         start = _frame_int(item.GetStart())
         end = _frame_int(item.GetEnd())
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("GetStart/GetEnd failed in item summary: %s", exc)
     duration = _timeline_item_duration(item, start, end)
     source_start = _timeline_item_source_start(item)
     if source_start is not None and duration is not None:
@@ -463,7 +345,8 @@ def _track_items_sorted(tl, track_type: str, track_index: int):
         try:
             start = _frame_int(item.GetStart())
             end = _frame_int(item.GetEnd())
-        except Exception:
+        except Exception as exc:
+            logger.debug("GetStart/GetEnd failed — item dropped from sorted track list: %s", exc)
             continue
         if start is None or end is None:
             continue

@@ -1521,7 +1521,8 @@ def gallery_stills(action: str, params: Optional[Dict[str, Any]] = None) -> Dict
             return _err("No stills to export")
         return {"success": bool(album.ExportStills(stills, p["folder_path"], p.get("prefix", "still"), p.get("format", "dpx")))}
     elif action == "grab_and_export":
-        import time, os
+        import time
+        import os
         folder_path = p.get("folder_path")
         if not folder_path:
             return _err("folder_path is required")

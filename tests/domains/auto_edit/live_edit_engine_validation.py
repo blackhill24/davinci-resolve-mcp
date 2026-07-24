@@ -69,7 +69,7 @@ def main() -> int:
     from src.domains.media_analysis.utils import execute_engine as _exec
     from src.domains.media_analysis.utils import reports as _reports
     from src.domains.media_analysis.utils import clip_identity_registry as _cir
-    from src.domains.media_analysis.utils import analysis_store, embeddings
+    from src.domains.media_analysis.utils import embeddings
 
     r = s.get_resolve()
     if r is None:

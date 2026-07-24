@@ -403,6 +403,7 @@ class AnalysisStoreTests(unittest.TestCase):
     def test_normalized_rows_match_report(self) -> None:
         report = make_report()
         result = analysis_store.ingest_report(self.root, report)
+        self.assertTrue(result["success"], result)
         conn = timeline_brain_db.connect(self.root)
         clip = conn.execute("SELECT * FROM clips").fetchone()
         self.assertEqual(clip["clip_name"], "Sample Clip.mp4")

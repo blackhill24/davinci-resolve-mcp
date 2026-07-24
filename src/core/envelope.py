@@ -8,7 +8,7 @@ live_connection is fine to depend on: it has no dependency back on this file.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from src.core import resolve_busy
 from src.core.live_connection import get_resolve

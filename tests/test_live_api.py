@@ -7,7 +7,6 @@ Requires DaVinci Resolve to be running.
 
 import sys
 import json
-import traceback
 
 sys.path.insert(0, '/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules')
 
@@ -309,7 +308,7 @@ def test_api():
     # Save results
     with open('tests/live_api_results.json', 'w') as f:
         json.dump(results, f, indent=2)
-    print(f"\nDetailed results saved to tests/live_api_results.json")
+    print("\nDetailed results saved to tests/live_api_results.json")
 
 if __name__ == "__main__":
     test_api()

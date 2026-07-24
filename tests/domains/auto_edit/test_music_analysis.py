@@ -1,7 +1,6 @@
 """Tests for the ffmpeg-only music_analysis util (bed gain + beat/onset)."""
 import os
 import shutil
-import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -185,7 +184,9 @@ class RenderDuckedBedTest(unittest.TestCase):
         self.assertNotIn("refused", out)
 
     def test_consented_render_builds_ffmpeg_filtergraph(self):
-        import os, tempfile, shutil
+        import os
+        import tempfile
+        import shutil
         tmp = tempfile.mkdtemp(prefix="bed-test-")
         self.addCleanup(shutil.rmtree, tmp, True)
         bed_path = os.path.join(tmp, "sub", "bed.wav")

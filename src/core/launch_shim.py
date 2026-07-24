@@ -26,9 +26,8 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
-import stat
-import sys
 from typing import Any, Dict, List, Optional
 
 RESOLVE_BINARY = "/opt/resolve/bin/resolve"
@@ -55,9 +54,18 @@ sys.path.insert(0, {repo_root!r})
 try:
     from src.core.proc import resolve_spawn_env
     env = resolve_spawn_env()
-except Exception:
+except Exception as exc:
     # Never let the shim be the reason Resolve won't start: fall back to the
-    # inherited environment, which is exactly the stock behaviour.
+    # inherited environment, which is exactly the stock behaviour. But say so —
+    # a silent fallback means renders can wedge again with no visible cause
+    # (typical trigger: the MCP repo moved or was deleted).
+    print(
+        "resolve launch shim: could not load resolve_spawn_env "
+        f"({{exc.__class__.__name__}}: {{exc}}); starting Resolve without the "
+        "Fairlight ALSA fix. Reinstall via "
+        "resolve_control(action='install_launch_shim') if the MCP repo moved.",
+        file=sys.stderr,
+    )
     env = dict(os.environ)
 
 os.execve({binary!r}, [{binary!r}] + sys.argv[1:], env)
@@ -87,6 +95,24 @@ def _owned_by_us(path: str) -> bool:
             return SHIM_MARKER in handle.read(4096)
     except OSError:
         return False
+
+
+def _shim_embedded_repo_root(path: str) -> Optional[str]:
+    """Repo root baked into an installed shim's ``sys.path.insert`` line.
+
+    The shim imports ``resolve_spawn_env`` from the repo that installed it; if
+    that repo has since moved, the shim still *runs* (it falls back to the
+    stock environment) but silently loses the ALSA fix. Parsing the path back
+    out lets ``status``/``launch_advisory`` surface that instead. None when the
+    file is missing, not ours, or the line is unrecognizable.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            source = handle.read()
+    except OSError:
+        return None
+    m = re.search(r"sys\.path\.insert\(0,\s*(['\"])(.+?)\1\)", source)
+    return m.group(2) if m else None
 
 
 def _desktop_entry_source() -> Optional[str]:
@@ -172,6 +198,23 @@ def status() -> Dict[str, Any]:
         warnings.append("~/.local/bin is not on PATH — terminal launches will bypass the shim")
     if not os.path.exists(RESOLVE_BINARY):
         warnings.append(f"{RESOLVE_BINARY} not found — is Resolve installed here?")
+
+    # A moved/deleted repo leaves the shim functional but silently without the
+    # ALSA fix (it falls back to the stock environment).
+    embedded_repo = _shim_embedded_repo_root(shim) if shim_installed else None
+    if shim_installed and embedded_repo and not os.path.isdir(
+        os.path.join(embedded_repo, "src", "core")
+    ):
+        warnings.append(
+            f"shim points at {embedded_repo}, which no longer holds this repo — "
+            "launches fall back to the stock environment (no Fairlight ALSA fix); "
+            "reinstall the shim from the repo's current location"
+        )
+    elif shim_installed and embedded_repo and os.path.realpath(embedded_repo) != os.path.realpath(_repo_root()):
+        warnings.append(
+            f"shim was installed from {embedded_repo}, but this repo now runs from "
+            f"{_repo_root()} — reinstall the shim so launches use the current copy"
+        )
 
     return {
         "supported": True,

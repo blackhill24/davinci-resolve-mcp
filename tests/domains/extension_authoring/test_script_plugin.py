@@ -208,7 +208,8 @@ class TestLuaCompiles(unittest.TestCase):
     def _compile(self, source):
         with tempfile.NamedTemporaryFile(mode='w', suffix='.lua',
                                           delete=False, encoding='utf-8') as f:
-            f.write(source); tmp = f.name
+            f.write(source)
+            tmp = f.name
         try:
             r = subprocess.run([LUAC, '-p', tmp], capture_output=True,
                                text=True, timeout=10)
@@ -544,7 +545,7 @@ class TestScriptExecution(unittest.TestCase):
     # ── execute Python ─────────────────────────────────────────────────────
 
     def test_execute_python_captures_stdout(self):
-        path = self._install_script(
+        self._install_script(
             'EchoTest', 'Utility', 'py',
             "print('hello from script')\nprint('line 2')\n",
         )
@@ -617,7 +618,7 @@ class TestScriptExecution(unittest.TestCase):
         self.assertIn('error', r)
 
     def test_execute_args_must_be_list(self):
-        path = self._install_script(
+        self._install_script(
             'ArgsCheckTest', 'Utility', 'py', "print('ok')\n",
         )
         r = script_plugin('execute', {
@@ -630,7 +631,7 @@ class TestScriptExecution(unittest.TestCase):
 
     def test_execute_lua_calls_runscript(self):
         # Create the Lua file
-        path = self._install_script(
+        self._install_script(
             'LuaTest', 'Utility', 'lua', "print('hi')\n",
         )
 

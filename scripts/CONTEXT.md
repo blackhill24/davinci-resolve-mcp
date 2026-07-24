@@ -14,7 +14,7 @@ Installer and maintenance scripts: audits, generators, probes. The generators ow
 | Regenerate API limitations doc | `gen_api_limitations.py` | — | `src/core/api_truth.py` (source) |
 | Audit API parity / read-write symmetry | `audit_api_parity.py`, `audit_readwrite_symmetry.py` | — | `docs/reference/` |
 | Diagnose environment | `doctor.py` | — | — |
-| Measure bridge cost | `measure_bridge_cost.py` | — | `tests/benchmark_server.py` |
+| Measure bridge cost | `measure_bridge_cost.py` | — | — |
 
 ## Key files (only where the name doesn't say enough)
 

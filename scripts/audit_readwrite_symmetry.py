@@ -9,7 +9,6 @@ the repeatable feature-discovery method behind R5.
 Reads the `_unknown(action, [...])` lists in src/server.py, which enumerate every
 action a tool accepts. Prints a markdown report.
 """
-import ast
 import os
 import re
 import sys

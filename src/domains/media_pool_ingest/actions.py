@@ -1155,7 +1155,7 @@ def _metadata_field_inventory(root, mp, p: Dict[str, Any]):
         property_fields = list(properties.keys())
         metadata_fields = list(metadata.keys())
 
-        def field_status(field: str) -> Dict[str, Any]:
+        def field_status(field: str, metadata=metadata, properties=properties) -> Dict[str, Any]:
             clip_property_key = _metadata_clip_property_key_for_field(field, properties)
             metadata_write_key = _metadata_write_field_for_field(field)
             row = {

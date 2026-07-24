@@ -13,7 +13,6 @@ import unittest
 from unittest import mock
 
 import src.server as s
-import src.domains.media_pool_ingest.actions as _dom_media_pool_ingest
 import src.domains.media_analysis.actions as _dom_media_analysis
 import src.core.tool_kernel as _core_tool_kernel
 

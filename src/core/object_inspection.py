@@ -9,10 +9,9 @@ This module provides functions for inspecting DaVinci Resolve API objects:
 - Converting between Python and Lua objects if needed
 """
 
-import sys
 import inspect
 import logging
-from typing import Any, Dict, List, Optional, Union, Callable
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 

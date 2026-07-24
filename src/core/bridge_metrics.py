@@ -18,7 +18,7 @@ Example:
     rp.GetProjectManager().GetCurrentProject().GetName()
     print(counts)  # {'attr_access': N, 'calls': M}
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 class CountingProxy:

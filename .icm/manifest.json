@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "c6974efdb1b4263a",
+      "fingerprint": "b725dc9c229e3c6e",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -175,7 +175,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "35fdc58face700dc",
+      "fingerprint": "704255ed21089d9a",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -611,7 +611,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "31fea720636b61b9",
+      "fingerprint": "bce060ee6b28789d",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -684,7 +684,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "ff9b67a33b3f0797",
+      "fingerprint": "4ed840926349156a",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/cloud-test-setup.md",
@@ -716,6 +716,7 @@
         "tests/core/test_resolve_ai_ledger.py",
         "tests/core/test_resolve_busy.py",
         "tests/core/test_resolve_connection.py",
+        "tests/core/test_resolve_process_query.py",
         "tests/core/test_structural_diff.py",
         "tests/core/test_structural_diff_compaction.py",
         "tests/core/test_thumbnail_image.py",
@@ -795,6 +796,7 @@
         "tests/domains/media_analysis/test_analysis_store.py",
         "tests/domains/media_analysis/test_caps_events_and_history.py",
         "tests/domains/media_analysis/test_caps_integration.py",
+        "tests/domains/media_analysis/test_cleanup_artifacts_containment.py",
         "tests/domains/media_analysis/test_deep_vision.py",
         "tests/domains/media_analysis/test_embeddings.py",
         "tests/domains/media_analysis/test_entities.py",
@@ -834,6 +836,7 @@
         "tests/domains/project_lifecycle/live_project_lifecycle_validation.py",
         "tests/domains/project_lifecycle/test_cloud_operations_readback.py",
         "tests/domains/project_lifecycle/test_cloud_settings.py",
+        "tests/domains/project_lifecycle/test_ensure_timeline_fps_readback.py",
         "tests/domains/project_lifecycle/test_project_cleanup.py",
         "tests/domains/project_lifecycle/test_project_lifecycle_probe.py",
         "tests/domains/project_lifecycle/test_project_lint.py",
@@ -874,7 +877,9 @@
         "tests/fixtures/analysis_sample/clips/broll_a.mov-54dadac5801b/analysis.json",
         "tests/fixtures/analysis_sample/clips/interview.mov-f04bb94d0e28/analysis.json",
         "tests/live_api_gap_verification.py",
+        "tests/live_api_probe.py",
         "tests/live_enum_settings_check.py",
+        "tests/live_resolve20_api.py",
         "tests/live_resolve21_stage2_validation.py",
         "tests/live_v233_validation.py",
         "tests/preflight.py",
@@ -893,8 +898,9 @@
         "tests/test_exhaustive_wave_a.py",
         "tests/test_granular_disconnected_smoke.py",
         "tests/test_import.py",
+        "tests/test_keyframe_delete_readback.py",
         "tests/test_launch_shim.py",
-        "tests/test_live_api.py",
+        "tests/test_live_harness_naming.py",
         "tests/test_mcp_prompts.py",
         "tests/test_mcp_resources.py",
         "tests/test_p1_param_validation.py",
@@ -902,7 +908,6 @@
         "tests/test_persistence_safety.py",
         "tests/test_readwrite_audit.py",
         "tests/test_render_scratch.py",
-        "tests/test_resolve20_api.py",
         "tests/test_resolve21_actions.py",
         "tests/test_spawn_env_sanitization.py",
         "tests/test_spec_lint_wiring.py",
@@ -918,7 +923,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "bb23182415785f8b",
+      "fingerprint": "78eac755271257e7",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

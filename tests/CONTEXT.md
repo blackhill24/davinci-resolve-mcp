@@ -27,6 +27,13 @@ folder.
 - `preflight.py` (root) — pre-run Resolve status gate (closed / open_no_project /
   open_project); `--require open|project|timeline`, `--json`; exit 0 ready, 2 not ready,
   3 no scripting. Every `live_*` `__main__` calls `gate()` — new live harnesses must too.
+- `test_live_harness_naming.py` (root) — enforces the split below: no `test_*.py` may import
+  `DaVinciResolveScript` or open a live handle, and every `live_*.py` must reference
+  preflight. #111: two misnamed harnesses broke `pytest tests/` at COLLECTION on every
+  Resolve-less CI runner, so publish never ran the suite.
+- `live_api_probe.py` / `live_resolve20_api.py` (root) — the two harnesses that rename
+  fixed (was `test_live_api.py` / `test_resolve20_api.py`). The first is a read-only API
+  surface probe (`--allow-mutation` opts into a scratch timeline); the second is mutating.
 - `fixtures/analysis_sample/` — a real analysis root (2 verbatim `analysis.json`) checked in
   so the media-analysis round-trip/backfill guards always have real input and can never
   skip; see its README before touching. Discovery helpers live in
@@ -34,8 +41,10 @@ folder.
 
 ## Conventions & gotchas
 
-- `live_*` tests are excluded from offline CI — they connect to a real Resolve; follow the
-  live-validation guidance in `docs/process/release-process.md`.
+- `live_*` tests are excluded from offline CI by pytest's default globs (`test_*.py` /
+  `*_test.py`) — the FILENAME is the only thing keeping them out, so a live harness named
+  `test_*` is collected and run. Follow the live-validation guidance in
+  `docs/process/release-process.md`.
 - Files under `domains/`/`core/`/`dashboard/` are 2 directories deeper than the old flat
   layout — any `__file__`-relative repo-root path (`Path(__file__).resolve().parent...`,
   `parents[N]`, `sys.path.insert`) needs adjusting for that when adding new cross-references.

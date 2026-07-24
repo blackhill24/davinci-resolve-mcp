@@ -326,6 +326,8 @@ async function pgSelectTimeline(client, { timelineId, timelineName }) {
   throw new Error('provide timelineId or timelineName');
 }
 
+const PG_DUMP_TIMEOUT_MS = 120000;
+
 /** Back up the Sm2Timeline table via pg_dump before a write (test hook: pg.__backupFn). */
 function pgBackup(pg) {
   if (pg && typeof pg.__backupFn === 'function') return pg.__backupFn();
@@ -337,7 +339,9 @@ function pgBackup(pg) {
   const r = require('node:child_process').spawnSync(
     dump,
     ['-h', String(cfg.host), '-p', String(cfg.port), '-U', String(cfg.user), '-d', String(cfg.database), '--data-only', '-t', '"Sm2Timeline"', '-w', '-f', out],
-    { env, encoding: 'utf8' },
+    // Bounded: spawnSync blocks the whole process, so an unreachable Postgres
+    // host would otherwise hang the tool call with no way out.
+    { env, encoding: 'utf8', timeout: PG_DUMP_TIMEOUT_MS },
   );
   if (r.status !== 0) {
     throw new Error(

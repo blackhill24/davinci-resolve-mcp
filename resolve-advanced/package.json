@@ -37,8 +37,11 @@
     "_comment": "audio (split/trim/convert) + conform frame ops need system ffmpeg/ffprobe on PATH (NOT bundled — FFmpeg binaries are GPL; this package stays MIT). Install ffmpeg yourself: brew install ffmpeg."
   },
   "scripts": {
+    "preflight:native": "node scripts/preflight-native.mjs",
+    "pretest": "npm run preflight:native",
     "test": "node --test \"vendor/drp-format/__tests__/*.test.js\" \"vendor/drt-format/__tests__/*.test.js\" \"vendor/drx-codec/__tests__/*.test.js\" \"test/*.test.mjs\"",
     "test:libs": "node --test \"vendor/drp-format/__tests__/*.test.js\" \"vendor/drt-format/__tests__/*.test.js\" \"vendor/drx-codec/__tests__/*.test.js\"",
+    "pretest:server": "npm run preflight:native",
     "test:server": "node --test \"test/*.test.mjs\""
   },
   "engines": {

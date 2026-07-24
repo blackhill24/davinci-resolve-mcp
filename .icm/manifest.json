@@ -3,11 +3,11 @@
   "layers": 3,
   "root_nav": "CLAUDE.md",
   "synced": "2026-07-24",
-  "_root_structure": "75479c43f99da814",
+  "_root_structure": "01f545d69a3b321e",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "e536068e07373ef8",
+      "fingerprint": "b06b5a549a1f4ebf",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -608,7 +608,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "ac5ddc1a55bd2ee7",
+      "fingerprint": "12535e7715deecd8",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -681,7 +681,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "3080e401439174e2",
+      "fingerprint": "48f56fa3c192aca9",
       "files": [
         "tests/_error_envelope_helpers.py",
         "tests/benchmark_server.py",
@@ -707,6 +707,7 @@
         "tests/core/test_mcp_transport.py",
         "tests/core/test_object_inspection.py",
         "tests/core/test_page_lock.py",
+        "tests/core/test_platform_guards.py",
         "tests/core/test_readback.py",
         "tests/core/test_resolve_ai_governance.py",
         "tests/core/test_resolve_ai_ledger.py",
@@ -873,6 +874,7 @@
         "tests/live_resolve21_stage2_validation.py",
         "tests/live_v233_validation.py",
         "tests/preflight.py",
+        "tests/render_scratch.py",
         "tests/test-after-restart.bat",
         "tests/test-after-restart.sh",
         "tests/test_action_help.py",
@@ -899,6 +901,7 @@
         "tests/test_p1_whitelist_and_delete.py",
         "tests/test_persistence_safety.py",
         "tests/test_readwrite_audit.py",
+        "tests/test_render_scratch.py",
         "tests/test_resolve20_api.py",
         "tests/test_resolve21_actions.py",
         "tests/test_spawn_env_sanitization.py",

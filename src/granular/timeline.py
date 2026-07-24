@@ -2,6 +2,8 @@
 
 from src.granular.common import *  # noqa: F401,F403
 
+from src.core.platform import subtitle_generation_guard as _subtitle_crash_guard
+
 resolve = ResolveProxy()
 
 @mcp.resource("resolve://timelines")
@@ -863,6 +865,17 @@ def timeline_create_subtitles_from_audio(
     )
     if settings_err:
         return settings_err
+    guard = _subtitle_crash_guard()
+    if guard is not None:
+        return {
+            "error": (
+                "CreateSubtitlesFromAudio refused: crashes the Resolve process "
+                f"on this platform. {guard['reason']} "
+                f"Set {guard['override_env']}=1 to run it anyway. "
+                f"{guard['alternative']} See {guard['issue']}."
+            ),
+            "crash_guard": guard,
+        }
     result = tl.CreateSubtitlesFromAudio(settings)
     return {"success": bool(result)}
 

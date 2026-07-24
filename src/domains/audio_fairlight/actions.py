@@ -89,7 +89,7 @@ from src.domains.media_analysis.utils.media_analysis_jobs import (
     resume_batch_job as resume_media_analysis_batch_job,
     run_batch_job_slice as run_media_analysis_batch_job_slice,
 )
-from src.core.platform import get_resolve_paths, get_resolve_plugin_paths
+from src.core.platform import get_resolve_paths, get_resolve_plugin_paths, subtitle_generation_guard
 from src.domains.color_grade.utils.lut_paths import master_lut_dir, ensure_lut_in_master
 from src.domains.extension_authoring.utils import fuse_templates, dctl_templates, script_templates
 from src.domains.timeline_edit.utils.timeline_title_text import (
@@ -834,6 +834,19 @@ def _subtitle_generation_probe(tl, p: Dict[str, Any]):
     if not p.get("allow_generate", False):
         return _ok(would_generate=True, settings=settings, ignored_settings=ignored,
                    note="Pass allow_generate=True to call CreateSubtitlesFromAudio.")
+    guard = subtitle_generation_guard()
+    if guard is not None:
+        return _err(
+            "CreateSubtitlesFromAudio refused: crashes the Resolve process on this platform",
+            code="SUBTITLE_GENERATION_CRASH_GUARD",
+            category="unsupported",
+            reason=guard["reason"],
+            remediation=(
+                f"Set {guard['override_env']}=1 to run it anyway (Resolve may die). "
+                f"{guard['alternative']} See {guard['issue']}."
+            ),
+            state=guard,
+        )
     if not _has_method(tl, "CreateSubtitlesFromAudio"):
         return _err("CreateSubtitlesFromAudio unavailable")
     return _run_maybe_background(

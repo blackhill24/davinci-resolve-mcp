@@ -1,4 +1,6 @@
+import os
 import unittest
+from unittest import mock
 
 from src.server import (
     _audio_capabilities,
@@ -210,6 +212,42 @@ class AudioFairlightProbeTest(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertFalse(timeline.subtitle_calls)
+
+    def test_allow_generate_refused_on_linux_crash_guard(self):
+        # Issue #90: the native call kills the Resolve process on Linux, so the
+        # tool path must refuse allow_generate=True there without touching the API.
+        timeline = TimelineStub()
+        with mock.patch("src.core.platform.get_platform", return_value="linux"), \
+             mock.patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("RESOLVE_ALLOW_SUBTITLE_GENERATION", None)
+            result = _subtitle_generation_probe(
+                timeline, {"settings": {"language": "en"}, "allow_generate": True}
+            )
+
+        self.assertEqual(result["error"]["code"], "SUBTITLE_GENERATION_CRASH_GUARD")
+        self.assertEqual(result["error"]["category"], "unsupported")
+        self.assertFalse(timeline.subtitle_calls)
+
+    def test_allow_generate_env_override_reaches_api(self):
+        timeline = TimelineStub()
+        with mock.patch("src.core.platform.get_platform", return_value="linux"), \
+             mock.patch.dict("os.environ", {"RESOLVE_ALLOW_SUBTITLE_GENERATION": "1"}):
+            result = _subtitle_generation_probe(
+                timeline, {"settings": {"language": "en"}, "allow_generate": True}
+            )
+
+        self.assertNotIn("error", result)
+        self.assertTrue(timeline.subtitle_calls)
+
+    def test_allow_generate_unguarded_off_linux(self):
+        timeline = TimelineStub()
+        with mock.patch("src.core.platform.get_platform", return_value="darwin"):
+            result = _subtitle_generation_probe(
+                timeline, {"settings": {"language": "en"}, "allow_generate": True}
+            )
+
+        self.assertNotIn("error", result)
+        self.assertTrue(timeline.subtitle_calls)
 
 
 if __name__ == "__main__":

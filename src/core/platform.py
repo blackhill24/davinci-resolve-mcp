@@ -143,6 +143,54 @@ def get_resolve_plugin_paths():
     }
 
 
+# --- Crash guards -----------------------------------------------------------
+# Native Scripting API calls proven to take the whole Resolve process down on
+# specific platforms. Guards return None when the call is safe to attempt
+# here, or a machine-readable block dict the callsite wraps into its own
+# error shape (compound _err envelope, granular legacy {"error": ...}).
+
+ENV_ALLOW_SUBTITLE_GENERATION = "RESOLVE_ALLOW_SUBTITLE_GENERATION"
+
+SUBTITLE_GENERATION_CRASH_ISSUE = (
+    "https://github.com/blackhill24/davinci-resolve-mcp/issues/90"
+)
+
+
+def subtitle_generation_guard():
+    """Guard for Timeline.CreateSubtitlesFromAudio (issue #90).
+
+    On Linux (reproduced 2/2 on Resolve Studio 21.0.2.4) the native call kills
+    the Resolve process outright — no exception, no error return — leaking any
+    disposable project that was open. Unreproduced on macOS/Windows (no test
+    hardware), so the guard only fires on Linux; other platforms proceed.
+
+    RESOLVE_ALLOW_SUBTITLE_GENERATION=1 overrides the refusal for anyone who
+    accepts the crash risk (e.g. probing a newer Resolve build for a fix).
+    This is the tool-facing sibling of the live probe's
+    RESOLVE_PROBE_ALLOW_SUBTITLE_GENERATION opt-in.
+    """
+    if get_platform() != "linux":
+        return None
+    if os.environ.get(ENV_ALLOW_SUBTITLE_GENERATION, "").strip().lower() in {"1", "true", "yes"}:
+        return None
+    return {
+        "blocked_call": "Timeline.CreateSubtitlesFromAudio",
+        "platform": "linux",
+        "reason": (
+            "Native CreateSubtitlesFromAudio crashes the entire Resolve "
+            "process on Linux (reproduced 2/2 on Studio 21.0.2.4) — the "
+            "process dies mid-call, leaking the open project and requiring "
+            "a full relaunch."
+        ),
+        "override_env": ENV_ALLOW_SUBTITLE_GENERATION,
+        "issue": SUBTITLE_GENERATION_CRASH_ISSUE,
+        "alternative": (
+            "Generate subtitles offline (e.g. Whisper via media-analysis) "
+            "and import the SRT into the timeline instead."
+        ),
+    }
+
+
 def setup_environment():
     """Set up environment variables for DaVinci Resolve scripting.
     

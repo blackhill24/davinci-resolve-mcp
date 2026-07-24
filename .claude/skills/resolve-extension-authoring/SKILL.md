@@ -38,6 +38,11 @@ compile checks).
 
 ## Gotchas
 
+- Registered Fuses get the registry ID `Fuse.<name>` — instantiate with
+  `fusion_comp(action="add_tool", params={"tool_type": "Fuse.<name>"})` after
+  restart. Bare class names return None from AddTool even when registered
+  (issue #91); `fuse_plugin` install/list/template responses carry the correct
+  `reg_id`.
 - Safe install/remove default to requiring an `_mcp_` marker in the source —
   pass `require_marker=False` only when you intentionally manage non-MCP files.
 - Installed Lua execution through `fusion.RunScript(path)` is unreliable; use

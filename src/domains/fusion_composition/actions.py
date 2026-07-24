@@ -848,7 +848,11 @@ def _safe_add_fusion_tool(comp, p: Dict[str, Any]):
     try:
         tool = comp.AddTool(tool_type, p.get("x", -1), p.get("y", -1))
         if not tool:
-            return _err(f"Failed to add tool '{tool_type}'. Check the tool ID is valid.")
+            hint = ""
+            if not str(tool_type).startswith("Fuse."):
+                hint = (f" If '{tool_type}' is a Fuse class, use 'Fuse.{tool_type}' — "
+                        "Fuses register under a 'Fuse.' registry-ID prefix (issue #91).")
+            return _err(f"Failed to add tool '{tool_type}'. Check the tool ID is valid.{hint}")
         if p.get("name"):
             tool.SetAttrs({"TOOLS_Name": p["name"]})
         return _ok(tool=_fusion_tool_summary(tool, include_io=p.get("include_io", True)))

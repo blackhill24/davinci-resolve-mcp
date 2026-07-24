@@ -122,6 +122,7 @@ from src.domains.media_analysis.utils.media_analysis_jobs import (
 from src.core.platform import get_resolve_paths, get_resolve_plugin_paths, subtitle_generation_guard
 from src.domains.color_grade.utils.lut_paths import master_lut_dir, ensure_lut_in_master
 from src.domains.extension_authoring.utils import fuse_templates, dctl_templates, script_templates
+from src.domains.extension_authoring.utils.fuse_templates import fuse_regid
 from src.domains.timeline_edit.utils.timeline_title_text import (
     candidate_title_property_keys as _candidate_title_property_keys,
     plain_to_minimal_styled_xml as _plain_to_minimal_styled_xml,

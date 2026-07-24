@@ -46,6 +46,17 @@ LUAC = _luac_path()
 
 # ─── Fuse template generators ────────────────────────────────────────────────
 
+class TestFuseRegId(unittest.TestCase):
+    """Fuses register under 'Fuse.<ClassName>' (issue #91, live-verified)."""
+
+    def test_regid_prefixes(self):
+        self.assertEqual(fuse_templates.fuse_regid("McpX"), "Fuse.McpX")
+
+    def test_regid_exported_on_server(self):
+        import src.server as s
+        self.assertIs(s.fuse_regid, fuse_templates.fuse_regid)
+
+
 class TestFuseTemplateGenerators(unittest.TestCase):
     """Direct tests of each generator function."""
 
@@ -509,10 +520,15 @@ class TestRoundtripFilesystem(unittest.TestCase):
 
     def test_fuse_roundtrip(self):
         gen = fuse_plugin('template', {'kind': 'color_matrix', 'name': 'RtFuse'})
+        # issue #91: every authoring payload must carry the Fuse.<name> registry
+        # ID — bare class names fail comp.AddTool.
+        self.assertEqual(gen['reg_id'], 'Fuse.RtFuse')
         r = fuse_plugin('install', {'name': 'RtFuse', 'source': gen['source'],
                                      'overwrite': True})
         self.assertTrue(r.get('success'))
         self.assertTrue(os.path.isfile(r['path']))
+        self.assertEqual(r['reg_id'], 'Fuse.RtFuse')
+        self.assertIn("tool_type='Fuse.RtFuse'", r['note'])
 
         lst = fuse_plugin('list')
         names = [f['name'] for f in lst['fuses']]
@@ -520,6 +536,7 @@ class TestRoundtripFilesystem(unittest.TestCase):
         for f in lst['fuses']:
             if f['name'] == 'RtFuse':
                 self.assertTrue(f['mcp_managed'])
+                self.assertEqual(f['reg_id'], 'Fuse.RtFuse')
 
         rd = fuse_plugin('read', {'name': 'RtFuse'})
         self.assertEqual(rd['source'], gen['source'])

@@ -76,6 +76,11 @@ All kernel actions are exposed through `script_plugin`.
 - New Fuses still require a Resolve restart to appear as registered Fusion
   tools. The MCP can install/remove files but cannot force Fusion to register a
   new Fuse in-process.
+- Registered Fuses get the registry ID `Fuse.<ClassName>` — instantiate with
+  `fusion_comp(action="add_tool", params={"tool_type": "Fuse.<name>"})`. A bare
+  class name returns None from AddTool even when registration succeeded
+  (issue #91; verified live on 21.0.2.4 — both the user Fuses dir and
+  `<install>/Fusion/Fuses` are scanned on Linux).
 - ACES IDT/ODT DCTLs are scanned at Resolve startup. `RefreshLUTList` is only
   appropriate for LUT-category DCTLs.
 - Template validation is structural/parser-level. It does not prove a Fuse

@@ -977,28 +977,49 @@ def modify_keyframe(timeline_item_id: str, property_name: str, frame: int, new_v
             if new_frame < start_frame or new_frame > end_frame:
                 return f"Error: New frame {new_frame} is outside the item's range ({start_frame} to {end_frame})"
                 
-            # Delete the keyframe at the current frame
+            # Delete the keyframe at the current frame.
+            # #111 finding 6: DeleteKeyframe returns a bool and it used to be
+            # discarded. If the delete failed while the add succeeded, the item
+            # was left carrying BOTH the old and the new keyframe — silent
+            # animation corruption — and the caller was told the move succeeded,
+            # because success was derived from AddKeyframe alone. Bail before
+            # adding so a failed delete can't fork the keyframe.
             current_value = timeline_item.GetPropertyAtKeyframeIndex(property_name, keyframe_index)
-            timeline_item.DeleteKeyframe(property_name, frame)
-            
+            if not timeline_item.DeleteKeyframe(property_name, frame):
+                return (
+                    f"Failed to move keyframe for {property_name}: could not delete the "
+                    f"existing keyframe at frame {frame}; nothing was changed"
+                )
+
             # Add a new keyframe at the new frame position with the current value (or new value if specified)
             value = new_value if new_value is not None else current_value
             result = timeline_item.AddKeyframe(property_name, new_frame, value)
-            
+
             if result:
                 return f"Successfully moved keyframe for {property_name} from frame {frame} to frame {new_frame}"
             else:
-                return f"Failed to move keyframe for {property_name}"
+                return (
+                    f"Failed to move keyframe for {property_name}: the keyframe at frame "
+                    f"{frame} was removed but could not be re-added at frame {new_frame}"
+                )
         else:
             # Only changing the value, not the frame position
             # We need to delete and re-add the keyframe with the new value
-            timeline_item.DeleteKeyframe(property_name, frame)
+            # (#111 finding 6: honour the delete before re-adding — see above.)
+            if not timeline_item.DeleteKeyframe(property_name, frame):
+                return (
+                    f"Failed to update keyframe value for {property_name} at frame {frame}: "
+                    "could not delete the existing keyframe; nothing was changed"
+                )
             result = timeline_item.AddKeyframe(property_name, frame, new_value)
-            
+
             if result:
                 return f"Successfully updated keyframe value for {property_name} at frame {frame} to {new_value}"
             else:
-                return f"Failed to update keyframe value for {property_name} at frame {frame}"
+                return (
+                    f"Failed to update keyframe value for {property_name} at frame {frame}: "
+                    "the existing keyframe was removed but the new value could not be added"
+                )
         
     except Exception as e:
         return f"Error modifying keyframe: {str(e)}"
@@ -1169,17 +1190,37 @@ def set_keyframe_interpolation(timeline_item_id: str, property_name: str, frame:
             if kf["frame"] == frame:
                 value = timeline_item.GetPropertyAtKeyframeIndex(property_name, i)
                 break
-        
-        # Delete the old keyframe
-        timeline_item.DeleteKeyframe(property_name, frame)
-        
+
+        # #111 finding 6 (secondary): `value` stays None when no keyframe matches
+        # or the property read comes back empty, and used to be passed straight
+        # into AddKeyframe(..., None, ...) with no guard — after the old keyframe
+        # had already been deleted. Refuse before destroying anything.
+        if value is None:
+            return (
+                f"Error: could not read the current value of {property_name} at frame "
+                f"{frame}; refusing to re-add the keyframe with no value"
+            )
+
+        # Delete the old keyframe.
+        # #111 finding 6: DeleteKeyframe's bool was discarded, so a failed delete
+        # plus a successful add left both the old and the new keyframe on the
+        # item while reporting success.
+        if not timeline_item.DeleteKeyframe(property_name, frame):
+            return (
+                f"Failed to set interpolation for {property_name} keyframe at frame "
+                f"{frame}: could not delete the existing keyframe; nothing was changed"
+            )
+
         # Add a new keyframe with the same value but different interpolation
         result = timeline_item.AddKeyframe(property_name, frame, value, interpolation_map[interpolation_type])
-        
+
         if result:
             return f"Successfully set interpolation for {property_name} keyframe at frame {frame} to {interpolation_type}"
         else:
-            return f"Failed to set interpolation for {property_name} keyframe at frame {frame}"
+            return (
+                f"Failed to set interpolation for {property_name} keyframe at frame {frame}: "
+                "the existing keyframe was removed but could not be re-added"
+            )
         
     except Exception as e:
         return f"Error setting keyframe interpolation: {str(e)}"

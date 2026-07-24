@@ -249,25 +249,41 @@ def find_resolve_paths():
     return api_path, lib_path
 
 
+# How long to wait on a process-state query before giving up (#111 finding 8:
+# these calls had no timeout at all, so a hung pgrep/tasklist hung the whole
+# installer with no diagnostic).
+PROCESS_QUERY_TIMEOUT = 10
+
+
 def check_resolve_running():
     """Check if DaVinci Resolve is currently running."""
     try:
         if is_mac():
             result = subprocess.run(
-                ["pgrep", "-f", "DaVinci Resolve"],
-                capture_output=True, text=True
+                ["pgrep", "-x", "DaVinci Resolve"],
+                capture_output=True, text=True, timeout=PROCESS_QUERY_TIMEOUT
             )
             return result.returncode == 0
         elif is_windows():
             result = subprocess.run(
                 ["tasklist", "/FI", "IMAGENAME eq Resolve.exe"],
-                capture_output=True, text=True
+                capture_output=True, text=True, timeout=PROCESS_QUERY_TIMEOUT
             )
             return "Resolve.exe" in result.stdout
         else:  # Linux
+            # #111 finding 7: this was `pgrep -f resolve`, which matches the full
+            # command line and so matched /usr/lib/systemd/systemd-resolved — a
+            # near-permanent false positive, since systemd-resolved runs on
+            # essentially every modern Linux desktop.
+            #
+            # The obvious fix, `pgrep -x resolve`, is WRONG in the other
+            # direction: Resolve renames its main thread, so its `comm` is
+            # "GUI Thread" and an exact process-name match never fires. Anchor
+            # the command-line match to a path boundary instead — the same
+            # pattern src/core/app_control.py uses, and for the same reasons.
             result = subprocess.run(
-                ["pgrep", "-f", "resolve"],
-                capture_output=True, text=True
+                ["pgrep", "-f", r"(^|/)resolve([[:space:]]|$)"],
+                capture_output=True, text=True, timeout=PROCESS_QUERY_TIMEOUT
             )
             return result.returncode == 0
     except Exception:
@@ -712,17 +728,27 @@ def generate_manual_config(python_path, server_path, api_path, lib_path):
 
 # ─── Virtual Environment ─────────────────────────────────────────────────────
 
+VERSION_PROBE_TIMEOUT = 30
+VENV_CREATE_TIMEOUT = 5 * 60
+
+
 def find_python():
     """Find the best Python 3 executable."""
     candidates = ["python3", "python"]
     for cmd in candidates:
         try:
             result = subprocess.run(
-                [cmd, "--version"], capture_output=True, text=True
+                [cmd, "--version"], capture_output=True, text=True,
+                timeout=VERSION_PROBE_TIMEOUT
             )
             if result.returncode == 0 and "Python 3" in result.stdout:
                 return cmd
-        except FileNotFoundError:
+        # #111 finding 8: this caught only FileNotFoundError, so a `python3`
+        # shim that is present but not executable (PermissionError), or any
+        # other OSError, crashed the installer instead of falling through to
+        # the next candidate. TimeoutExpired joins them now that the probe is
+        # time-bounded.
+        except (OSError, subprocess.TimeoutExpired):
             continue
     return None
 
@@ -732,7 +758,7 @@ def create_venv(venv_path):
     print(f"\n  Creating virtual environment at {dim(str(venv_path))}...")
     subprocess.run(
         [sys.executable, "-m", "venv", str(venv_path)],
-        check=True
+        check=True, timeout=VENV_CREATE_TIMEOUT
     )
 
 

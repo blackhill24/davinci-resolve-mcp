@@ -10,8 +10,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.domains.media_analysis.utils.analysis_index_build import build_analysis_index
 from src.domains.media_analysis.utils.capabilities_and_planning import build_plan
-from src.domains.media_analysis.utils.caps_gating import ANALYSIS_VERSION, DEFAULT_TRANSCRIPTION_ENABLED, HOST_CHAT_PATHS_PROVIDER, SOURCE_TRUST_VALUES, _apply_caps_to_response, _record_caps_usage, _timestamp_from_analyzed_at
-from src.domains.media_analysis.utils.clip_identity_registry import _is_relative_to, _read_analysis_registry, analysis_registry_path, normalize_path, update_analysis_registry
+from src.domains.media_analysis.utils.caps_gating import ANALYSIS_DIR_NAME, ANALYSIS_REGISTRY_FILENAME, ANALYSIS_VERSION, DEFAULT_TRANSCRIPTION_ENABLED, HIDDEN_ANALYSIS_DIR_NAME, HOST_CHAT_PATHS_PROVIDER, SOURCE_TRUST_VALUES, _apply_caps_to_response, _record_caps_usage, _timestamp_from_analyzed_at
+from src.domains.media_analysis.utils.clip_identity_registry import _analysis_root_contains_reports, _is_relative_to, _read_analysis_registry, analysis_registry_path, normalize_path, update_analysis_registry
 from src.domains.media_analysis.utils.execute_engine import preserve_human_corrections
 from src.domains.media_analysis.utils.marker_plan import _build_clip_marker_plan
 from src.domains.media_analysis.utils.subtitles_and_reuse import _record_has_analysis_provenance
@@ -876,10 +876,65 @@ def analysis_root_coverage(project_root: str) -> Dict[str, Any]:
     }
 
 
+def _analysis_root_markers(root: str) -> List[str]:
+    """Positive evidence that `root` really is an MCP analysis root.
+
+    Used to bound the recursive delete in cleanup_artifacts(frames_only=False).
+    Any ONE marker is enough — a root can legitimately be missing the registry
+    (older layout) or be mid-build with no reports yet — but a directory with
+    none of them is not something this tool created and must not be deleted.
+    """
+    markers: List[str] = []
+
+    # 1. Path is under (or is) a directory named for the analysis tree. This is
+    #    the marker that survives an empty/half-built root.
+    parts = {part for part in root.split(os.sep) if part}
+    if ANALYSIS_DIR_NAME in parts or HIDDEN_ANALYSIS_DIR_NAME in parts:
+        markers.append("analysis_dir_name_in_path")
+
+    # 2. The registry file this tool writes.
+    if os.path.isfile(os.path.join(root, ANALYSIS_REGISTRY_FILENAME)):
+        markers.append("analysis_registry_present")
+
+    # 3. A clips/**/analysis.json tree, i.e. it holds real analysis output.
+    if _analysis_root_contains_reports(root):
+        markers.append("analysis_reports_present")
+
+    return markers
+
+
 def cleanup_artifacts(project_root: str, *, frames_only: bool = True) -> Dict[str, Any]:
+    """Remove generated analysis artifacts under an MCP analysis root.
+
+    frames_only=True (the default) only removes directories literally named
+    "frames" and is safe anywhere. frames_only=False removes the whole root, so
+    it is containment-checked first: #111 finding 4 found this as an unbounded
+    `shutil.rmtree` of any caller-named directory, validated by nothing but
+    `os.path.isdir`. media_analysis has no entry in DESTRUCTIVE_ACTIONS_BY_TOOL
+    and cannot usefully get one — that registry drives version-on-mutate
+    TIMELINE archiving, which cannot recover a deleted directory tree — so the
+    guard has to live here, at the call site, where it is always in force.
+    """
     root = normalize_path(project_root)
     if not os.path.isdir(root):
         return {"success": False, "error": f"Project analysis root not found: {root}"}
+
+    if not frames_only:
+        markers = _analysis_root_markers(root)
+        if not markers:
+            return {
+                "success": False,
+                "error": (
+                    f"Refusing to recursively delete {root}: it has none of the markers of an "
+                    f"MCP analysis root (a '{ANALYSIS_DIR_NAME}'/'{HIDDEN_ANALYSIS_DIR_NAME}' "
+                    f"path segment, an {ANALYSIS_REGISTRY_FILENAME}, or a clips/**/analysis.json "
+                    "tree). Pass the analysis root reported by the analysis actions, or use "
+                    "frames_only=true to clear frame artifacts in place."
+                ),
+                "project_root": root,
+                "frames_only": frames_only,
+            }
+
     removed = []
     if frames_only:
         for dirpath, dirnames, _ in os.walk(root):

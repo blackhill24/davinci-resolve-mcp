@@ -1600,19 +1600,35 @@ class _SpecLiveExecutor:
         if not self._proj:
             return False
         tl = _find_project_timeline(self._proj, name)
+        if tl is not None:
+            # Already present. `fps` is a creation-time property — Resolve
+            # refuses SetSetting("timelineFrameRate") once a timeline exists
+            # (see project_spec.diff/apply) — so there is nothing to apply here
+            # and nothing to verify. Attempting it would report a false failure
+            # on every re-apply of an unchanged spec.
+            return True
+
+        mp = self._proj.GetMediaPool()
+        if mp is None:
+            return False
+        tl = mp.CreateEmptyTimeline(name)
         if tl is None:
-            mp = self._proj.GetMediaPool()
-            if mp is None:
-                return False
-            tl = mp.CreateEmptyTimeline(name)
-            if tl is None:
-                return False
-        if fps is not None:
-            try:
-                tl.SetSetting("timelineFrameRate", str(fps))
-            except Exception:
-                pass
-        return True
+            return False
+        if fps is None:
+            return True
+
+        # #111 finding 5: SetSetting returns False when Resolve rejects the
+        # rate (unsupported value, or a timeline that already carries clips).
+        # The result used to be discarded and True returned unconditionally, so
+        # the caller was told the timeline was created at the requested fps when
+        # it was actually created at the project default. For a conform/delivery
+        # tool a silently wrong timeline fps mis-times everything downstream, so
+        # report the rejection instead of swallowing it. Matches the idiom in
+        # set_timeline_setting() below.
+        try:
+            return bool(tl.SetSetting("timelineFrameRate", str(fps)))
+        except Exception:
+            return False
 
     def set_timeline_setting(self, tl_name: str, key: str, value: Any) -> bool:
         tl = _find_project_timeline(self._proj, tl_name) if self._proj else None

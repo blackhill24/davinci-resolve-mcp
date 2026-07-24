@@ -40,18 +40,31 @@ jobs:
         # (test_panel_docs_drift -> tests/dashboard/, test_api_limitations_doc
         # -> tests/core/) but this command kept the flat paths and silently
         # ImportError'd on every publish — the guards were not actually running.
+        # #111: test_live_harness_naming added — it keeps live-Resolve harnesses
+        # out of test_*.py, which is what makes the pytest step below runnable
+        # on a Resolve-less runner at all.
         run: |
           pip install pyflakes
-          python -m unittest tests.test_static_undefined_names tests.test_action_list_drift tests.dashboard.test_panel_docs_drift tests.core.test_api_limitations_doc tests.test_doc_tool_counts
+          python -m unittest tests.test_static_undefined_names tests.test_action_list_drift tests.dashboard.test_panel_docs_drift tests.core.test_api_limitations_doc tests.test_doc_tool_counts tests.test_live_harness_naming
 
       - name: Run full Python offline test suite
         # #110 finding (packaging): the publish workflow used to run only a
         # smoke + a handful of drift guards — never `pytest tests/` (~2060
         # offline tests). A behavior regression in src/ could ship to npm
         # untested. Install the same dependency set install.py provisions
-        # (mcp[cli] + requirements.txt) and run the offline suite. live_*
-        # tests skip themselves without a running Resolve, so this is the same
-        # green baseline the repo reports.
+        # (mcp[cli] + requirements.txt) and run the offline suite.
+        #
+        # #111 finding 1: this step had NEVER completed on CI. The comment here
+        # used to claim "live_* tests skip themselves without a running Resolve,
+        # so this is the same green baseline the repo reports" — wrong on both
+        # counts. pytest does not collect live_*.py at all (its default globs are
+        # test_*.py / *_test.py), and the two live harnesses that mattered were
+        # misnamed test_live_api.py / test_resolve20_api.py. Both did a
+        # module-level `import DaVinciResolveScript`, which raises
+        # ModuleNotFoundError on ubuntu-latest, so collection aborted with exit 2
+        # and publish never reached the ruff / Node / smoke steps below.
+        # Both are now live_api_probe.py / live_resolve20_api.py and are not
+        # collected; tests.test_live_harness_naming above keeps it that way.
         run: |
           pip install "mcp[cli]" -r requirements.txt pytest
           python -m pytest tests/ -q

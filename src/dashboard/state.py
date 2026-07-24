@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import sys
@@ -166,6 +167,31 @@ def _header_hostname(value: str) -> Optional[str]:
         return None
 
 
+def _is_ip_literal(hostname: Optional[str]) -> bool:
+    """True when the hostname is a bare IP address rather than a DNS name."""
+    if not hostname:
+        return False
+    try:
+        ipaddress.ip_address(hostname.strip("[]"))
+        return True
+    except ValueError:
+        return False
+
+
+def _hostname_allowed(hostname: Optional[str]) -> bool:
+    """A Host/Origin hostname this server will answer for.
+
+    Loopback names, plus any bare IP literal. DNS rebinding needs the
+    *attacker's domain name* to appear in Host (that is what makes the page
+    same-origin with us once it re-resolves to 127.0.0.1), so refusing DNS
+    names blocks it while still letting an operator who bound the server to a
+    LAN address reach it at ``http://192.168.x.y:8899``.
+    """
+    if hostname is None:
+        return False
+    return hostname.lower() in _ALLOWED_REQUEST_HOSTNAMES or _is_ip_literal(hostname)
+
+
 def _request_origin_ok(handler: BaseHTTPRequestHandler) -> bool:
     """Block DNS-rebinding and cross-site browser requests.
 
@@ -173,27 +199,22 @@ def _request_origin_ok(handler: BaseHTTPRequestHandler) -> bool:
     itself a loopback client, so any web page it renders can fire requests at
     this server — cross-site form/fetch POSTs directly, and reads via DNS
     rebinding (an attacker hostname resolving to 127.0.0.1 puts the page
-    same-origin with us). So the Host header must name localhost, and when a
-    browser supplies an Origin it must be a localhost origin too. Requests
-    without Host/Origin (curl, the panel launcher) pass — they are not
-    browser-mediated, and loopback bind already limits who can connect.
+    same-origin with us). So the Host header must not be a DNS name, and when a
+    browser supplies an Origin that must not be one either. Requests without
+    Host/Origin (curl, the panel launcher) pass — they are not browser-mediated.
+
+    This is enforced in EVERY bind mode. It used to return True outright when
+    `--host` bound something other than loopback, on the theory that LAN use is
+    an operator opt-in — but binding 0.0.0.0 does not remove loopback
+    reachability, it adds LAN reachability, so that turned the guard off for
+    exactly the requests it exists to stop (#110 finding 9).
     """
-    # An explicit non-loopback bind (--host on main.py) is an operator opt-in
-    # to LAN use; legitimate Host values are then unknowable here (any of the
-    # machine's addresses), so the guard only enforces in the default
-    # loopback-bind mode — which is also the mode DNS rebinding targets.
-    try:
-        bound = str(handler.server.server_address[0]).lower()
-        if bound not in {"127.0.0.1", "::1", "localhost"}:
-            return True
-    except Exception:
-        pass
     host = (handler.headers.get("Host") or "").strip()
-    if host and _header_hostname(host) not in _ALLOWED_REQUEST_HOSTNAMES:
+    if host and not _hostname_allowed(_header_hostname(host)):
         return False
     origin = (handler.headers.get("Origin") or "").strip()
     # "null" (sandboxed iframe, file://) is still an attacker-reachable origin.
-    if origin and _header_hostname(origin) not in _ALLOWED_REQUEST_HOSTNAMES:
+    if origin and not _hostname_allowed(_header_hostname(origin)):
         return False
     return True
 

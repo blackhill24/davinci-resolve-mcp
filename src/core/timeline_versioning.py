@@ -518,19 +518,20 @@ def ensure_versioned_before_mutation(
     if timeline_brain_db.run_archived_for_run(conn, working_name, analysis_run_id):
         return {"archived": False, "skipped_reason": "already_archived_for_run"}
 
-    return {
-        "archived": True,
-        **archive_current_timeline(
-            resolve=resolve,
-            project=project,
-            project_root=project_root,
-            reason=reason or f"version-on-mutate ({analysis_run_id})",
-            analysis_run_id=analysis_run_id,
-            timeline=tl,
-            initiator=initiator,
-            auto_save=auto_save,
-        ),
-    }
+    result = archive_current_timeline(
+        resolve=resolve,
+        project=project,
+        project_root=project_root,
+        reason=reason or f"version-on-mutate ({analysis_run_id})",
+        analysis_run_id=analysis_run_id,
+        timeline=tl,
+        initiator=initiator,
+        auto_save=auto_save,
+    )
+    # #110 finding 4: `archived` must reflect the archive's actual outcome —
+    # a literal True here let strict mode run destructive ops with NO backup
+    # whenever DuplicateTimeline (or the bin pin) failed.
+    return {"archived": bool(result.get("success")), **result}
 
 
 def list_timeline_versions(

@@ -527,7 +527,9 @@ def _timeline_export_value(value, resolve_obj=None):
     if not raw:
         return "", None
     const_name = raw if raw.startswith("EXPORT_") else None
-    if const_name and resolve_obj is not None and hasattr(resolve_obj, const_name):
+    # #110 finding 11: hasattr on a Resolve object is always True (the bridge
+    # fabricates a callable for any name); dir() lists only real constants.
+    if const_name and resolve_obj is not None and const_name in dir(resolve_obj):
         return getattr(resolve_obj, const_name), const_name
     if const_name:
         return const_name, const_name

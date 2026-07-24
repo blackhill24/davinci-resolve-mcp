@@ -281,8 +281,11 @@ class LaunchSitesUseSanitizedEnvTest(unittest.TestCase):
             )
 
     def test_restart_resolve_app(self):
+        # #110 finding 12: restart must delegate to resolve_launch.spawn_resolve,
+        # not reimplement the spawn — so the sanitized app/env guarding the
+        # dedicated launch path also covers the relaunch.
         with mock.patch.dict("os.environ", {"LD_PRELOAD": NXEGL}, clear=False), \
-             mock.patch.object(app_control.subprocess, "Popen") as popen, \
+             mock.patch.object(resolve_launch.subprocess, "Popen") as popen, \
              mock.patch.object(app_control.platform, "system", return_value="Linux"), \
              mock.patch.object(app_control.time, "sleep"), \
              mock.patch.object(app_control, "resolve_process_running", return_value=False), \
@@ -291,6 +294,15 @@ class LaunchSitesUseSanitizedEnvTest(unittest.TestCase):
                 app_control.restart_resolve_app(resolve_obj=mock.Mock(), wait_seconds=0)
             )
         self._assert_popen_sanitized(popen)
+
+    def test_restart_delegates_to_shared_spawn(self):
+        """The dedupe point: restart must not keep its own DEFAULT_APP_PATHS or
+        Popen. If it grows them back, a launch-path fix silently stops covering
+        the relaunch (#110 finding 12)."""
+        source = inspect.getsource(app_control.restart_resolve_app)
+        self.assertIn("spawn_resolve(", source, msg="restart must delegate spawn")
+        self.assertNotIn("Popen", source, msg="restart reimplements the spawn")
+        self.assertNotIn("DEFAULT_APP_PATHS", source, msg="restart keeps its own path copy")
 
 
 class MediaAnalysisSubprocessEnvTest(unittest.TestCase):

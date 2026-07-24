@@ -65,16 +65,33 @@ class RenderSettingsWhitelistTest(unittest.TestCase):
 
 class DeleteProjectRoutingTest(unittest.TestCase):
     def test_raw_delete_routes_through_safe_helper(self):
+        # #110 finding 2: `project_manager delete` is now gated — a non-disposable
+        # name without allow_non_mcp_name is refused BEFORE reaching the helper.
+        # Use a disposable _mcp_ name so the call still routes through
+        # delete_project_safely (not a raw DeleteProject), which is what this
+        # test pins.
         fake_pm = mock.Mock()
         fake_resolve = mock.Mock()
         fake_resolve.GetProjectManager.return_value = fake_pm
         with mock.patch.object(_dom_project_lifecycle, "get_resolve", return_value=fake_resolve), \
              mock.patch("src.domains.project_lifecycle.utils.project_cleanup.delete_project_safely",
                         return_value={"success": True, "attempts": 1, "leftover": None, "detail": ""}) as safe:
-            out = s.project_manager("delete", {"name": "Disposable"})
+            out = s.project_manager("delete", {"name": "_mcp_Disposable"})
         safe.assert_called_once()
         self.assertTrue(out["success"])
         self.assertIn("delete_detail", out)
+
+    def test_raw_delete_refuses_non_disposable_name(self):
+        # #110 finding 2: a real (non-_mcp_) project name must NOT reach
+        # delete_project_safely without allow_non_mcp_name + a confirm token.
+        fake_pm = mock.Mock()
+        fake_resolve = mock.Mock()
+        fake_resolve.GetProjectManager.return_value = fake_pm
+        with mock.patch.object(_dom_project_lifecycle, "get_resolve", return_value=fake_resolve), \
+             mock.patch("src.domains.project_lifecycle.utils.project_cleanup.delete_project_safely") as safe:
+            out = s.project_manager("delete", {"name": "Disposable"})
+        self.assertIn("error", out)
+        safe.assert_not_called()
 
     def test_raw_delete_requires_name(self):
         fake_resolve = mock.Mock()

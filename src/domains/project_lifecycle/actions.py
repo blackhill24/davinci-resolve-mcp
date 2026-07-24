@@ -899,7 +899,9 @@ def project_manager(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
       load(name) -> {success}
       save() -> {success}
       close() -> {success}
-      delete(name) -> {success}
+      delete(name, allow_non_mcp_name?, close_current?, dry_run?) -> {success}
+        — name must start with '_mcp_' unless allow_non_mcp_name=True, which
+        additionally requires a confirm_token (irreversible, no archive).
       import_project(path, name?) -> {success}
       export_project(name, path, with_stills_and_luts?) -> {success}
       archive(name, path, src_media?, render_cache?, proxy_media?) -> {success}
@@ -997,9 +999,29 @@ def project_manager(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
     elif action == "delete":
         if not p.get("name"):
             return _err("delete requires name")
-        from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
-        deleted = delete_project_safely(pm, p["name"])
-        return {"success": bool(deleted.get("success")), "delete_detail": deleted}
+        # #110 finding 2: this path was completely ungated — it deleted ANY
+        # project by name, irreversibly. Now shares safe_project_delete's
+        # guards (disposable _mcp_ name unless allow_non_mcp_name=True,
+        # close_current handling, dry_run), plus a confirm token whenever a
+        # real (non-_mcp_) project is targeted.
+        if p.get("allow_non_mcp_name") and not p.get("dry_run"):
+            if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+                return _issue_confirm_token(
+                    action="project_manager.delete",
+                    params=p,
+                    preview={
+                        "operation": "project_manager.delete",
+                        "warning": (
+                            "Permanently deletes this project from the database. "
+                            "Irreversible — no archive is made."
+                        ),
+                        "name": p["name"],
+                    },
+                )
+            blocked = _consume_confirm_token(action="project_manager.delete", params=p)
+            if blocked:
+                return blocked
+        return _safe_project_delete(pm, p)
     elif action == "import_project":
         if not p.get("path"):
             return _err("import_project requires path")

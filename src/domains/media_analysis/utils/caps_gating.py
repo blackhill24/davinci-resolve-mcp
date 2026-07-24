@@ -627,6 +627,27 @@ DEFAULT_FRAMES_PER_MINUTE = 4.0
 DEFAULT_FRAME_FLOOR = 3
 DEFAULT_FRAME_CEILING = 80
 
+
+def positive_or_default(value, fallback):
+    """The one rule for the frame-sampling knobs: strictly positive, else default.
+
+    The setup schema documents all three (`sampling_frames_per_minute`,
+    `sampling_frame_floor`, `sampling_frame_ceiling`) as "> 0", and the panel
+    coerces with `Number(x || <default>)`, so zero/negative/garbage is not an
+    expressible value anywhere in the stack. It used to be enforced three
+    different ways — `_pos_number` in the preference resolver, `_pos_float` in
+    the analysis-param resolver, and a bare `or` in the budget resolver, which
+    let a *negative* floor through and raised an uncaught ValueError on a
+    non-numeric one (#110 finding 7). One helper, one rule.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    if number != number or number in (float("inf"), float("-inf")):  # NaN / inf
+        return fallback
+    return number if number > 0 else fallback
+
 # Thoroughness ranking — used for cache reuse: a richer prior report satisfies a
 # cheaper mode, but switching *up* forces a re-sample.
 SAMPLING_MODE_RANK = {"fixed": 0, "per_minute": 1, "adaptive_capped": 2, "adaptive": 3}

@@ -36,9 +36,43 @@ jobs:
         # sync with the panel's navigation and screenshots, the
         # Blackmagic-facing api-limitations.md in sync with the api_truth ledger,
         # and the tool counts quoted across the docs in sync with reality.
+        # #110: two guards moved under tests/<folder>/ in the #52 restructure
+        # (test_panel_docs_drift -> tests/dashboard/, test_api_limitations_doc
+        # -> tests/core/) but this command kept the flat paths and silently
+        # ImportError'd on every publish — the guards were not actually running.
         run: |
           pip install pyflakes
-          python -m unittest tests.test_static_undefined_names tests.test_action_list_drift tests.test_panel_docs_drift tests.test_api_limitations_doc tests.test_doc_tool_counts
+          python -m unittest tests.test_static_undefined_names tests.test_action_list_drift tests.dashboard.test_panel_docs_drift tests.core.test_api_limitations_doc tests.test_doc_tool_counts
+
+      - name: Run full Python offline test suite
+        # #110 finding (packaging): the publish workflow used to run only a
+        # smoke + a handful of drift guards — never `pytest tests/` (~2060
+        # offline tests). A behavior regression in src/ could ship to npm
+        # untested. Install the same dependency set install.py provisions
+        # (mcp[cli] + requirements.txt) and run the offline suite. live_*
+        # tests skip themselves without a running Resolve, so this is the same
+        # green baseline the repo reports.
+        run: |
+          pip install "mcp[cli]" -r requirements.txt pytest
+          python -m pytest tests/ -q
+
+      - name: Lint with ruff
+        # #110 finding (packaging): ruff was enforced by nothing automated —
+        # no CI step, no test. The lint gate is real (ruff.toml defines a
+        # narrow, defect-only rule set) but invisible until a human ran it.
+        run: |
+          pip install ruff
+          ruff check src scripts tests
+
+      - name: Run Resolve-advanced Node test suite
+        # #110 finding (packaging): the publish workflow ran neither test
+        # suite. The advanced server's vendor codecs (drp-format /
+        # drt-format / drx-codec) are pure-JS and self-contained — a codec
+        # regression that corrupts .drp files would ship untested. The Node
+        # suite is the gate that catches it.
+        run: |
+          npm install --prefix resolve-advanced
+          npm test --prefix resolve-advanced
 
       - name: Run Node CLI smoke tests
         run: |

@@ -65,6 +65,14 @@ All kernel actions are exposed through `timeline`.
   track, page, and insertion state even with a valid generated audio path.
 - Transcription and subtitle APIs can be asynchronous, language-component
   dependent, and license/build dependent even when they return true quickly.
+- **`CreateSubtitlesFromAudio` crashes the Resolve process on Linux** (issue
+  #90, 2/2 on Studio 21.0.2.4 — no exception, no error return). The live subtitle
+  surface (`subtitle_generation_probe` and every caller, including
+  `auto_edit.finish`) refuses with `SUBTITLE_GENERATION_CRASH_GUARD` rather than
+  crash Resolve. Recovery path: generate the `.srt` offline (whisper → ffmpeg
+  subtitles) and import it with `timeline(action="import_srt")` — that path is
+  live-proven and never calls the crashing API. `RESOLVE_ALLOW_SUBTITLE_GENERATION=1`
+  overrides the guard with a real risk of killing the open project.
 - The public API does not expose full Fairlight mix automation curves or plugin
   parameter graphs.
 

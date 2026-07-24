@@ -28,9 +28,9 @@
     "zstd-codec": "^0.1.5"
   },
   "optionalDependencies": {
-    "better-sqlite3": "^11.0.0",
-    "js-yaml": "^4.1.0",
-    "pg": "^8.11.0",
+    "better-sqlite3": "^11.10.0",
+    "js-yaml": "^4.3.0",
+    "pg": "^8.22.0",
     "sharp": "^0.33.0"
   },
   "files": [
@@ -50,7 +50,8 @@
     "LICENSE",
     "SECURITY.md",
     "AGENTS.md",
-    "CLAUDE.md"
+    "CLAUDE.md",
+    ".claude/skills/**"
   ],
   "scripts": {
     "smoke": "node bin/davinci-resolve-mcp.mjs --help && node bin/davinci-resolve-mcp.mjs --version",

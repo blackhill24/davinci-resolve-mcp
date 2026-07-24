@@ -763,6 +763,23 @@ def _safe_create_subtitles(tl, p: Dict[str, Any]):
     if p.get("dry_run", False):
         return _ok(would_create_subtitles=True, settings=settings, ignored_settings=ignored)
 
+    # Issue #90/#110: the guard must live here, on the shared helper, so every
+    # caller (subtitle probe, auto_edit.finish, timeline_ai.create_subtitles)
+    # is covered — not just the ones that remember to check.
+    guard = subtitle_generation_guard()
+    if guard is not None:
+        return _err(
+            "CreateSubtitlesFromAudio refused: crashes the Resolve process on this platform",
+            code="SUBTITLE_GENERATION_CRASH_GUARD",
+            category="unsupported",
+            reason=guard["reason"],
+            remediation=(
+                f"Set {guard['override_env']}=1 to run it anyway (Resolve may die). "
+                f"{guard['alternative']} See {guard['issue']}."
+            ),
+            state=guard,
+        )
+
     def _subtitle_track_count():
         try:
             return int(tl.GetTrackCount("subtitle") or 0)
@@ -781,7 +798,7 @@ def _safe_create_subtitles(tl, p: Dict[str, Any]):
         label="create_subtitles_from_audio",
         intent={"settings_keys": sorted(settings.keys()) if settings else []},
     )
-    return {
+    out = {
         "success": res["success_raw"],
         "verified": res["verified"],
         "subtitle_tracks_before": res.get("subtitle_tracks_before"),
@@ -789,6 +806,13 @@ def _safe_create_subtitles(tl, p: Dict[str, Any]):
         "settings": settings,
         "ignored_settings": ignored,
     }
+    if subtitle_generation_override_active():
+        out["warnings"] = [
+            "crash guard bypassed via RESOLVE_ALLOW_SUBTITLE_GENERATION: native "
+            "CreateSubtitlesFromAudio is proven to kill the Resolve process on this "
+            "platform (issue #90). Prefer offline generation + timeline import_srt."
+        ]
+    return out
 
 def _transcription_capabilities(mp, p: Dict[str, Any]):
     from src.domains.media_pool_ingest.actions import _media_pool_item_summary
@@ -854,16 +878,11 @@ def _subtitle_generation_probe(tl, p: Dict[str, Any]):
         )
     if not _has_method(tl, "CreateSubtitlesFromAudio"):
         return _err("CreateSubtitlesFromAudio unavailable")
-    res = _run_maybe_background(
+    # Crash guard + override warning now live inside _safe_create_subtitles so
+    # every caller is covered (issue #110 finding 1).
+    return _run_maybe_background(
         "timeline.create_subtitles_from_audio", p, lambda: _safe_create_subtitles(tl, p)
     )
-    if subtitle_generation_override_active() and isinstance(res, dict) and "error" not in res:
-        res.setdefault("warnings", []).append(
-            "crash guard bypassed via RESOLVE_ALLOW_SUBTITLE_GENERATION: native "
-            "CreateSubtitlesFromAudio is proven to kill the Resolve process on this "
-            "platform (issue #90). Prefer offline generation + timeline import_srt."
-        )
-    return res
 
 def _fairlight_boundary_report(proj, mp, tl, p: Dict[str, Any]):
     fairlight_presets = None

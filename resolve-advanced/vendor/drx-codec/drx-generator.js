@@ -39,6 +39,11 @@ const { v4: uuidv4 } = require('uuid');
 // Import shared DRX parameter library
 const drxParams = require('../drx-parameters');
 
+// #110 finding 10: <Label>/<SrcHint> carried user/group names raw — a name with
+// `&` or `<` produced malformed DRX XML that Resolve then failed to parse. Use
+// the one shared escaper (5-char coverage) from xml-builder.
+const { escapeXml: _xmlEsc } = require('../drp-format/xml-builder');
+
 // ZSTD codec instance (initialized lazily)
 let zstdCompressor = null;
 
@@ -1896,10 +1901,10 @@ async function generateMultiNodeDRX(nodes, connections, metadata = {}) {
 <!--DbAppVer="19.1.3.0007" DbPrjVer="14"-->
 <Gallery::GyStill DbId="${stillId}">
  <FieldsBlob/>
- <SrcHint>${sourceTimeline}</SrcHint>
+ <SrcHint>${_xmlEsc(sourceTimeline)}</SrcHint>
  <SrcType>1</SrcType>
  <GalleryPath/>
- <Label>${label}</Label>
+ <Label>${_xmlEsc(label)}</Label>
  <RecTC>${recordTC}</RecTC>
  <SrcTC>${sourceTC}</SrcTC>
  <DpxDescriptor>50</DpxDescriptor>
@@ -1985,10 +1990,10 @@ async function generateDRX(gradeParams, metadata = {}) {
 <!--DbAppVer="19.1.3.0007" DbPrjVer="14"-->
 <Gallery::GyStill DbId="${stillId}">
  <FieldsBlob/>
- <SrcHint>${sourceTimeline}</SrcHint>
+ <SrcHint>${_xmlEsc(sourceTimeline)}</SrcHint>
  <SrcType>1</SrcType>
  <GalleryPath/>
- <Label>${label}</Label>
+ <Label>${_xmlEsc(label)}</Label>
  <RecTC>${recordTC}</RecTC>
  <SrcTC>${sourceTC}</SrcTC>
  <DpxDescriptor>50</DpxDescriptor>

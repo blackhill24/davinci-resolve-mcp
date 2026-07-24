@@ -8,6 +8,7 @@
 """
 import importlib
 import pathlib
+import re
 import subprocess
 import sys
 import unittest
@@ -42,6 +43,32 @@ class AuditScriptsTest(unittest.TestCase):
         proc = self._run("audit_readwrite_symmetry.py")
         self.assertEqual(proc.returncode, 0,
                          f"audit_readwrite_symmetry failed:\n{proc.stdout[-2000:]}\n{proc.stderr[-500:]}")
+        # #110 finding 13: the audit used to scan only src/server.py, whose
+        # _unknown lists lost the compound surface in the #52 restructure —
+        # "4 actions scanned" while thinking it covered everything. Assert it
+        # actually reaches the domain surface so the re-scoping can't silently
+        # regress.
+        m = re.search(r"write-style actions scanned:\s*\*\*(\d+)\*\*", proc.stdout)
+        self.assertIsNotNone(m, f"could not parse scan count:\n{proc.stdout[-2000:]}")
+        self.assertGreaterEqual(int(m.group(1)), 50,
+                                f"symmetry audit scanned too few actions — surface not reached:\n{proc.stdout[-2000:]}")
+
+    def test_readwrite_symmetry_audit_fails_on_new_gap(self):
+        # The audit must return nonzero when a new set_-without-get_ gap appears,
+        # otherwise "returncode == 0" proves nothing (#110 finding 13).
+        import scripts.audit_readwrite_symmetry as audit_mod
+        original = audit_mod.BASELINE_HIGH_SIGNAL_GAPS
+        try:
+            audit_mod.BASELINE_HIGH_SIGNAL_GAPS = frozenset()
+            import contextlib
+            import io
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = audit_mod.main()
+            self.assertEqual(rc, 1, "audit did not fail with the baseline emptied")
+            self.assertIn("AUDIT FAILED", buf.getvalue())
+        finally:
+            audit_mod.BASELINE_HIGH_SIGNAL_GAPS = original
 
 
 if __name__ == "__main__":

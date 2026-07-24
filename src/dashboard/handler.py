@@ -61,11 +61,14 @@ def _run_tool_coro(coro: Any) -> Any:
 
 
 def _first_specified(*values: Any) -> Any:
-    """First value that isn't None — unlike `or`, an explicit 0 wins.
+    """First value that isn't None — unlike `or`, an explicit 0 or "" wins.
 
-    The panel can legitimately send 0 for the frame-sampling knobs; an
-    `or`-chain silently replaced it with the saved preference, so a 0 floor
-    could not be expressed at all.
+    Keeps request-body values distinguishable from "absent" so a request never
+    silently inherits a saved preference it meant to override. Note that the
+    frame-sampling knobs are separately documented as "> 0" (setup schema,
+    `src/server.py`), so a 0 that reaches the engine is normalized back to the
+    default by `positive_or_default` rather than honoured — one rule, applied in
+    one place (#110 finding 7).
     """
     for value in values:
         if value is not None:

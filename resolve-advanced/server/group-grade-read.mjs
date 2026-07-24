@@ -21,6 +21,11 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { drxTool } from './tools/drx.mjs';
 
+// #110 finding 10: <Label> carried the group name raw — a group named `A & B`
+// matched (matching is entity-aware) but then failed to decode because the
+// generated XML was malformed. Use the one shared 5-char escaper.
+const { escapeXml } = createRequire(import.meta.url)('../vendor/drp-format/xml-builder.js');
+
 const require = createRequire(import.meta.url);
 const { extractDrxLutRefs } = require('../vendor/drx-codec/extract-lut-refs.js');
 const { extractHSLCurves } = require('../vendor/drx-codec/extract-hsl-curves.js');
@@ -129,7 +134,7 @@ export function groupSegment(xml, name) {
 export const groupBodies = (seg) => [...seg.matchAll(/<Body>([0-9a-fA-F]+)<\/Body>/g)].map((m) => m[1]);
 
 async function decodeBody(bodyHex, label) {
-  const content = `<?xml version="1.0" encoding="UTF-8"?>\n<Resolve_Color_Exchange><Label>${label}</Label><Width>1920</Width><Height>1080</Height><Body>${bodyHex}</Body></Resolve_Color_Exchange>`;
+  const content = `<?xml version="1.0" encoding="UTF-8"?>\n<Resolve_Color_Exchange><Label>${escapeXml(label)}</Label><Width>1920</Width><Height>1080</Height><Body>${bodyHex}</Body></Resolve_Color_Exchange>`;
   let r;
   try {
     r = await drxTool.handler({ action: 'parse', args: { content } });

@@ -92,9 +92,10 @@ apply are the caller's job. Pick by intent:
   still/`.drx` backup first (it does not snapshot). `ApplyGradeFromDRX` *replaces*
   the graph — no append mode.
 - **Relayout ("Cleanup Node Graph," no UI API).** Single clip, live: grab still →
-  `drx(action="relayout")` → `graph.reset_all_grades` → `safe_apply_drx` with
-  explicit indices (a same-structure apply keeps the OLD layout — the reset is
-  required). Whole project, offline: `project_db(action="relayout_node_graphs")`.
+  `drx(action="relayout")` → `graph.reset_all_grades(source="item", track_type=…, track_index=…, item_index=…)` →
+  `safe_apply_drx` with explicit indices (a same-structure apply keeps the OLD layout — the reset is
+  required). **Pass `source="item"`** — `reset_all_grades` defaults to `source="timeline"`,
+  which is CATASTROPHIC and wipes the *whole timeline's* grade, not the target clip's. Whole project, offline: `project_db(action="relayout_node_graphs")`.
 - **Guards are load-bearing.** A thrown "refused" error usually means wrong input
   space, log-encoded frames, or missing media — read it before retrying. The
   grading catalog needs `sharp`; call the advanced `capabilities` tool for live

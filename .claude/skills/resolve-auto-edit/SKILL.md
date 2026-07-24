@@ -28,6 +28,11 @@ approval (`approve_cut`) sits between planning and execution.
    (`usage_summary`, `build_errors`, `punch_ins`) and report anomalies.
 8. `finish(plan_id, grade?, subtitles?, render={target_dir, format?, codec?})`
    — verify the reported `output_path` exists before declaring success.
+   On Linux, `subtitles` hits a `SUBTITLE_GENERATION_CRASH_GUARD` refusal
+   (issue #90: `CreateSubtitlesFromAudio` kills the Resolve process, no
+   exception). Skip `subtitles` on the `finish` call and instead import an
+   offline-generated `.srt` via `timeline(action="import_srt")` — live-proven,
+   does not call the crashing API.
 
 ## Rules that bind this skill
 

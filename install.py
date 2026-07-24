@@ -743,6 +743,32 @@ def get_venv_python(venv_path):
     return venv_path / "bin" / "python"
 
 
+PIP_INSTALL_TIMEOUT = 15 * 60  # pip can be slow; but cap it so a stall is visible
+
+
+def _pip_fail_msg(what, exc: subprocess.CalledProcessError) -> str:
+    """Turn a captured-output pip failure into a message the user can read.
+
+    pip's real error lives in exc.stdout/exc.stderr, which the bare traceback
+    that propagated from `check=True` never showed (#110 finding: packaging).
+    """
+    out = (exc.stdout or "").strip()
+    err = (exc.stderr or "").strip()
+    parts = [f"pip install failed for {what} (exit {exc.returncode})."]
+    if out:
+        parts.append(out)
+    if err:
+        parts.append(err)
+    return "\n".join(parts)
+
+
+def _pip_timeout_msg(what, timeout: int) -> str:
+    return (
+        f"pip install for {what} timed out after {timeout}s. A stalled pip used "
+        f"to hang the installer with no output; re-run, or check your network/pypi mirror."
+    )
+
+
 def get_venv_pip(venv_path):
     """Get the pip executable inside a venv."""
     if is_windows():
@@ -758,17 +784,36 @@ def install_dependencies(venv_path, project_dir):
     print(f"  Installing dependencies...")
 
     # Install MCP SDK
-    subprocess.run(
-        [str(pip), "install", "-q", "mcp[cli]"],
-        check=True, capture_output=True
-    )
+    try:
+        # #110 finding (packaging): pip ran with no timeout and
+        # capture_output=True — a stalled pip hung the installer with no
+        # output, and on failure the CalledProcessError carried pip's actual
+        # error in captured stdout/stderr but never printed it, leaving a bare
+        # traceback. Bound the wait and surface pip's message on failure.
+        subprocess.run(
+            [str(pip), "install", "-q", "mcp[cli]"],
+            check=True, capture_output=True, text=True, timeout=PIP_INSTALL_TIMEOUT,
+        )
+    except subprocess.CalledProcessError as exc:
+        print(_pip_fail_msg("mcp[cli]", exc), file=sys.stderr)
+        raise
+    except subprocess.TimeoutExpired:
+        print(_pip_timeout_msg("mcp[cli]", PIP_INSTALL_TIMEOUT), file=sys.stderr)
+        raise
 
     # Install from requirements.txt if it exists
     if req_file.exists():
-        subprocess.run(
-            [str(pip), "install", "-q", "-r", str(req_file)],
-            check=True, capture_output=True
-        )
+        try:
+            subprocess.run(
+                [str(pip), "install", "-q", "-r", str(req_file)],
+                check=True, capture_output=True, text=True, timeout=PIP_INSTALL_TIMEOUT,
+            )
+        except subprocess.CalledProcessError as exc:
+            print(_pip_fail_msg(f"requirements ({req_file.name})", exc), file=sys.stderr)
+            raise
+        except subprocess.TimeoutExpired:
+            print(_pip_timeout_msg(f"requirements ({req_file.name})", PIP_INSTALL_TIMEOUT), file=sys.stderr)
+            raise
 
 # ─── Connection Verification ─────────────────────────────────────────────────
 
@@ -1487,7 +1532,7 @@ def main():
         try:
             result = subprocess.run(
                 [str(python_path), "-c", "import mcp; print('ok')"],
-                capture_output=True, text=True
+                capture_output=True, text=True, timeout=60,
             )
             if result.stdout.strip() == "ok":
                 print(f"  MCP SDK:   {green('Installed')}")

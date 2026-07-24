@@ -9,6 +9,7 @@ the Resolve scripting API.
 import logging
 from typing import Any, Dict, Optional
 
+from src.core.envelope import _has_method
 from src.core.readback import verify_by_readback
 
 logger = logging.getLogger("davinci-resolve-mcp.cloud_operations")
@@ -121,7 +122,11 @@ def _project_manager(resolve_obj, method_name: str):
     pm = resolve_obj.GetProjectManager()
     if not pm:
         return None, {"success": False, "error": "Failed to get Project Manager"}
-    if not hasattr(pm, method_name):
+    # #110 finding 11: the bridge fabricates a callable for ANY attribute name,
+    # so hasattr() is always True and this version-guard was unreachable — the
+    # version that lacks the method raised a bare TypeError downstream instead
+    # of this message. dir() lists only real methods.
+    if not _has_method(pm, method_name):
         return None, {
             "success": False,
             "error": f"{method_name} not available in this version of DaVinci Resolve",
@@ -156,7 +161,7 @@ def create_cloud_project(
     return {
         "success": True,
         "project_name": project.GetName(),
-        "project_id": project.GetUniqueId() if hasattr(project, "GetUniqueId") else None,
+        "project_id": project.GetUniqueId() if _has_method(project, "GetUniqueId") else None,
     }
 
 
@@ -190,7 +195,7 @@ def load_cloud_project(
     return {
         "success": True,
         "project_name": project.GetName(),
-        "project_id": project.GetUniqueId() if hasattr(project, "GetUniqueId") else None,
+        "project_id": project.GetUniqueId() if _has_method(project, "GetUniqueId") else None,
     }
 
 

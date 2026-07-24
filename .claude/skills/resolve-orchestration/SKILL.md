@@ -45,8 +45,8 @@ if a step here has to *compute* anything, that belongs in the tool, not here.
    `project_db.relayout_node_graphs`, `fairlight`'s DB path) — call
    `request_offline_op(job_id, stage, tool, op_action, args)` to park the
    current stage instead of hand-rolling it. This never quits or relaunches
-   Resolve itself: **you** do that via `quit_app` → the advanced tool call →
-   `launch`, each its own explicit, permissioned step — a real Resolve
+   Resolve itself: **you** do that via `resolve_control(action="quit")` → the advanced tool call →
+   `resolve_control(action="launch")`, each its own explicit, permissioned step — a real Resolve
    process being killed/relaunched programmatically is meaningfully riskier
    than any other bridge call here, so confirm with the user before the
    first live run. Report the result to `resolve_offline_op(job_id, result)`

@@ -15,7 +15,8 @@ import platform
 import subprocess
 from typing import Dict, Any, List, Optional
 
-from src.core.proc import resolve_spawn_env
+from src.core.envelope import _has_method
+from src.core.resolve_launch import resolve_app_path, spawn_resolve
 
 # Configure logging
 logger = logging.getLogger("davinci-resolve-mcp.app_control")
@@ -85,8 +86,14 @@ def quit_resolve_app(resolve_obj, force: bool = False, save_project: bool = True
                         logger.error("Aborting quit due to save failure")
                         return False
         
-        # Attempt to quit using the API
-        if hasattr(resolve_obj, 'Quit') and callable(getattr(resolve_obj, 'Quit')):
+        # Attempt to quit using the API. #110 finding 11: hasattr on a Resolve
+        # object is always True (the bridge fabricates a callable for any name),
+        # so the old `hasattr(...) and callable(getattr(...))` guard read Quit
+        # as present on every build, called the fabricated stub (returns None,
+        # not callable — the `callable()` half saved us from calling it but the
+        # whole branch was dead and quit always fell through to the platform
+        # fallback). dir() lists only real methods.
+        if _has_method(resolve_obj, 'Quit'):
             logger.info("Using Resolve.Quit() API")
             resolve_obj.Quit()
             return True
@@ -295,16 +302,13 @@ def restart_resolve_app(resolve_obj, wait_seconds: int = DEFAULT_EXIT_WAIT_SECON
         True if restart was initiated successfully
     """
     try:
-        # Get Resolve executable path for restart
-        if platform.system().lower() == 'darwin':
-            resolve_path = '/Applications/DaVinci Resolve/DaVinci Resolve.app'
-        elif platform.system().lower() == 'windows':
-            # Default path, may need to be customized
-            resolve_path = r'C:\Program Files\Blackmagic Design\DaVinci Resolve\Resolve.exe'
-        elif platform.system().lower() == 'linux':
-            # Default path, may need to be customized
-            resolve_path = '/opt/resolve/bin/resolve'
-        else:
+        # #110 finding 12: this used to keep its own hardcoded path copy and its
+        # own spawn, with no os.path.exists guard, no stdin=DEVNULL on
+        # darwin/windows, and no sanitized env. Every launch-path fix had to be
+        # applied here separately or it silently regressed — the exact drift
+        # resolve_launch.spawn_resolve() was centralized to stop. Delegate.
+        if resolve_app_path() is None:
+            logger.error("Unsupported platform for Resolve restart")
             return False
 
         # Quit Resolve
@@ -324,22 +328,11 @@ def restart_resolve_app(resolve_obj, wait_seconds: int = DEFAULT_EXIT_WAIT_SECON
             )
             return False
 
-        # Start Resolve again
+        # Start Resolve again via the single shared spawn path (os.path.exists
+        # guard, stdin=DEVNULL, sanitized env on linux).
         logger.info("Attempting to start Resolve")
+        return spawn_resolve(logger)
 
-        if platform.system().lower() == 'darwin':
-            subprocess.Popen(['open', resolve_path])
-        elif platform.system().lower() == 'windows':
-            subprocess.Popen([resolve_path])
-        elif platform.system().lower() == 'linux':
-            subprocess.Popen(
-                [resolve_path],
-                stdin=subprocess.DEVNULL,
-                env=resolve_spawn_env(),
-                start_new_session=True,
-            )
-
-        return True
     except Exception as e:
         logger.error(f"Error restarting DaVinci Resolve: {str(e)}")
         return False

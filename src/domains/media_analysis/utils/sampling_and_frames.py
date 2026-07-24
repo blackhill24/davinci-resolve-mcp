@@ -6,7 +6,7 @@ import os
 import subprocess
 from typing import Any, Dict, List, Optional
 
-from src.domains.media_analysis.utils.caps_gating import DEFAULT_FRAMES_PER_MINUTE, DEFAULT_FRAME_CEILING, DEFAULT_FRAME_FLOOR, DEFAULT_SAMPLING_MODE, HARD_FRAME_CAP
+from src.domains.media_analysis.utils.caps_gating import DEFAULT_FRAMES_PER_MINUTE, DEFAULT_FRAME_CEILING, DEFAULT_FRAME_FLOOR, DEFAULT_SAMPLING_MODE, HARD_FRAME_CAP, positive_or_default
 from src.domains.media_analysis.utils.clip_identity_registry import _clamp_int, normalize_sampling_mode
 from src.domains.media_analysis.utils.technical_probe import _clamp_sample_time, _frame_step_seconds, _parse_float, _run_command
 
@@ -73,9 +73,11 @@ def _compute_demand_driven_budget(
     """
     sampling = sampling or {}
     mode = normalize_sampling_mode(sampling.get("mode"), default=DEFAULT_SAMPLING_MODE) or DEFAULT_SAMPLING_MODE
-    rate = sampling.get("frames_per_minute") or DEFAULT_FRAMES_PER_MINUTE
-    floor = int(sampling.get("frame_floor") or DEFAULT_FRAME_FLOOR)
-    ceiling = int(sampling.get("frame_ceiling") or DEFAULT_FRAME_CEILING)
+    # positive_or_default, not `or`: a negative floor is truthy and used to slip
+    # straight through, and a non-numeric one raised ValueError here (#110 f7).
+    rate = positive_or_default(sampling.get("frames_per_minute"), DEFAULT_FRAMES_PER_MINUTE)
+    floor = int(positive_or_default(sampling.get("frame_floor"), DEFAULT_FRAME_FLOOR))
+    ceiling = int(positive_or_default(sampling.get("frame_ceiling"), DEFAULT_FRAME_CEILING))
     if ceiling < floor:
         ceiling = floor
     requested = max(int(requested_budget or 0), 0)

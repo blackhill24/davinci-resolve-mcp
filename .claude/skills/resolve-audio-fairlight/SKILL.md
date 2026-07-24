@@ -45,6 +45,14 @@ is the sole live implementation. **Prompt** — `audio_workflow` (`src/server.py
   generated item types; `AutoSyncAudio` depends on media + Resolve's sync engine.
 - The public API does not expose Fairlight mix automation curves or plugin graphs
   — use `fairlight` for bus structure, not automation.
+- **Subtitle generation crashes Resolve on Linux** (issue #90, 2/2 on Studio
+  21.0.2.4): `CreateSubtitlesFromAudio` kills the process, no exception, no error
+  return. `subtitle_generation_probe` and any caller (incl. `auto_edit.finish`) hit a
+  hard `SUBTITLE_GENERATION_CRASH_GUARD` refusal rather than crash Resolve. Recovery
+  path: generate the `.srt` offline (e.g. whisper → ffmpeg subtitles) and import it with
+  `timeline(action="import_srt")` — that path is live-proven and does not call the
+  crashing API. Set `RESOLVE_ALLOW_SUBTITLE_GENERATION=1` only to override with a real
+  risk of losing the open project.
 
 Never modify/transcode/derive source media (AGENTS.md) — the offline `audio` ops
 write NEW files to scratch, never over source.

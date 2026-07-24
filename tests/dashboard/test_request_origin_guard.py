@@ -83,11 +83,33 @@ def test_lookalike_host_blocked():
 
 
 # ── LAN opt-in mode ──────────────────────────────────────────────────────────
+#
+# #110 finding 9: the guard used to return True outright on a non-loopback bind.
+# Binding 0.0.0.0 does not remove loopback reachability — it ADDS LAN
+# reachability — so that switched the guard off for the very requests it exists
+# to stop. It now enforces in every bind mode, allowing IP literals (how an
+# operator actually reaches a LAN bind) but never DNS names (what rebinding
+# needs).
 
-def test_non_loopback_bind_disables_guard():
-    # Operator explicitly bound a LAN address; legitimate Hosts are unknowable.
-    handler = _fake_handler({"Host": "192.168.1.5:8899"}, bound="0.0.0.0")
+def test_lan_bind_allows_ip_literal_host():
+    handler = _fake_handler({"Host": "192.168.1.5:8899", "Origin": "http://192.168.1.5:8899"},
+                            bound="0.0.0.0")
     assert _request_origin_ok(handler)
+
+
+def test_lan_bind_still_blocks_rebinding_and_cross_site():
+    assert not _request_origin_ok(
+        _fake_handler({"Host": "rebind.evil.example:8899"}, bound="0.0.0.0")
+    )
+    assert not _request_origin_ok(
+        _fake_handler({"Host": "192.168.1.5:8899", "Origin": "https://evil.example"},
+                      bound="0.0.0.0")
+    )
+
+
+def test_loopback_bind_allows_ip_literal_host():
+    # Same rule in both modes — no bind-mode branch left to get out of sync.
+    assert _request_origin_ok(_fake_handler({"Host": "192.168.1.5:8899"}))
 
 
 def test_handler_wires_guard_into_do_get_and_do_post():

@@ -71,8 +71,8 @@ The Resolve-closed slice (`orchestrate.OFFLINE_CLOSED_ACTIONS`) doesn't map
 onto any stage's *domain* work — it's a generic pause/resume capability any
 stage can request (issue #39): `request_offline_op` parks the current
 cursor stage at `awaiting_offline_artifact` with an instruction; the host
-then does the actual quit (`resolve_control.quit_app`) → advanced-tool call
-→ relaunch (`launch`) — each an existing, separately-permissioned tool call,
+then does the actual quit (`resolve_control(action="quit")`) → advanced-tool call
+→ relaunch (`resolve_control(action="launch")`) — each an existing, separately-permissioned tool call,
 never automated by `orchestrate` itself — then reports the result back to
 `resolve_offline_op` to resume. The job record carries the pending op
 through a context reset same as any other stage state, so `job_status`

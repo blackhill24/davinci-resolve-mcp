@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -39,6 +40,10 @@ DEFAULT_MIN_PAUSE_SECONDS = 1.5
 
 _SELECT_RANK = {"high": 3, "medium": 2, "low": 1}
 
+# Plan ids are uuid4 hex; allow a slightly wider alphabet for hand-made ids but
+# never a path separator, a dot, or anything else that can leave the plan dir.
+_SAFE_PLAN_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
 
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -46,6 +51,26 @@ def _now() -> str:
 
 def _plan_dir(project_root: str) -> str:
     return os.path.join(analysis_memory.memory_dir(project_root), PLAN_DIR_NAME)
+
+
+def _plan_path(project_root: str, plan_id: Any) -> Optional[str]:
+    """Filesystem path for a plan id, or None if the id is not a plain plan id.
+
+    Plan ids are `uuid.uuid4().hex[:12]`. The dashboard reaches this through
+    `/api/edit_plans/<id>` with the tail URL-decoded, so an id like
+    ``..%2f..%2fetc%2fsomething`` used to join straight out of the plan
+    directory — an arbitrary-path existence oracle plus an unbounded json.load
+    of an attacker-chosen file (#110 finding 8). Reject anything that is not a
+    bare, safe basename, then containment-check the result.
+    """
+    raw = str(plan_id or "")
+    if not raw or not _SAFE_PLAN_ID.fullmatch(raw):
+        return None
+    directory = os.path.realpath(_plan_dir(project_root))
+    path = os.path.realpath(os.path.join(directory, f"{raw}.json"))
+    if os.path.dirname(path) != directory:
+        return None
+    return path
 
 
 def _plan_fingerprint(plan: Dict[str, Any]) -> str:
@@ -60,7 +85,9 @@ def save_plan(project_root: str, plan: Dict[str, Any]) -> Dict[str, Any]:
     plan.setdefault("plan_id", uuid.uuid4().hex[:12])
     plan["saved_at"] = _now()
     plan["fingerprint"] = _plan_fingerprint(plan)
-    path = os.path.join(_plan_dir(project_root), f"{plan['plan_id']}.json")
+    path = _plan_path(project_root, plan["plan_id"])
+    if path is None:
+        raise ValueError(f"unsafe plan_id: {plan['plan_id']!r}")
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as handle:
         json.dump(plan, handle, indent=2, default=str)
@@ -69,7 +96,9 @@ def save_plan(project_root: str, plan: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def load_plan(project_root: str, plan_id: str) -> Optional[Dict[str, Any]]:
-    path = os.path.join(_plan_dir(project_root), f"{str(plan_id)}.json")
+    path = _plan_path(project_root, plan_id)
+    if path is None:
+        return None
     try:
         with open(path, "r", encoding="utf-8") as handle:
             plan = json.load(handle)
@@ -118,7 +147,9 @@ def mark_plan_executed(project_root: str, plan_id: str, result_summary: Dict[str
     plan["executed_at"] = _now()
     plan["execution_summary"] = result_summary
     plan["fingerprint"] = _plan_fingerprint(plan)
-    path = os.path.join(_plan_dir(project_root), f"{plan_id}.json")
+    path = _plan_path(project_root, plan_id)
+    if path is None:
+        return
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as handle:
         json.dump(plan, handle, indent=2, default=str)

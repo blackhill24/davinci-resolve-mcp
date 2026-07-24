@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from src.domains.media_analysis.utils.caps_gating import ANALYSIS_DIR_NAME, ANALYSIS_REGISTRY_FILENAME, ANALYSIS_REGISTRY_SCHEMA_VERSION, ANALYSIS_VERSION, DEFAULT_FRAMES_PER_MINUTE, DEFAULT_FRAME_CEILING, DEFAULT_FRAME_FLOOR, DEFAULT_MAX_RELATED_PROJECT_ROOTS, DEFAULT_SAMPLING_MODE, DEFAULT_SOURCE_TRUST, _SAMPLING_MODE_ALIASES
+from src.domains.media_analysis.utils.caps_gating import ANALYSIS_DIR_NAME, ANALYSIS_REGISTRY_FILENAME, ANALYSIS_REGISTRY_SCHEMA_VERSION, ANALYSIS_VERSION, DEFAULT_FRAMES_PER_MINUTE, DEFAULT_FRAME_CEILING, DEFAULT_FRAME_FLOOR, DEFAULT_MAX_RELATED_PROJECT_ROOTS, DEFAULT_SAMPLING_MODE, DEFAULT_SOURCE_TRUST, _SAMPLING_MODE_ALIASES, positive_or_default
 from src.domains.media_analysis.utils.technical_probe import _read_json, _write_json
 
 
@@ -34,16 +34,9 @@ def _resolve_sampling_config(params: Optional[Dict[str, Any]]) -> Dict[str, Any]
         _first("sampling_mode", "samplingMode"), default=DEFAULT_SAMPLING_MODE
     ) or DEFAULT_SAMPLING_MODE
 
-    def _pos_float(value: Any, fallback: float) -> float:
-        try:
-            f = float(value)
-        except (TypeError, ValueError):
-            return fallback
-        return f if f > 0 else fallback
-
-    rate = _pos_float(_first("frames_per_minute", "framesPerMinute"), DEFAULT_FRAMES_PER_MINUTE)
-    floor = int(_pos_float(_first("frame_floor", "frameFloor"), DEFAULT_FRAME_FLOOR))
-    ceiling = int(_pos_float(_first("frame_ceiling", "frameCeiling"), DEFAULT_FRAME_CEILING))
+    rate = positive_or_default(_first("frames_per_minute", "framesPerMinute"), DEFAULT_FRAMES_PER_MINUTE)
+    floor = int(positive_or_default(_first("frame_floor", "frameFloor"), DEFAULT_FRAME_FLOOR))
+    ceiling = int(positive_or_default(_first("frame_ceiling", "frameCeiling"), DEFAULT_FRAME_CEILING))
     if ceiling < floor:
         ceiling = floor
     return {

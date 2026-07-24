@@ -654,6 +654,7 @@ def _build_proxies(proj, p):
     if not timeline:
         return _err("failed to create the proxy-render timeline")
     prev_mode = proj.GetCurrentRenderMode()
+    job_id = None
     try:
         proj.SetCurrentTimeline(timeline)
         proj.SetCurrentRenderMode(0)  # 0 = Individual clips
@@ -668,7 +669,10 @@ def _build_proxies(proj, p):
         settings_ok = bool(proj.SetRenderSettings(settings))
 
         existing_before = set(os.listdir(proxy_dir))
-        proj.DeleteAllRenderJobs()
+        # #110 finding 3: never DeleteAllRenderJobs here — that silently wiped
+        # the user's configured render queue. StartRendering([job_id]) renders
+        # only our job; the queue is left untouched and our job is removed in
+        # the finally block.
         job_id = proj.AddRenderJob()
         if not job_id:
             return _err("AddRenderJob failed", state={"format_ok": format_ok, "settings_ok": settings_ok})
@@ -708,6 +712,11 @@ def _build_proxies(proj, p):
                    linked=linked_count, of=len(clips), format_ok=format_ok,
                    settings_ok=settings_ok, clips=results)
     finally:
+        if job_id:
+            try:
+                proj.DeleteRenderJob(job_id)
+            except Exception:
+                pass
         try:
             proj.SetCurrentRenderMode(prev_mode)
         except Exception:

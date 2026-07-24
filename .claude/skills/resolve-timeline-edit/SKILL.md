@@ -40,8 +40,10 @@ servers. **Resources** — `status://current_timeline`,
 - Ranges: `copy_range`, `duplicate_range`, `overwrite_range`, `lift_range`.
   **No public razor/split** — partial overlaps in `lift_range` are blocked unless
   `allow_partial_item_delete=True` (whole-item delete, not a trim).
-- Item state copy: `copy_properties` (transform/crop/composite/audio/retime/
-  markers/flags/grades/takes/keyframes …); scope with a group list.
+- Item state copy: the `copy_properties` **parameter** of `duplicate_clips` /
+  `copy_range` / `move_clips` (transform/crop/composite/audio/retime/markers/
+  flags/grades/takes/keyframes …); scope with a group list. There is no
+  `copy_properties` *action* — it is always a parameter of those append verbs.
 - `edit_engine` drives higher-level selects/tighten/swap flows
   (plan → confirm → execute); tighten variants can carry audio via `keep_ranges`
   mirror / `include_audio`.

@@ -128,6 +128,7 @@ from src.domains.media_analysis.utils.caps_gating import (
     DEFAULT_FRAMES_PER_MINUTE,
     DEFAULT_FRAME_CEILING,
     DEFAULT_FRAME_FLOOR,
+    positive_or_default,
 )
 from src.domains.media_analysis.utils.clip_identity_registry import normalize_sampling_mode
 import hashlib as _hashlib
@@ -504,6 +505,9 @@ _TOKEN_GATED_DESTRUCTIVE_ACTIONS = frozenset({
     ("folder", "remove_motion_blur"),
     ("media_pool_item", "remove_motion_blur"),
     ("project_settings", "generate_speech"),
+    # Permanent project deletion (#110 finding 2): token required whenever a
+    # real (non-_mcp_) project is targeted via allow_non_mcp_name=True.
+    ("project_manager", "delete"),
 })
 
 
@@ -638,9 +642,14 @@ def _record_action_outcome(scope_key: Optional[str], action_name: str,
 def _confirm_token_fingerprint(action: str, params: Optional[Dict[str, Any]]) -> str:
     """Stable hash of (action, params) that identifies one specific mutation request."""
     payload = {"action": action, "params": params or {}}
-    # Strip the confirm_token itself if the caller is echoing it back to us.
-    if isinstance(payload["params"], dict) and "confirm_token" in payload["params"]:
-        payload["params"] = {k: v for k, v in payload["params"].items() if k != "confirm_token"}
+    # Strip the confirm_token itself if the caller is echoing it back to us —
+    # both spellings: _consume_confirm_token accepts confirmToken as an alias,
+    # so it must not poison the fingerprint either (#110 finding 5).
+    if isinstance(payload["params"], dict):
+        payload["params"] = {
+            k: v for k, v in payload["params"].items()
+            if k not in ("confirm_token", "confirmToken")
+        }
     try:
         blob = json.dumps(payload, sort_keys=True, default=str)
     except Exception:
@@ -1598,20 +1607,13 @@ def _media_analysis_effective_preferences() -> Dict[str, Any]:
     # "ask" (None means "not yet chosen" → first-run prompt fires).
     effective["sampling_mode_default"] = _normalize_sampling_mode_default(effective.get("sampling_mode_default"))
 
-    def _pos_number(value: Any, fallback: float) -> float:
-        try:
-            f = float(value)
-        except (TypeError, ValueError):
-            return fallback
-        return f if f > 0 else fallback
-
-    effective["sampling_frames_per_minute"] = _pos_number(
+    effective["sampling_frames_per_minute"] = positive_or_default(
         effective.get("sampling_frames_per_minute"), DEFAULT_FRAMES_PER_MINUTE
     )
-    effective["sampling_frame_floor"] = int(_pos_number(
+    effective["sampling_frame_floor"] = int(positive_or_default(
         effective.get("sampling_frame_floor"), DEFAULT_FRAME_FLOOR
     ))
-    ceiling = int(_pos_number(
+    ceiling = int(positive_or_default(
         effective.get("sampling_frame_ceiling"), DEFAULT_FRAME_CEILING
     ))
     if ceiling < effective["sampling_frame_floor"]:

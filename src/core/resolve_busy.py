@@ -43,7 +43,12 @@ DEFAULT_WAIT_SECONDS = 5.0
 _POLL_SECONDS = 0.25
 
 _lock = threading.Lock()
-_local_owner: Optional[int] = None  # thread ident of the in-process registrant
+# thread ident -> nesting depth of active long ops on that thread. Multiple
+# threads can hold ops at once (background jobs); the sidecar reflects one of
+# them at a time and is handed off on exit rather than cleared while any op
+# is still running (#110 finding 6).
+_active_ops: Dict[int, int] = {}
+_active_info: Dict[int, Dict[str, Any]] = {}  # ident -> {label, started_at}
 
 
 def _pid_alive(pid: int) -> bool:
@@ -124,26 +129,55 @@ def current_long_op() -> Optional[Dict[str, Any]]:
 
 @contextmanager
 def long_resolve_op(label: str):
-    """Register a long synchronous Resolve call for its duration."""
-    global _local_owner
+    """Register a long synchronous Resolve call for its duration.
+
+    Re-entrant per thread (a long op may call Resolve helpers that also
+    register). Concurrent ops on OTHER threads each count — the sidecar is
+    only removed when the last one finishes, so one job finishing can no
+    longer unmask the bridge while another is still inside fusionscript
+    (#110 finding 6: the old check `_local_owner is not None` read ANY
+    thread's op as re-entry by the current thread).
+    """
     ident = threading.get_ident()
     with _lock:
-        nested = _local_owner is not None
+        nested = ident in _active_ops
+        _active_ops[ident] = _active_ops.get(ident, 0) + 1
         if not nested:
-            _local_owner = ident
-    if not nested:
+            _active_info[ident] = {"label": str(label), "started_at": time.time()}
+        first_in = not nested and len(_active_ops) == 1
+    if first_in:
         _write_record({
             "label": str(label),
             "pid": os.getpid(),
             "thread": ident,
-            "started_at": time.time(),
+            "started_at": _active_info[ident]["started_at"],
         })
     try:
         yield
     finally:
-        if not nested:
-            with _lock:
-                _local_owner = None
+        handoff: Optional[Dict[str, Any]] = None
+        last_out = False
+        with _lock:
+            depth = _active_ops.get(ident, 1) - 1
+            if depth > 0:
+                _active_ops[ident] = depth
+            else:
+                _active_ops.pop(ident, None)
+                _active_info.pop(ident, None)
+                if _active_info:
+                    rident = next(iter(_active_info))
+                    info = _active_info[rident]
+                    handoff = {
+                        "label": info["label"],
+                        "pid": os.getpid(),
+                        "thread": rident,
+                        "started_at": info["started_at"],
+                    }
+                else:
+                    last_out = True
+        if handoff is not None:
+            _write_record(handoff)
+        elif last_out:
             _clear_record()
 
 

@@ -2,6 +2,8 @@
 
 from src.granular.common import *  # noqa: F401,F403
 
+from src.core.envelope import _has_method
+
 resolve = ResolveProxy()
 
 @mcp.resource("resolve://projects")
@@ -187,29 +189,22 @@ def save_project() -> str:
     
     # Try multiple approaches to save the project
     try:
-        # Method 1: Try direct save method if available
+        # SaveProject lives on ProjectManager, not the Project object.
+        # #110 finding 11: the old "Method 1" probed current_project with
+        # hasattr, but the bridge fabricates a callable for ANY attribute name,
+        # so SaveProject looked present on the Project (it isn't), the fabricated
+        # stub returned None, and SaveProject was logged as failing on EVERY
+        # save before falling through. _has_method uses dir(), which lists only
+        # real methods.
         try:
-            if hasattr(current_project, "SaveProject"):
-                result = current_project.SaveProject()
+            if _has_method(pm, "SaveProject"):
+                result = pm.SaveProject()
                 if result:
-                    logger.info(f"Project '{project_name}' saved using SaveProject method")
+                    logger.info(f"Project '{project_name}' saved using ProjectManager.SaveProject method")
                     success = True
         except Exception as e:
-            logger.error(f"Error in SaveProject method: {str(e)}")
+            logger.error(f"Error in ProjectManager.SaveProject method: {str(e)}")
             error_message = str(e)
-            
-        # Method 2: Try project manager save method
-        if not success:
-            try:
-                if hasattr(project_manager, "SaveProject"):
-                    result = project_manager.SaveProject()
-                    if result:
-                        logger.info(f"Project '{project_name}' saved using ProjectManager.SaveProject method")
-                        success = True
-            except Exception as e:
-                logger.error(f"Error in ProjectManager.SaveProject method: {str(e)}")
-                if not error_message:
-                    error_message = str(e)
         
         # Method 3: Try the export method as a backup approach
         if not success:

@@ -68,6 +68,19 @@ class NormalizeTest(unittest.TestCase):
 
 
 class SafeCreateSubtitlesTest(unittest.TestCase):
+    def setUp(self):
+        # #110 finding 1: the Linux subtitle crash guard now lives inside
+        # _safe_create_subtitles and fires on this platform, intercepting
+        # before the readback path. These tests exercise the *readback* logic,
+        # not the guard, so they opt into the documented override
+        # (RESOLVE_ALLOW_SUBTITLE_GENERATION=1) — the same knob a user sets to
+        # bypass the refusal — letting the call proceed to verify_by_readback.
+        self._env = mock.patch.dict("os.environ", {"RESOLVE_ALLOW_SUBTITLE_GENERATION": "1"})
+        self._env.start()
+
+    def tearDown(self):
+        self._env.stop()
+
     def test_dry_run_returns_resolved_settings_and_ignored(self):
         tl = mock.Mock()
         with mock.patch.object(_dom_audio_fairlight, "get_resolve", return_value=FakeResolve()):
@@ -106,6 +119,19 @@ class SafeCreateSubtitlesTest(unittest.TestCase):
             out = s._safe_create_subtitles(tl, {"settings": {}, "dry_run": False})
         self.assertTrue(out["success"])
         self.assertFalse(out["verified"])
+
+    def test_crash_guard_fires_without_override(self):
+        # #110 finding 1: the guard lives inside _safe_create_subtitles so
+        # every caller (probe, auto_edit.finish, timeline_ai.create_subtitles)
+        # is covered. Without the override env it refuses on Linux and never
+        # reaches the crashing native call.
+        tl = mock.Mock()
+        with mock.patch.object(_dom_audio_fairlight, "get_resolve", return_value=FakeResolve()), \
+             mock.patch.dict("os.environ", {"RESOLVE_ALLOW_SUBTITLE_GENERATION": ""}, clear=True):
+            out = s._safe_create_subtitles(tl, {"settings": {}, "dry_run": False})
+        self.assertIn("error", out)
+        self.assertEqual(out["error"]["code"], "SUBTITLE_GENERATION_CRASH_GUARD")
+        tl.CreateSubtitlesFromAudio.assert_not_called()
 
 
 if __name__ == "__main__":

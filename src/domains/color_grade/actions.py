@@ -328,7 +328,7 @@ def _resolve_lut_export_type(export_type, resolve_obj=None):
         const_name = raw
     if not const_name:
         return None, _err(f"Unknown LUT export type: {raw}")
-    if resolve_obj and hasattr(resolve_obj, const_name):
+    if resolve_obj and const_name in dir(resolve_obj):
         return getattr(resolve_obj, const_name), None
     return const_name, None
 

@@ -190,7 +190,9 @@ def main():
                                 "Modifier — flow AddTool doesn't apply"))
                 continue
             try:
-                t = _add_tool(comp, name)
+                # Fuses register under 'Fuse.<ClassName>' (issue #91) — bare
+                # names return None even when registration succeeded.
+                t = _add_tool(comp, fuse_templates.fuse_regid(name))
                 if t is None:
                     results.append((kind, name, "FAIL",
                                     "AddTool returned None — class not registered"))

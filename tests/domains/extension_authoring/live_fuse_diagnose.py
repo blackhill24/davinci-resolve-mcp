@@ -160,43 +160,55 @@ def main():
         except Exception as e:
             print(f"  [ERR]  {e}")
 
+        # Fuses register under 'Fuse.<ClassName>' — bare class names return
+        # None from AddTool (issue #91; api_truth 'Composition.AddTool (Fuse
+        # classes)'). Use fuse_templates.fuse_regid.
         print("\n=== Test 2: Hand-written minimal Fuse ===")
         try:
-            t = _add("McpMinimal")
+            t = _add(fuse_templates.fuse_regid("McpMinimal"))
             if t is None:
-                print("  [FAIL] AddTool('McpMinimal') returned None")
+                print("  [FAIL] AddTool('Fuse.McpMinimal') returned None")
                 print("         → Resolve did not register the hand-written Fuse")
             else:
                 attrs = t.GetAttrs() or {}
-                print(f"  [OK]   AddTool('McpMinimal') -> {attrs.get('TOOLS_RegID', '?')}")
+                print(f"  [OK]   AddTool('Fuse.McpMinimal') -> {attrs.get('TOOLS_RegID', '?')}")
                 t.Delete()
         except Exception as e:
             print(f"  [ERR]  {e}")
 
         print("\n=== Test 3: Generated color_matrix Fuse ===")
         try:
-            t = _add("McpGenerated")
+            t = _add(fuse_templates.fuse_regid("McpGenerated"))
             if t is None:
-                print("  [FAIL] AddTool('McpGenerated') returned None")
+                print("  [FAIL] AddTool('Fuse.McpGenerated') returned None")
                 print("         → Generator output rejected by Fusion's Lua loader")
             else:
                 attrs = t.GetAttrs() or {}
-                print(f"  [OK]   AddTool('McpGenerated') -> {attrs.get('TOOLS_RegID', '?')}")
+                print(f"  [OK]   AddTool('Fuse.McpGenerated') -> {attrs.get('TOOLS_RegID', '?')}")
                 t.Delete()
         except Exception as e:
             print(f"  [ERR]  {e}")
 
-        # As a tiebreaker: enumerate ALL registered tool classes, see if our names appear
+        # As a tiebreaker: enumerate ALL registered tool classes, see if our names
+        # appear. GetRegList returns an INT-keyed dict — class IDs live in each
+        # entry's REGS_ID attr, not the keys (issue #91: the old string-key filter
+        # here always matched nothing and faked a registration failure).
         print("\n=== Test 4: Dump tool registry (filter for Mcp*) ===")
         try:
-            reg = fusion.GetRegList(2)  # CT_Tool = 2 typically
+            reg = fusion.GetRegList(2)  # CT_Tool = 2
             if reg:
-                mcp_keys = [k for k in reg.keys() if isinstance(k, str) and "Mcp" in k]
-                if mcp_keys:
-                    for k in mcp_keys:
-                        print(f"  registered: {k}")
+                ids = []
+                for v in reg.values():
+                    try:
+                        ids.append(str((v.GetAttrs() or {}).get("REGS_ID", "")))
+                    except Exception:
+                        continue
+                mcp_ids = [i for i in ids if "Mcp" in i]
+                if mcp_ids:
+                    for i in mcp_ids:
+                        print(f"  registered: {i}")
                 else:
-                    print("  No Mcp* classes in registry — registration failed")
+                    print(f"  No Mcp* REGS_ID among {len(ids)} entries — registration failed")
             else:
                 print(f"  GetRegList returned: {reg}")
         except Exception as e:

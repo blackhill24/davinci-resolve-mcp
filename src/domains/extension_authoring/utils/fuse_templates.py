@@ -21,6 +21,18 @@ CLASS_TYPES = {
 COLOR_MATRIX_OPS = ("brightness", "contrast", "gain", "saturation", "invert")
 
 
+def fuse_regid(name: str) -> str:
+    """Registry ID a Fuse class registers under — ``Fuse.<ClassName>``.
+
+    Fusion prefixes every Fuse's ``FuRegisterClass`` name with ``Fuse.`` in the
+    tool registry (verified live on Resolve Studio 21.0.2.4, issue #91:
+    ``GetRegList`` shows ``Fuse.Duplicate`` for Resolve's own shipped
+    Duplicate.fuse). ``comp.AddTool`` with the bare class name returns None;
+    it must be called with this prefixed ID.
+    """
+    return f"Fuse.{name}"
+
+
 def header(name: str, kind: str, fuse_type: str) -> str:
     """MCP marker comment placed at the top of generated Fuses."""
     return (

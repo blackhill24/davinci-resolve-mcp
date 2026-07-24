@@ -79,9 +79,11 @@ def main():
     # FuRegisterClass first arg. We staged copies under TWO file names but
     # both register the SAME class — Resolve will silently dedup or take
     # whichever loads first. So we can only test if EITHER path was scanned.
-    print("\n=== Testing class 'ExampleBrightContrast' ===")
+    # Fuses register under 'Fuse.<ClassName>' — a bare class name returns None
+    # even when registration succeeded (issue #91).
+    print("\n=== Testing class 'Fuse.ExampleBrightContrast' ===")
     try:
-        t = _add(comp, "ExampleBrightContrast")
+        t = _add(comp, "Fuse.ExampleBrightContrast")
         if t is None:
             print("  [FAIL] Even Blackmagic's own example does not register.")
             print("  → Neither candidate Fuses directory is being scanned.")

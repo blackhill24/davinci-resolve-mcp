@@ -139,6 +139,28 @@ API_TRUTH: List[Dict[str, Any]] = [
         "mitigation": ["fusion_comp copy_tool"],
     },
     {
+        "symbol": "Composition.AddTool (Fuse classes)",
+        "object": "Fusion Composition",
+        "signature": "(regID, x, y) -> Tool | None",
+        "reality": "Fuses register under the registry ID 'Fuse.<ClassName>', "
+                   "never the bare FuRegisterClass name: AddTool('Duplicate') "
+                   "returns None while AddTool('Fuse.Duplicate') works, for "
+                   "Resolve's own shipped fuses and user fuses alike (verified "
+                   "live on Studio 21.0.2.4, issue #91 — this masqueraded as "
+                   "'no Fuse registers on Linux' for a whole investigation). "
+                   "Note GetRegList returns an int-keyed dict; class IDs live "
+                   "in each entry's REGS_ID attr, not the keys. New .fuse "
+                   "files are scanned at startup only — install requires a "
+                   "Resolve restart to register (confirmed: post-launch "
+                   "installs never appear until relaunch).",
+        "recommended": "Instantiate fuses with 'Fuse.<name>' "
+                       "(fuse_templates.fuse_regid). Check registration by "
+                       "sweeping GetRegList values' REGS_ID attrs.",
+        "tags": ["fusion", "fuse", "registry", "naming"],
+        "issue": 91,
+        "mitigation": ["fuse_regid"],
+    },
+    {
         "symbol": "FlowView.SetPos / FlowView.GetPosTable",
         "object": "Fusion FlowView (comp.CurrentFrame.FlowView)",
         "reality": "Node positions are read/written through the FlowView, not the "

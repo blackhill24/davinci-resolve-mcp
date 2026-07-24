@@ -343,11 +343,15 @@ def fuse_plugin(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
     can be edited and reloaded from the Inspector's Edit/Reload buttons without
     restart. The MCP cannot trigger reload — that's a UI-only action.
 
+    Registered Fuses get the registry ID ``Fuse.<name>`` (never the bare class
+    name) — instantiate with fusion_comp(action="add_tool",
+    params={"tool_type": "Fuse.<name>"}). Bare names return None from AddTool.
+
     Actions:
       path() -> {fuses_dir}
       list() -> {fuses}  — Fuses with the @mcp-fuse marker comment.
       list(all=true) -> {fuses}  — All .fuse files in the directory.
-      install(name, source, overwrite?) -> {success, path}
+      install(name, source, overwrite?) -> {success, path, reg_id}
         — name: [A-Za-z_][A-Za-z0-9_]*
         — source: full Fuse source (Lua, or Lua+GLSL for view LUTs)
         — overwrite: bool (default false)
@@ -386,7 +390,8 @@ def fuse_plugin(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
                 continue
             mcp_managed = _FUSE_MARKER in head
             if show_all or mcp_managed:
-                out.append({"name": fn[:-5], "path": full, "mcp_managed": mcp_managed})
+                out.append({"name": fn[:-5], "path": full, "mcp_managed": mcp_managed,
+                            "reg_id": fuse_templates.fuse_regid(fn[:-5])})
         return {"fuses": out}
 
     if action == "install":
@@ -409,8 +414,11 @@ def fuse_plugin(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
         except OSError as e:
             return _err(f"Failed to write Fuse: {e}")
         return _ok(path=path,
+                   reg_id=fuse_templates.fuse_regid(name),
                    note="Restart DaVinci Resolve to register a new Fuse. "
-                        "Existing Fuses can be reloaded via the Inspector.")
+                        "Existing Fuses can be reloaded via the Inspector. "
+                        f"After restart, instantiate with tool_type='Fuse.{name}' "
+                        "(bare class names are not in the registry).")
 
     if action == "remove":
         name = p.get("name", "")
@@ -463,7 +471,8 @@ def fuse_plugin(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
             source = gen(name, p.get("options"))
         except (ValueError, KeyError, TypeError) as e:
             return _err(f"Template generation failed: {e}")
-        return {"source": source, "kind": kind, "name": name}
+        return {"source": source, "kind": kind, "name": name,
+                "reg_id": fuse_templates.fuse_regid(name)}
 
     return _unknown(action, ["path", "list", "install", "remove", "read",
                              "validate", "template", "list_templates"])

@@ -6,12 +6,15 @@ corrupt it; ``capture_output`` only redirects stdout/stderr. These wrappers
 default ``stdin`` to ``DEVNULL`` so subprocess hygiene is centralized rather
 than re-applied at every call site.
 """
+import logging
 import os
 import re
 import stat
 import subprocess
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 # Session preload libraries that must never be inherited by processes we spawn.
 # NoMachine exports LD_PRELOAD=/usr/NX/lib/libnxegl.so into the whole desktop
@@ -125,28 +128,84 @@ ctl.!default {{ type hw; card {p_card} }}
 """
 
 
+def _hdmi_monitor_present(proc_asound: str, card: int, dev: int, hdmi_devs: List[int]) -> bool:
+    """Whether the HDMI pin behind (card, dev) has a monitor attached.
+
+    HDMI playback devices on a card map, in ascending device order, onto the
+    card's ELD files ``eld#<card>.<index>``; that ELD's ``monitor_present 1``
+    means a sink is actually connected. Best-effort — an unreadable/absent ELD
+    reads as "no monitor" so a dead pin is never preferred over a real output.
+    """
+    try:
+        index = sorted(hdmi_devs).index(dev)
+    except ValueError:
+        return False
+    eld_path = os.path.join(proc_asound, f"card{card}", f"eld#{card}.{index}")
+    try:
+        with open(eld_path, encoding="utf-8") as fh:
+            for eld_line in fh:
+                if eld_line.split()[:1] == ["monitor_present"]:
+                    return eld_line.split()[-1] == "1"
+    except OSError:
+        return False
+    return False
+
+
+def _rank(name: str, monitor_present: bool, card: int, dev: int) -> Tuple[int, int, int]:
+    """Sort key ranking an ALSA output/input by likelihood of a real sink.
+
+    Analog first (almost always a real device), then a *connected* HDMI pin,
+    then anything unclassified, then digital/SPDIF, then a dead HDMI pin last.
+    Ties break on (card, device) so the choice is deterministic across launches
+    — the take-first-free bug this replaces picked whatever PCM PipeWire left
+    open, so the pair changed run to run (#99).
+    """
+    name_l = name.lower()
+    is_hdmi = "hdmi" in name_l
+    if "analog" in name_l:
+        tier = 0
+    elif is_hdmi and monitor_present:
+        tier = 1
+    elif is_hdmi:
+        tier = 4
+    elif "digital" in name_l or "iec958" in name_l or "s/pdif" in name_l or "spdif" in name_l:
+        tier = 3
+    else:
+        tier = 2
+    return (tier, card, dev)
+
+
 def _free_alsa_devices(proc_asound: str = "/proc/asound") -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
-    """First unheld (card, device) pair for playback and capture, from /proc/asound.
+    """Best free (card, device) pair for playback and capture, from /proc/asound.
 
     A substream is free when its status file reads "closed" (an open PCM shows
     owner/state lines instead — e.g. PipeWire mmap-holding the analog sink).
+    Rather than taking the first free substream — which made the choice depend
+    on whatever PipeWire happened to hold and picked dead HDMI pins over real
+    outputs (#99) — every free candidate is ranked (see :func:`_rank`) and the
+    best is chosen; the selection is logged so a bad pick is diagnosable after
+    the fact.
     """
-    playback: Optional[Tuple[int, int]] = None
-    capture: Optional[Tuple[int, int]] = None
     try:
         with open(os.path.join(proc_asound, "pcm"), encoding="utf-8") as fh:
             lines: List[str] = fh.readlines()
     except OSError:
         return None, None
+
+    # (card, dev, name, direction) for every free substream, plus the set of
+    # HDMI playback devices per card for the ELD mapping.
+    candidates: Dict[str, List[Tuple[int, int, str]]] = {"playback": [], "capture": []}
+    hdmi_devs: Dict[int, List[int]] = {}
     for line in lines:
-        m = re.match(r"(\d+)-(\d+):", line)
+        m = re.match(r"(\d+)-(\d+):\s*([^:]*)", line)
         if not m:
             continue
         card, dev = int(m.group(1)), int(m.group(2))
+        name = m.group(3).strip()
+        if "hdmi" in name.lower():
+            hdmi_devs.setdefault(card, []).append(dev)
         for direction, suffix in (("playback", "p"), ("capture", "c")):
             if direction not in line:
-                continue
-            if (playback if direction == "playback" else capture) is not None:
                 continue
             status_path = os.path.join(proc_asound, f"card{card}", f"pcm{dev}{suffix}", "sub0", "status")
             try:
@@ -155,10 +214,32 @@ def _free_alsa_devices(proc_asound: str = "/proc/asound") -> Tuple[Optional[Tupl
                         continue
             except OSError:
                 continue
-            if direction == "playback":
-                playback = (card, dev)
-            else:
-                capture = (card, dev)
+            candidates[direction].append((card, dev, name))
+
+    def _pick(direction: str) -> Tuple[Optional[Tuple[int, int]], str]:
+        best = None
+        best_name = ""
+        best_key: Optional[Tuple[int, int, int]] = None
+        for card, dev, name in candidates[direction]:
+            monitor = _hdmi_monitor_present(proc_asound, card, dev, hdmi_devs.get(card, [])) \
+                if "hdmi" in name.lower() else False
+            key = _rank(name, monitor, card, dev)
+            if best_key is None or key < best_key:
+                best_key, best, best_name = key, (card, dev), name
+        return (best, best_name)
+
+    playback, p_name = _pick("playback")
+    capture, c_name = _pick("capture")
+    if playback is not None and capture is not None:
+        logger.info(
+            "ALSA autodetect: playback=hw:%d,%d (%s) capture=hw:%d,%d (%s)",
+            playback[0], playback[1], p_name, capture[0], capture[1], c_name,
+        )
+    else:
+        logger.info(
+            "ALSA autodetect: no free duplex pair (playback=%s capture=%s); "
+            "leaving env unchanged", playback, capture,
+        )
     return playback, capture
 
 

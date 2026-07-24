@@ -52,14 +52,24 @@ API_TRUTH: List[Dict[str, Any]] = [
                    "dict is keyed by resolve.SUBTITLE_* enum constants with "
                    "resolve.AUTO_CAPTION_* enum values, so plain string keys like "
                    "{'language': 'korean'} are silently rejected (returns False, "
-                   "no subtitle track created). The boolean is also unreliable.",
+                   "no subtitle track created). The boolean is also unreliable. "
+                   "Worse, on Linux (Studio 21.0.2.4, reproduced 2/2) the call "
+                   "hard-crashes the entire Resolve process — no exception, no "
+                   "error return; the process dies mid-call (issue #90). "
+                   "Unreproduced on macOS/Windows for lack of test hardware.",
         "recommended": "Resolve the SUBTITLE_*/AUTO_CAPTION_* constants via the "
                        "live resolve handle (server._normalize_auto_caption_settings) "
                        "and verify by reading the timeline's subtitle track count "
-                       "before/after (server._safe_create_subtitles).",
-        "tags": ["unreliable-return", "silent-failure", "subtitle", "enum"],
+                       "before/after (server._safe_create_subtitles). On Linux the "
+                       "call is refused by subtitle_generation_guard unless "
+                       "RESOLVE_ALLOW_SUBTITLE_GENERATION=1; prefer offline "
+                       "subtitle generation (Whisper via media-analysis) plus SRT "
+                       "import instead.",
+        "tags": ["unreliable-return", "silent-failure", "subtitle", "enum",
+                 "process-crash", "platform-linux"],
         "submit": "bug",
-        "mitigation": ["_normalize_auto_caption_settings", "_safe_create_subtitles"],
+        "mitigation": ["_normalize_auto_caption_settings", "_safe_create_subtitles",
+                       "subtitle_generation_guard"],
     },
     {
         "symbol": "ProjectManager CloudProject family (Create/Load/Import/RestoreCloudProject)",

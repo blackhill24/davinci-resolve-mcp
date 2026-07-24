@@ -60,7 +60,8 @@ def audit(src: str):
 
 
 def main():
-    src = open(SERVER, encoding="utf-8").read()
+    with open(SERVER, encoding="utf-8") as handle:
+        src = handle.read()
     total, covered, high, low = audit(src)
     print("# Read/Write Symmetry Audit\n")
     print(f"- write-style actions scanned: **{total}**")

@@ -7,6 +7,7 @@ Resolve crashed within seconds of page switches), and CUDA/cuDNN users
 (whisper, GPU ffmpeg) abort with "Cannot load symbol cudnnGetVersion".
 Every launch site must go through proc.sanitized_spawn_env().
 """
+import inspect
 import os
 import tempfile
 import unittest
@@ -15,6 +16,7 @@ from unittest import mock
 import src.granular.common as granular_common
 import src.server as server
 import src.core.live_connection as live_connection
+import src.core.resolve_launch as resolve_launch
 import src.core.app_control as app_control
 import src.domains.media_analysis.utils.technical_probe as media_analysis
 from src.core.proc import preload_audit, resolve_spawn_env, sanitized_spawn_env
@@ -228,31 +230,62 @@ class LaunchSitesUseSanitizedEnvTest(unittest.TestCase):
         self.assertNotIn("libnxegl", kwargs["env"].get("LD_PRELOAD", ""))
         self.assertTrue(kwargs.get("start_new_session"))
 
+    def _launch_patches(self):
+        """Patch the shared launch module both servers now delegate to (#104)."""
+        return (
+            mock.patch.dict("os.environ", {"LD_PRELOAD": NXEGL}, clear=False),
+            mock.patch.object(resolve_launch.subprocess, "Popen"),
+            mock.patch("os.path.exists", return_value=True),
+            mock.patch.object(resolve_launch.platform, "system", return_value="Linux"),
+            mock.patch.object(resolve_launch.time, "sleep"),
+        )
+
     def test_granular_launch_resolve(self):
-        with mock.patch.dict("os.environ", {"LD_PRELOAD": NXEGL}, clear=False), \
-             mock.patch.object(granular_common.subprocess, "Popen") as popen, \
-             mock.patch("os.path.exists", return_value=True), \
-             mock.patch.object(granular_common.platform, "system", return_value="Linux"), \
-             mock.patch.object(granular_common.time, "sleep"), \
+        env_p, popen_p, exists_p, plat_p, sleep_p = self._launch_patches()
+        with env_p, popen_p as popen, exists_p, plat_p, sleep_p, \
              mock.patch.object(granular_common, "_try_connect", return_value=True):
             self.assertTrue(granular_common._launch_resolve())
         self._assert_popen_sanitized(popen)
 
     def test_server_launch_resolve(self):
-        with mock.patch.dict("os.environ", {"LD_PRELOAD": NXEGL}, clear=False), \
-             mock.patch.object(live_connection.subprocess, "Popen") as popen, \
-             mock.patch("os.path.exists", return_value=True), \
-             mock.patch.object(live_connection.platform, "system", return_value="Linux"), \
-             mock.patch.object(live_connection.time, "sleep"), \
+        env_p, popen_p, exists_p, plat_p, sleep_p = self._launch_patches()
+        with env_p, popen_p as popen, exists_p, plat_p, sleep_p, \
              mock.patch.object(live_connection, "_try_connect", return_value=True):
             self.assertTrue(live_connection._launch_resolve())
         self._assert_popen_sanitized(popen)
+
+    def test_both_servers_share_one_launch_implementation(self):
+        """The whole point of the dedupe: neither surface may reimplement the spawn.
+
+        If either module grows its own Popen call again, a fix applied to the
+        shared path (sanitized env, start_new_session, ALSA conf) silently stops
+        covering it — exactly the drift #104 finding 4 reported.
+        """
+        for mod in (granular_common, live_connection):
+            source = inspect.getsource(mod._launch_resolve)
+            self.assertIn("launch_resolve(", source, msg=f"{mod.__name__} must delegate")
+            self.assertNotIn("Popen", source, msg=f"{mod.__name__} reimplements the spawn")
+
+    def test_shared_launch_returns_false_when_app_missing(self):
+        env_p, popen_p, _exists, plat_p, sleep_p = self._launch_patches()
+        with env_p, popen_p as popen, plat_p, sleep_p, \
+             mock.patch("os.path.exists", return_value=False):
+            self.assertFalse(resolve_launch.launch_resolve(lambda: True))
+        self.assertFalse(popen.called)
+
+    def test_shared_launch_returns_false_when_resolve_never_answers(self):
+        env_p, popen_p, exists_p, plat_p, sleep_p = self._launch_patches()
+        with env_p, popen_p, exists_p, plat_p, sleep_p:
+            self.assertFalse(
+                resolve_launch.launch_resolve(lambda: None, attempts=3, interval=0)
+            )
 
     def test_restart_resolve_app(self):
         with mock.patch.dict("os.environ", {"LD_PRELOAD": NXEGL}, clear=False), \
              mock.patch.object(app_control.subprocess, "Popen") as popen, \
              mock.patch.object(app_control.platform, "system", return_value="Linux"), \
              mock.patch.object(app_control.time, "sleep"), \
+             mock.patch.object(app_control, "resolve_process_running", return_value=False), \
              mock.patch.object(app_control, "quit_resolve_app", return_value=True):
             self.assertTrue(
                 app_control.restart_resolve_app(resolve_obj=mock.Mock(), wait_seconds=0)

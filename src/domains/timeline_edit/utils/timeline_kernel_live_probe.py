@@ -180,6 +180,9 @@ def _source_start(item) -> int:
     return _frame_int(item.GetLeftOffset())
 
 
+FFMPEG_TIMEOUT_SECONDS = 120
+
+
 def _make_synthetic_media(work_dir: Path) -> Path:
     media_path = work_dir / "timeline_kernel_probe_source.mov"
     subprocess.run(
@@ -207,6 +210,8 @@ def _make_synthetic_media(work_dir: Path) -> Path:
             str(media_path),
         ],
         check=True,
+        # Bounded: a wedged ffmpeg would otherwise hang the probe forever.
+        timeout=FFMPEG_TIMEOUT_SECONDS,
     )
     return media_path
 

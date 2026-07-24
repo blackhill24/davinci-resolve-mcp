@@ -52,8 +52,16 @@ def _record_tool_result(
     recorder.record(category, name, expected_status or "supported", evidence=result)
 
 
+FFMPEG_TIMEOUT_SECONDS = 120
+
+
 def _run_ffmpeg(args: list[str]) -> None:
-    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", *args], check=True)
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", *args],
+        check=True,
+        # Bounded: a wedged ffmpeg would otherwise hang the probe forever.
+        timeout=FFMPEG_TIMEOUT_SECONDS,
+    )
 
 
 def _make_synthetic_video(work_dir: Path, name: str, source: str, frequency: int) -> Path:

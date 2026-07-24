@@ -38,6 +38,41 @@ with open(_PANEL_HTML_PATH, "r", encoding="utf-8") as _panel_html_fh:
     HTML = _panel_html_fh.read()
 
 
+def _run_tool_coro(coro: Any) -> Any:
+    """Run an async MCP tool coroutine from a request-handler thread.
+
+    Each request used to call `asyncio.run()` directly, which raises
+    "cannot be called from a running event loop" the moment one of these paths
+    executes on a thread that already owns a loop (an async HTTP server, a test
+    driving the handler from async code). Falling back to a short-lived worker
+    thread keeps the synchronous handler contract intact either way.
+    """
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
+
+
+def _first_specified(*values: Any) -> Any:
+    """First value that isn't None — unlike `or`, an explicit 0 wins.
+
+    The panel can legitimately send 0 for the frame-sampling knobs; an
+    `or`-chain silently replaced it with the saved preference, so a 0 floor
+    could not be expressed at all.
+    """
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
     state: DashboardState
 
@@ -388,8 +423,7 @@ class Handler(BaseHTTPRequestHandler):
             # preference lookup + DB rollup.
             try:
                 from src.server import media_analysis as _ma_tool
-                import asyncio
-                result = asyncio.run(_ma_tool("get_caps", params={}))
+                result = _run_tool_coro(_ma_tool("get_caps", params={}))
                 self._json(result)
             except Exception as exc:
                 self._json({"success": False, "error": f"{type(exc).__name__}: {exc}"})
@@ -413,8 +447,7 @@ class Handler(BaseHTTPRequestHandler):
             # into the media_analysis get_ai_governance action.
             try:
                 from src.server import media_analysis as _ma_tool
-                import asyncio
-                self._json(asyncio.run(_ma_tool("get_ai_governance", params={})))
+                self._json(_run_tool_coro(_ma_tool("get_ai_governance", params={})))
             except Exception as exc:
                 self._json({"success": False, "error": f"{type(exc).__name__}: {exc}"})
             return
@@ -617,9 +650,17 @@ class Handler(BaseHTTPRequestHandler):
                     or _ma_prefs.get("sampling_mode_default")
                     or _ma_mod.RECOMMENDED_SAMPLING_MODE
                 )
-                params["frames_per_minute"] = body.get("frames_per_minute") or _ma_prefs.get("sampling_frames_per_minute")
-                params["frame_floor"] = body.get("frame_floor") or _ma_prefs.get("sampling_frame_floor")
-                params["frame_ceiling"] = body.get("frame_ceiling") or _ma_prefs.get("sampling_frame_ceiling")
+                # _first_specified, not `or`: an explicit 0 from the panel is a
+                # real value and must not fall through to the saved preference.
+                params["frames_per_minute"] = _first_specified(
+                    body.get("frames_per_minute"), _ma_prefs.get("sampling_frames_per_minute")
+                )
+                params["frame_floor"] = _first_specified(
+                    body.get("frame_floor"), _ma_prefs.get("sampling_frame_floor")
+                )
+                params["frame_ceiling"] = _first_specified(
+                    body.get("frame_ceiling"), _ma_prefs.get("sampling_frame_ceiling")
+                )
             except Exception:
                 # Best-effort; the engine still applies its own defaults.
                 pass
@@ -684,8 +725,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 from src.server import media_analysis as _ma_tool
-                import asyncio
-                result = asyncio.run(_ma_tool("set_caps_preset", params=body))
+                result = _run_tool_coro(_ma_tool("set_caps_preset", params=body))
                 self._json(result, 200 if result.get("success") else 400)
             except Exception as exc:
                 self._json({"success": False, "error": f"{type(exc).__name__}: {exc}"})
@@ -711,8 +751,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 from src.server import media_analysis as _ma_tool
-                import asyncio
-                result = asyncio.run(_ma_tool("set_ai_governance", params=body))
+                result = _run_tool_coro(_ma_tool("set_ai_governance", params=body))
                 self._json(result, 200 if result.get("success") else 400)
             except Exception as exc:
                 self._json({"success": False, "error": f"{type(exc).__name__}: {exc}"})

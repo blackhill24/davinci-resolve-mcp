@@ -160,7 +160,13 @@ export const conformTool = {
       let media = p.media;
       if (!media) {
         const roots = p.footageDirs && p.footageDirs.length ? p.footageDirs : [p.footageDir];
-        const r = spawnSync('find', [...roots, '-iname', '*.mov', '-o', '-iname', '*.mp4'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+        // Bounded: a `find` over an unresponsive network mount would otherwise
+        // block the whole Node process indefinitely (spawnSync is synchronous).
+        const r = spawnSync('find', [...roots, '-iname', '*.mov', '-o', '-iname', '*.mp4'], {
+          encoding: 'utf8',
+          maxBuffer: 256 * 1024 * 1024,
+          timeout: 300000,
+        });
         if (r.status !== 0) throw new Error(`conform.relink_scalefix: find failed in [${roots.join(', ')}]: ${(r.stderr || '').slice(-200)}`);
         const seen = new Set();
         media = r.stdout

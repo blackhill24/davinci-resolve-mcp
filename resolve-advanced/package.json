@@ -6,6 +6,7 @@
   "description": "Beyond-the-API DaVinci Resolve MCP — offline .drp/.drt/.drx authoring/editing. Sibling Node server to the Python davinci-resolve-mcp. Dev-local package.json; deps promote to the repo root at packaging.",
   "comment_commonjs": "Intentionally NO \"type\": \"module\" — the vendored libs are CommonJS (require()). The repo root is type:module, so this nested manifest scopes resolve-advanced/**/*.js back to CommonJS.",
   "comment_exports": "Public library surface so a downstream consumer can import the codec/grading/pipeline API, not just spawn the MCP bin. `.` = the lib barrel; `./mcp` = the stdio server entry. Still private:true — publish name/registry + un-privating are a parked decision.",
+  "comment_version": "0.0.0-dev is DELIBERATE and must stay pinned there while private:true. This package is never published or versioned separately — the shipped artifact is the repo-root package.json (its version is the one users see), and these deps promote to the root at packaging. Do NOT 'sync' this to the root version: a real version here would imply an independently releasable package and put it in the release process's path. If this is ever un-privated, that decision is what introduces a version, not a drift fix. (Raised as #104 finding 16 and closed as intentional.)",
   "main": "./server/lib.mjs",
   "exports": {
     ".": "./server/lib.mjs",
@@ -37,8 +38,11 @@
     "_comment": "audio (split/trim/convert) + conform frame ops need system ffmpeg/ffprobe on PATH (NOT bundled — FFmpeg binaries are GPL; this package stays MIT). Install ffmpeg yourself: brew install ffmpeg."
   },
   "scripts": {
+    "preflight:native": "node scripts/preflight-native.mjs",
+    "pretest": "npm run preflight:native",
     "test": "node --test \"vendor/drp-format/__tests__/*.test.js\" \"vendor/drt-format/__tests__/*.test.js\" \"vendor/drx-codec/__tests__/*.test.js\" \"test/*.test.mjs\"",
     "test:libs": "node --test \"vendor/drp-format/__tests__/*.test.js\" \"vendor/drt-format/__tests__/*.test.js\" \"vendor/drx-codec/__tests__/*.test.js\"",
+    "pretest:server": "npm run preflight:native",
     "test:server": "node --test \"test/*.test.mjs\""
   },
   "engines": {

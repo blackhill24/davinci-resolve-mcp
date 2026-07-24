@@ -12,9 +12,16 @@ It coexists with the existing `jobs.sqlite` (operational job tracking) and
 migration (C1) lands, these tables move into the unified DB; until then, this is
 a dedicated standalone store.
 
-Concurrency: single-process access expected (Resolve is single-user). WAL mode
-enabled to make reads from the control panel non-blocking against writes from
-the MCP server.
+Concurrency: WAL mode is enabled so reads from the control panel are
+non-blocking against writes from the MCP server. Cross-process write contention
+is absorbed by `busy_timeout` plus the retry loop in `transaction()`.
+*In-process* contention is handled separately: `connect()` hands every thread
+the same `sqlite3.Connection` (`check_same_thread=False`), so two threads
+issuing `BEGIN IMMEDIATE` on it would raise "cannot start a transaction within
+a transaction" and interleave their writes into one another's transaction.
+`transaction()` therefore serializes on a per-database `threading.RLock`, and
+tracks nesting depth per thread so a nested `transaction()` joins the
+outer one instead of attempting a second `BEGIN`.
 """
 
 from __future__ import annotations
@@ -43,6 +50,15 @@ _BUSY_RETRY_BACKOFF_SECONDS = (0.1, 0.3, 0.5)
 
 _CONNECTION_LOCK = threading.Lock()
 _CONNECTIONS: Dict[str, sqlite3.Connection] = {}
+
+# One write lock per database file. Guards the shared cached connection so only
+# one thread of this process is ever inside a BEGIN…COMMIT on it. Reentrant so a
+# nested transaction() on the same thread doesn't self-deadlock; the depth map
+# below is what stops the nested call from issuing a second BEGIN.
+_WRITE_LOCKS: Dict[str, threading.RLock] = {}
+# Per-thread {db_path: depth}. Depth > 0 means this thread already holds an open
+# transaction on that database.
+_TXN_STATE = threading.local()
 
 
 def db_path_for_project(project_root: str) -> str:
@@ -250,6 +266,24 @@ def close_all() -> None:
         _CONNECTIONS.clear()
 
 
+def _write_lock_for(path: str) -> threading.RLock:
+    """Return the process-wide write lock for one database file."""
+    with _CONNECTION_LOCK:
+        lock = _WRITE_LOCKS.get(path)
+        if lock is None:
+            lock = threading.RLock()
+            _WRITE_LOCKS[path] = lock
+        return lock
+
+
+def _txn_depths() -> Dict[str, int]:
+    depths = getattr(_TXN_STATE, "depths", None)
+    if depths is None:
+        depths = {}
+        _TXN_STATE.depths = depths
+    return depths
+
+
 @contextmanager
 def transaction(project_root: str) -> Iterator[sqlite3.Connection]:
     """Context manager wrapping a write transaction.
@@ -258,35 +292,61 @@ def transaction(project_root: str) -> Iterator[sqlite3.Connection]:
     when a write is in flight. Retries on `database is locked` with exponential
     backoff so that contention between the MCP server and the dashboard doesn't
     surface as a user-visible error.
+
+    Writers inside this process are serialized on a per-database lock: the cached
+    connection is shared across threads, so a second concurrent BEGIN IMMEDIATE
+    on it would raise "cannot start a transaction within a transaction" (which
+    the busy-retry loop above deliberately does not catch) and let two threads'
+    statements land in one transaction. A nested transaction() on the same thread
+    joins the enclosing one rather than starting a second.
     """
     conn = connect(project_root)
-    last_exc: Optional[sqlite3.OperationalError] = None
-    began = False
-    for delay in (0.0, *_BUSY_RETRY_BACKOFF_SECONDS):
-        if delay > 0:
-            time.sleep(delay)
+    path = db_path_for_project(project_root)
+    lock = _write_lock_for(path)
+    depths = _txn_depths()
+
+    with lock:
+        if depths.get(path, 0) > 0:
+            # Already inside a transaction on this thread — join it. The
+            # outermost block owns the COMMIT/ROLLBACK, so an exception raised
+            # here still propagates out and rolls the whole thing back.
+            depths[path] += 1
+            try:
+                yield conn
+            finally:
+                depths[path] -= 1
+            return
+
+        last_exc: Optional[sqlite3.OperationalError] = None
+        began = False
+        for delay in (0.0, *_BUSY_RETRY_BACKOFF_SECONDS):
+            if delay > 0:
+                time.sleep(delay)
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                began = True
+                break
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower():
+                    raise
+                last_exc = exc
+                logger.debug("BEGIN IMMEDIATE saw busy lock (%s), retrying after %.2fs", exc, delay)
+        if not began:
+            assert last_exc is not None
+            raise last_exc
+        depths[path] = 1
         try:
-            conn.execute("BEGIN IMMEDIATE")
-            began = True
-            break
-        except sqlite3.OperationalError as exc:
-            if "locked" not in str(exc).lower():
-                raise
-            last_exc = exc
-            logger.debug("BEGIN IMMEDIATE saw busy lock (%s), retrying after %.2fs", exc, delay)
-    if not began:
-        assert last_exc is not None
-        raise last_exc
-    try:
-        yield conn
-    except Exception:
-        try:
-            conn.execute("ROLLBACK")
-        except sqlite3.OperationalError:
-            pass
-        raise
-    else:
-        conn.execute("COMMIT")
+            yield conn
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.OperationalError:
+                pass
+            raise
+        else:
+            conn.execute("COMMIT")
+        finally:
+            depths[path] = 0
 
 
 def reset_for_test(project_root: str) -> None:

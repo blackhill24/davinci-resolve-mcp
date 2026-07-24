@@ -22,6 +22,8 @@ DB/XML edits with **no Resolve running**. Also usable as a library (`server/lib.
 - `server/lib.mjs` / `server/libs.mjs` — public library surface (see README "As a library").
 - `vendor/` — bundled codecs by domain (`drx-codec`, `drp-format`, `fusion-codec`, …);
   large, low-churn — read only the one domain a task touches.
+- `scripts/preflight-native.mjs` — `pretest` gate; turns better-sqlite3/sharp ABI drift into
+  one `npm rebuild` message instead of dozens of ERR_DLOPEN_FAILED test failures (#104).
 
 ## Conventions & gotchas
 
@@ -31,8 +33,9 @@ DB/XML edits with **no Resolve running**. Also usable as a library (`server/lib.
 - Bridge scripts: stdout is a ONE-JSON contract. Never `console.log` to stdout from a codec
   (corrupts it + MCP stdio) — `drp-bridge` routes console.log→stderr; Python side decodes
   UTF-8 (codec progress logs a `→`). `drp-bridge` dispatches `drp`/`drt`/`drx`.
-- `npm test` fails on Node 24 (bare-dir args to `node --test` rejected); run per-glob:
-  `node --test "test/*.test.mjs" "vendor/*/__tests__/*.test.js"`.
+- `npm test` is per-glob already (bare-dir args to `node --test` are rejected on Node 24+), and
+  its `pretest` runs the native preflight. Native optional deps (better-sqlite3, sharp) are
+  ABI-pinned: after a Node major upgrade, `npm rebuild <dep>` — the preflight says which.
 
 > Upkeep: when files here change (add/remove/rename), fix the table + key files above in the
 > same session, then run `python3 .icm/drift-check.py --update` from the root. Content-only

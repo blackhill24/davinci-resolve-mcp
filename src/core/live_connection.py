@@ -7,15 +7,12 @@ lifecycle every domain's tool functions call through `get_resolve()`.
 from __future__ import annotations
 
 import os
-import platform
-import subprocess
 import sys
 import threading
-import time
 import logging
 
 from src.core.platform import get_resolve_paths
-from src.core.proc import resolve_spawn_env
+from src.core.resolve_launch import launch_resolve
 from src.core import destructive_hook as _destructive_hook
 from src.domains.media_analysis.utils.clip_identity_registry import (
     resolve_output_root as resolve_media_analysis_output_root,
@@ -105,41 +102,14 @@ def _try_connect():
             return None
 
 def _launch_resolve():
-    """Launch DaVinci Resolve and wait for it to become available."""
-    sys_name = platform.system().lower()
-    if sys_name == "darwin":
-        app_path = "/Applications/DaVinci Resolve/DaVinci Resolve.app"
-        if not os.path.exists(app_path):
-            logger.error(f"DaVinci Resolve not found at {app_path}")
-            return False
-        subprocess.Popen(["open", app_path], stdin=subprocess.DEVNULL)
-    elif sys_name == "windows":
-        app_path = r"C:\Program Files\Blackmagic Design\DaVinci Resolve\Resolve.exe"
-        if not os.path.exists(app_path):
-            logger.error(f"DaVinci Resolve not found at {app_path}")
-            return False
-        subprocess.Popen([app_path], stdin=subprocess.DEVNULL)
-    elif sys_name == "linux":
-        app_path = "/opt/resolve/bin/resolve"
-        if not os.path.exists(app_path):
-            logger.error(f"DaVinci Resolve not found at {app_path}")
-            return False
-        subprocess.Popen(
-            [app_path],
-            stdin=subprocess.DEVNULL,
-            env=resolve_spawn_env(),
-            start_new_session=True,
-        )
-    else:
-        return False
-    logger.info("Launched DaVinci Resolve, waiting for it to respond...")
-    for i in range(30):
-        time.sleep(2)
-        if _try_connect():
-            logger.info(f"Resolve responded after {(i+1)*2}s")
-            return True
-    logger.warning("Resolve did not respond within 60s after launch")
-    return False
+    """Launch DaVinci Resolve and wait for it to become available.
+
+    The spawn/poll mechanics live in src/core/resolve_launch.py so this surface
+    and the granular server share one implementation (#104 finding 4). The
+    lambda keeps `_try_connect` late-bound, so patching it on this module still
+    works.
+    """
+    return launch_resolve(lambda: _try_connect(), log=logger)
 
 def get_resolve():
     """Lazy connection to Resolve — connects on first tool call, auto-launches if needed."""

@@ -13,7 +13,7 @@ import time
 import sys
 import platform
 import subprocess
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from src.core.proc import resolve_spawn_env
 
@@ -208,14 +208,89 @@ def get_app_state(resolve_obj) -> Dict[str, Any]:
     
     return state
 
-def restart_resolve_app(resolve_obj, wait_seconds: int = 5) -> bool:
+# How often to re-check whether the old Resolve process is gone, and how long
+# to give it by default. Resolve is single-instance: relaunching while the old
+# process is still shutting down makes the new one abort silently, so the
+# restart polls for the exit instead of sleeping a fixed guess.
+EXIT_POLL_INTERVAL_SECONDS = 0.5
+DEFAULT_EXIT_WAIT_SECONDS = 30
+
+# Per-platform "is Resolve still up?" query. pgrep exits 0 when a match exists
+# and 1 when none does; tasklist always exits 0, so its output is matched.
+_PROCESS_QUERIES = {
+    'darwin': ['pgrep', '-x', 'DaVinci Resolve'],
+    'linux': ['pgrep', '-x', 'resolve'],
+    'windows': ['tasklist', '/FI', 'IMAGENAME eq Resolve.exe', '/NH'],
+}
+
+
+def resolve_process_running() -> Optional[bool]:
+    """Is a Resolve process still up?
+
+    Returns True/False when it could be determined, and None when it could not
+    (unsupported platform, or pgrep/tasklist missing or erroring) so callers can
+    tell "definitely gone" apart from "no idea".
+    """
+    sys_platform = platform.system().lower()
+    cmd = _PROCESS_QUERIES.get(sys_platform)
+    if cmd is None:
+        return None
+    try:
+        result = subprocess.run(
+            cmd,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=APP_CONTROL_TIMEOUT_SECONDS,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        logger.warning("Could not query Resolve process state (%s): %s", cmd[0], exc)
+        return None
+
+    if sys_platform == 'windows':
+        return 'Resolve.exe' in (result.stdout or '')
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    logger.warning("pgrep returned %s while querying Resolve", result.returncode)
+    return None
+
+
+def wait_for_resolve_exit(timeout: float, poll: float = EXIT_POLL_INTERVAL_SECONDS) -> bool:
+    """Block until no Resolve process remains, up to `timeout` seconds.
+
+    Returns True when Resolve is confirmed gone. When the process state can't be
+    determined at all, falls back to the old fixed sleep and reports True — the
+    caller is no worse off than before, and refusing to restart on an
+    unsupported platform would be a regression.
+    """
+    steps = max(1, int(timeout / poll)) if poll > 0 else 1
+    for _ in range(steps):
+        running = resolve_process_running()
+        if running is None:
+            logger.warning(
+                "Can't determine whether Resolve exited on this platform; "
+                "falling back to a fixed %ss wait", timeout,
+            )
+            time.sleep(timeout)
+            return True
+        if not running:
+            return True
+        time.sleep(poll)
+    return resolve_process_running() is False
+
+
+def restart_resolve_app(resolve_obj, wait_seconds: int = DEFAULT_EXIT_WAIT_SECONDS) -> bool:
     """
     Restart DaVinci Resolve application.
-    
+
     Args:
         resolve_obj: DaVinci Resolve API object
-        wait_seconds: Seconds to wait between quit and restart
-        
+        wait_seconds: Maximum seconds to wait for the old process to exit before
+            giving up. This is a ceiling, not a fixed delay — the relaunch fires
+            as soon as the old process is confirmed gone.
+
     Returns:
         True if restart was initiated successfully
     """
@@ -231,19 +306,27 @@ def restart_resolve_app(resolve_obj, wait_seconds: int = 5) -> bool:
             resolve_path = '/opt/resolve/bin/resolve'
         else:
             return False
-        
+
         # Quit Resolve
         if not quit_resolve_app(resolve_obj, force=False, save_project=True):
             logger.error("Failed to quit Resolve for restart")
             return False
-        
-        # Wait for the app to close
-        logger.info(f"Waiting {wait_seconds} seconds for Resolve to close")
-        time.sleep(wait_seconds)
-        
+
+        # Wait for the app to actually close. Relaunching while the old process
+        # is still winding down hits Resolve's single-instance guard and the new
+        # process aborts, so a slow shutdown used to make restart a silent no-op.
+        logger.info("Waiting up to %ss for Resolve to close", wait_seconds)
+        if not wait_for_resolve_exit(wait_seconds):
+            logger.error(
+                "Resolve is still running %ss after quit; not relaunching "
+                "(a second instance would abort against the single-instance guard)",
+                wait_seconds,
+            )
+            return False
+
         # Start Resolve again
         logger.info("Attempting to start Resolve")
-        
+
         if platform.system().lower() == 'darwin':
             subprocess.Popen(['open', resolve_path])
         elif platform.system().lower() == 'windows':
@@ -255,7 +338,7 @@ def restart_resolve_app(resolve_obj, wait_seconds: int = 5) -> bool:
                 env=resolve_spawn_env(),
                 start_new_session=True,
             )
-        
+
         return True
     except Exception as e:
         logger.error(f"Error restarting DaVinci Resolve: {str(e)}")

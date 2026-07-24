@@ -41,33 +41,89 @@ const IDENTITY_3X3 = '1,0,0,0,1,0,0,0,1';
 const isIdentity = (a) => Array.isArray(a) && a.length === 9 && a.join(',') === IDENTITY_3X3;
 const STRUCTURAL = /hslcurves|trackingblob|polygonshape|gradientwindow|nodelut|softmatrix|(^|\.)matrix$/i;
 
+// A wedged `unzip` used to hang the tool call forever — spawnSync blocks the
+// whole Node process, so there is no other way out.
+const UNZIP_TIMEOUT_MS = 30000;
+
 export function readProjectXml(drpPath) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ggr-'));
-  const r = spawnSync('unzip', ['-o', drpPath, 'project.xml', '-d', tmp], { encoding: 'utf8' });
-  if (r.status !== 0) throw new Error(`unzip failed for ${drpPath}: ${(r.stderr || '').slice(-200)}`);
-  const xml = fs.readFileSync(path.join(tmp, 'project.xml'), 'utf8');
+  // finally, not a trailing rmSync: every throw below (and readFileSync's own)
+  // used to leak the temp dir on each failed read.
   try {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  } catch {
-    /* ignore */
+    const r = spawnSync('unzip', ['-o', drpPath, 'project.xml', '-d', tmp], {
+      encoding: 'utf8',
+      timeout: UNZIP_TIMEOUT_MS,
+    });
+    if (r.error) {
+      if (r.error.code === 'ENOENT') {
+        throw new Error(
+          `\`unzip\` was not found on PATH — it is required to read ${drpPath}. ` + 'Install it (apt install unzip / brew install unzip / dnf install unzip).',
+        );
+      }
+      if (r.error.code === 'ETIMEDOUT') {
+        throw new Error(`unzip timed out after ${UNZIP_TIMEOUT_MS}ms reading ${drpPath}`);
+      }
+      throw new Error(`unzip could not be run for ${drpPath}: ${r.error.message}`);
+    }
+    if (r.status !== 0) throw new Error(`unzip failed for ${drpPath}: ${(r.stderr || '').slice(-200)}`);
+    return fs.readFileSync(path.join(tmp, 'project.xml'), 'utf8');
+  } finally {
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
-  return xml;
+}
+
+const NAMED_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+
+/** Decode the XML entities Resolve writes into project.xml text nodes. */
+export function decodeXmlEntities(s) {
+  return String(s).replace(/&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (whole, body) => {
+    if (body[0] === '#') {
+      const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
+    }
+    return Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, body) ? NAMED_ENTITIES[body] : whole;
+  });
+}
+
+// One <Sm2Group>…</Sm2Group> element. Scoping every lookup to a whole element
+// is what stops a <Name> belonging to some other element from being mistaken
+// for a group's name.
+const SM2GROUP_PATTERN = /<Sm2Group\b[\s\S]*?<\/Sm2Group>/g;
+
+const sm2GroupSegments = (xml) => String(xml).match(SM2GROUP_PATTERN) || [];
+
+/** The decoded name of one <Sm2Group> segment, or null if it carries none. */
+export function groupNameOf(segment) {
+  const m = /<Name>([\s\S]*?)<\/Name>/.exec(segment);
+  return m ? decodeXmlEntities(m[1]) : null;
 }
 
 /** All color-group names present in the project (from <Sm2Group><Name>…). */
 export function listGroupNames(xml) {
   const names = [];
-  for (const m of xml.matchAll(/<Sm2Group\b[\s\S]*?<Name>([^<]+)<\/Name>/g)) names.push(m[1]);
+  for (const seg of sm2GroupSegments(xml)) {
+    const name = groupNameOf(seg);
+    if (name !== null) names.push(name);
+  }
   return [...new Set(names)];
 }
 
+/** The <Sm2Group> element whose decoded name is `name`, or null.
+ *
+ * Compares DECODED names: a group called `A & B` is stored as `A &amp; B`, so a
+ * raw string match never found it. And it walks whole <Sm2Group> elements
+ * rather than seeking a bare `<Name>` anywhere in the document, so an
+ * identically-named node inside a different element can't be picked up.
+ */
 export function groupSegment(xml, name) {
-  const j = xml.indexOf(`<Name>${name}</Name>`);
-  if (j < 0) return null;
-  const start = xml.lastIndexOf('<Sm2Group', j);
-  const end = xml.indexOf('</Sm2Group>', j);
-  if (start < 0 || end < 0) return null;
-  return xml.slice(start, end + '</Sm2Group>'.length);
+  for (const seg of sm2GroupSegments(xml)) {
+    if (groupNameOf(seg) === name) return seg;
+  }
+  return null;
 }
 
 export const groupBodies = (seg) => [...seg.matchAll(/<Body>([0-9a-fA-F]+)<\/Body>/g)].map((m) => m[1]);

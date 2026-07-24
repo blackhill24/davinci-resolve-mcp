@@ -332,12 +332,14 @@ def quit_app(force: bool = False, save_project: bool = True) -> str:
 
 
 @mcp.tool()
-def restart_app(wait_seconds: int = 5) -> str:
+def restart_app(wait_seconds: int = 30) -> str:
     """
     Restart DaVinci Resolve application.
-    
+
     Args:
-        wait_seconds: Seconds to wait between quit and restart
+        wait_seconds: Maximum seconds to wait for the old process to exit before
+            giving up. A ceiling, not a fixed delay — the relaunch fires as soon
+            as Resolve is confirmed gone.
     """
     resolve = get_resolve()
     if resolve is None:

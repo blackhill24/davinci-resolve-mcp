@@ -21,9 +21,22 @@ import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 
+// `probe` must actually EXERCISE the native binding. require() alone is not
+// enough for better-sqlite3: it binds lazily inside the Database constructor
+// (via `bindings`), so a .node compiled for the wrong ABI imports perfectly
+// happily and only explodes on first real use — which is precisely the pile of
+// ERR_DLOPEN_FAILED test failures this preflight exists to pre-empt.
 export const NATIVE_MODULES = [
-  { name: 'better-sqlite3', enables: 'project-DB tests (lineage, reverse-clip, node-meta, rename round-trip)' },
-  { name: 'sharp', enables: 'conform.verify frame-compare tests' },
+  {
+    name: 'better-sqlite3',
+    enables: 'project-DB tests (lineage, reverse-clip, node-meta, rename round-trip)',
+    probe: (Database) => new Database(':memory:').close(),
+  },
+  {
+    name: 'sharp',
+    enables: 'conform.verify frame-compare tests',
+    probe: (sharp) => sharp.versions,
+  },
 ];
 
 /**
@@ -40,12 +53,19 @@ export function classifyNativeLoadError(err) {
   return 'broken';
 }
 
+/** Import a module AND touch its native binding, so lazy binders can't slip through. */
+export function loadAndProbe(mod) {
+  const loaded = require(mod.name);
+  if (typeof mod.probe === 'function') mod.probe(loaded);
+  return loaded;
+}
+
 /** @returns {Array<{name: string, enables: string, state: string, message: string}>} problems worth failing on. */
-export function checkNativeModules(modules = NATIVE_MODULES, load = (name) => require(name)) {
+export function checkNativeModules(modules = NATIVE_MODULES, load = loadAndProbe) {
   const problems = [];
   for (const mod of modules) {
     try {
-      load(mod.name);
+      load(mod);
     } catch (err) {
       const state = classifyNativeLoadError(err);
       if (state === 'missing') continue; // optional and absent — not a failure

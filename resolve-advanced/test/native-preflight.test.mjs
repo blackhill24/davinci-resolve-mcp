@@ -5,7 +5,7 @@
  * states apart: loads / not installed (optional, fine) / built for the wrong ABI. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyNativeLoadError, checkNativeModules, formatReport, NATIVE_MODULES } from '../scripts/preflight-native.mjs';
+import { classifyNativeLoadError, checkNativeModules, formatReport, loadAndProbe, NATIVE_MODULES } from '../scripts/preflight-native.mjs';
 
 const abiError = () => {
   const e = new Error(
@@ -69,4 +69,52 @@ test('the report names the module and the exact rebuild command', () => {
   assert.match(report, /npm rebuild better-sqlite3/);
   assert.match(report, /NODE_MODULE_VERSION 137/);
   assert.match(report, /stale install, not a code regression/);
+});
+
+// The defect that end-to-end verification caught: require() alone is NOT a
+// sufficient check. better-sqlite3 binds its .node lazily inside the Database
+// constructor, so a wrong-ABI binding imports fine and only dies on first use —
+// which let a broken install sail past the preflight and produce exactly the
+// ERR_DLOPEN_FAILED pile this exists to prevent.
+
+test('every native module declares a probe that exercises the binding', () => {
+  for (const mod of NATIVE_MODULES) {
+    assert.equal(typeof mod.probe, 'function', `${mod.name} must declare a probe`);
+  }
+});
+
+test('a module that imports fine but fails on first use is still caught', () => {
+  const lazilyBroken = {
+    name: 'better-sqlite3',
+    enables: 'x',
+    probe: () => {
+      const e = new Error('better_sqlite3.node ... NODE_MODULE_VERSION 137 ... requires 147');
+      e.code = 'ERR_DLOPEN_FAILED';
+      throw e;
+    },
+  };
+  // load() succeeds (the import works); only the probe throws.
+  const problems = checkNativeModules([lazilyBroken], (mod) => mod.probe({}));
+  assert.equal(problems.length, 1, 'a lazily-binding module must not slip through');
+  assert.equal(problems[0].state, 'abi');
+});
+
+test("better-sqlite3's probe really constructs a Database", () => {
+  const mod = NATIVE_MODULES.find((m) => m.name === 'better-sqlite3');
+  let opened = null;
+  class FakeDatabase {
+    constructor(file) {
+      opened = file;
+    }
+    close() {
+      this.closed = true;
+    }
+  }
+  mod.probe(FakeDatabase);
+  assert.equal(opened, ':memory:', 'must open a throwaway in-memory DB, not just import');
+});
+
+test('loadAndProbe surfaces a real failure from the installed module', () => {
+  // Not installed at all -> MODULE_NOT_FOUND, which checkNativeModules treats as fine.
+  assert.throws(() => loadAndProbe({ name: 'definitely-not-installed-104', probe: () => {} }), /Cannot find module/);
 });

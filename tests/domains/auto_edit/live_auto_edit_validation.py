@@ -37,14 +37,13 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 PILOT = f"auto_edit_pilot_{time.strftime('%H%M%S')}"
+from tests.render_scratch import cleanup_render_dir, make_render_dir
+
 MEDIA_DIR = tempfile.mkdtemp(prefix="drm-auto-edit-media-")
 # The render target must live inside a Resolve Media Storage volume: with a
 # /tmp target Resolve pops a "render path inaccessible" dialog and AddRenderJob
 # blocks forever headless (see memory/resolve-headless-render-hang).
-_videos = os.path.expanduser("~/Videos")
-RENDER_DIR = tempfile.mkdtemp(
-    prefix="drm-auto-edit-render-", dir=_videos if os.path.isdir(_videos) else None
-)
+RENDER_DIR = make_render_dir("drm-auto-edit-render-")
 
 CHECKS: list[tuple[str, bool, str]] = []
 
@@ -279,6 +278,7 @@ def main() -> int:
     passed = sum(1 for _, ok, _ in CHECKS if ok)
     print(f"\n{passed}/{len(CHECKS)} checks passed")
     shutil.rmtree(MEDIA_DIR, ignore_errors=True)
+    cleanup_render_dir(RENDER_DIR)
     return code
 
 

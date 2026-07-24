@@ -39,11 +39,10 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 PILOT = f"orchestrate_pilot_{time.strftime('%H%M%S')}"
+from tests.render_scratch import cleanup_render_dir, make_render_dir
+
 MEDIA_DIR = tempfile.mkdtemp(prefix="drm-orchestrate-media-")
-_videos = os.path.expanduser("~/Videos")
-RENDER_DIR = tempfile.mkdtemp(
-    prefix="drm-orchestrate-render-", dir=_videos if os.path.isdir(_videos) else None
-)
+RENDER_DIR = make_render_dir("drm-orchestrate-render-")
 
 CHECKS: list[tuple[str, bool, str]] = []
 
@@ -295,6 +294,7 @@ def main() -> int:
     passed = sum(1 for _, ok, _ in CHECKS if ok)
     print(f"\n{passed}/{len(CHECKS)} checks passed")
     shutil.rmtree(MEDIA_DIR, ignore_errors=True)
+    cleanup_render_dir(RENDER_DIR)
     return code
 
 

@@ -2583,8 +2583,8 @@ def _timeline_import_srt_impl(proj, tl, p: Dict[str, Any]):
             "(BMD-exact zstd framing) — install it into the server's environment "
             "(pip install zstandard).")
     try:
-        cues = _subtitle_codec.parse_srt(
-            open(srt_path, encoding="utf-8-sig").read())
+        with open(srt_path, encoding="utf-8-sig") as srt_fh:
+            cues = _subtitle_codec.parse_srt(srt_fh.read())
     except Exception as exc:
         return _err(f"could not parse SRT: {exc}")
     if not cues:

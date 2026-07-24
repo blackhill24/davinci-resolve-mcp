@@ -900,7 +900,14 @@ def _find_timeline_item_by_id(tl, timeline_item_id) -> Optional[Any]:
                 try:
                     if str(item.GetUniqueId()) == want:
                         return item
-                except Exception:
+                except Exception as exc:
+                    # Same reason GetTrackCount above logs: a genuine API failure
+                    # here still returns "item not found" to the caller, so
+                    # without this line the two are indistinguishable (EX10).
+                    logger.warning(
+                        "_find_timeline_item_by_id: GetUniqueId() failed on %s track %s, "
+                        "skipping item: %s", track_type, track_index, exc,
+                    )
                     continue
     return None
 

@@ -180,6 +180,85 @@ class ConcurrencyHardening(unittest.TestCase):
         row = conn.execute("PRAGMA busy_timeout").fetchone()
         self.assertEqual(int(row[0]), timeline_brain_db.BUSY_TIMEOUT_MS)
 
+    def _insert(self, conn, name: str, version: int) -> None:
+        conn.execute(
+            "INSERT INTO timeline_versions(timeline_name, version, created_at, "
+            "archived_timeline_name, archived_bin_path) VALUES (?, ?, ?, ?, ?)",
+            (name, version, "2026-07-24T00:00:00Z", "x", "Master/Archive"),
+        )
+
+    def test_concurrent_threads_do_not_nest_transactions(self) -> None:
+        """Two threads writing through the SAME cached connection must serialize.
+
+        Before the per-database write lock, thread B's BEGIN IMMEDIATE landed
+        inside thread A's open transaction and raised "cannot start a
+        transaction within a transaction" — which the busy-retry loop does not
+        catch, so it surfaced as a hard error.
+        """
+        import threading as _threading
+
+        timeline_brain_db.connect(self.project_root)
+        errors: list = []
+        start = _threading.Barrier(4)
+
+        def writer(n: int) -> None:
+            try:
+                start.wait(timeout=5)
+                for i in range(10):
+                    with timeline_brain_db.transaction(self.project_root) as txn:
+                        self._insert(txn, f"T{n}", i)
+                        # Widen the window in which a second BEGIN could land.
+                        txn.execute("SELECT 1").fetchone()
+            except Exception as exc:  # noqa: BLE001 - the assertion is the point
+                errors.append(exc)
+
+        threads = [_threading.Thread(target=writer, args=(n,)) for n in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+
+        self.assertEqual(errors, [], msg=f"concurrent writers raised: {errors}")
+        conn = timeline_brain_db.connect(self.project_root)
+        count = conn.execute("SELECT COUNT(*) FROM timeline_versions").fetchone()[0]
+        self.assertEqual(count, 40, msg="every writer's rows should have committed")
+
+    def test_nested_transaction_joins_the_outer_one(self) -> None:
+        """A nested transaction() must not issue a second BEGIN or self-deadlock."""
+        timeline_brain_db.connect(self.project_root)
+        with timeline_brain_db.transaction(self.project_root) as outer:
+            self._insert(outer, "Outer", 1)
+            with timeline_brain_db.transaction(self.project_root) as inner:
+                self.assertIs(inner, outer)
+                self._insert(inner, "Inner", 1)
+
+        conn = timeline_brain_db.connect(self.project_root)
+        names = {
+            r[0] for r in conn.execute("SELECT timeline_name FROM timeline_versions").fetchall()
+        }
+        self.assertEqual(names, {"Outer", "Inner"})
+
+    def test_nested_transaction_failure_rolls_back_the_whole_thing(self) -> None:
+        """The outermost block owns the rollback, so an inner failure discards both writes."""
+        timeline_brain_db.connect(self.project_root)
+        with self.assertRaises(RuntimeError):
+            with timeline_brain_db.transaction(self.project_root) as outer:
+                self._insert(outer, "Outer", 1)
+                with timeline_brain_db.transaction(self.project_root) as inner:
+                    self._insert(inner, "Inner", 1)
+                    raise RuntimeError("boom")
+
+        conn = timeline_brain_db.connect(self.project_root)
+        count = conn.execute("SELECT COUNT(*) FROM timeline_versions").fetchone()[0]
+        self.assertEqual(count, 0)
+
+        # And the depth bookkeeping must be clean afterwards, or the next
+        # transaction on this thread would silently skip its BEGIN/COMMIT.
+        with timeline_brain_db.transaction(self.project_root) as txn:
+            self._insert(txn, "After", 1)
+        count = conn.execute("SELECT COUNT(*) FROM timeline_versions").fetchone()[0]
+        self.assertEqual(count, 1)
+
     def test_transaction_retries_when_lock_briefly_held(self) -> None:
         """Hold a write lock for ~120ms from a second connection; transaction() should retry past it."""
         import sqlite3 as _sqlite3

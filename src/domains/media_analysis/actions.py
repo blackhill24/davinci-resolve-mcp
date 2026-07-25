@@ -1063,7 +1063,20 @@ def _apply_sync_event_markers(proj, detection: Dict[str, Any], p: Dict[str, Any]
                 skipped.append({"clip_id": clip_id, "frame": marker["frame"], "reason": "Marker already exists", "custom_data": custom_data})
                 continue
             if existing and replace_existing and _has_method(clip, "DeleteMarkerByCustomData"):
-                clip.DeleteMarkerByCustomData(custom_data)
+                # #113 Tier 2: the return was discarded. A refused delete then
+                # made _add_marker fail with "already exists", which was recorded
+                # as an ordinary skip — so an explicit replace_existing=True
+                # request reported the pre-existing marker as if nothing was
+                # asked. Name the real reason instead of inferring it downstream.
+                if not clip.DeleteMarkerByCustomData(custom_data):
+                    skipped.append({
+                        "clip_id": clip_id,
+                        "frame": marker["frame"],
+                        "reason": "replace_existing requested but the existing marker "
+                                  "could not be deleted; it was left unchanged",
+                        "custom_data": custom_data,
+                    })
+                    continue
         result = _add_marker(clip, marker)
         if result.get("success"):
             added.append({
@@ -1451,7 +1464,17 @@ def _apply_media_analysis_clip_markers(clip, markers: List[Dict[str, Any]], p: D
                 skipped.append({"frame": marker.get("frame"), "name": marker.get("name"), "reason": "Marker already exists", "custom_data": custom_data})
                 continue
             if existing and replace_existing and _has_method(clip, "DeleteMarkerByCustomData"):
-                clip.DeleteMarkerByCustomData(custom_data)
+                # #113 Tier 2: see _apply_sync_event_markers — a discarded delete
+                # surfaced as a misleading "already exists" skip.
+                if not clip.DeleteMarkerByCustomData(custom_data):
+                    skipped.append({
+                        "frame": marker.get("frame"),
+                        "name": marker.get("name"),
+                        "reason": "replace_existing requested but the existing marker "
+                                  "could not be deleted; it was left unchanged",
+                        "custom_data": custom_data,
+                    })
+                    continue
         result = _add_marker(clip, marker)
         if result.get("success"):
             added.append({"frame": result.get("frame"), "name": marker.get("name"), "custom_data": custom_data})

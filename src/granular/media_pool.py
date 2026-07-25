@@ -277,11 +277,14 @@ def setup_multicam_timeline(
     if not _set_current_timeline(project, timeline):
         return {"error": f"Created multicam timeline '{plan['name']}' but could not make it "
                          "current; refusing to append, which would target the wrong timeline"}
+    # #113 Tier 2: granular mirror of the media_pool_ingest fix — the angles are
+    # appended at record frames derived from this start.
     if plan.get("start_timecode"):
-        try:
-            timeline.SetStartTimecode(plan["start_timecode"])
-        except Exception:
-            pass
+        if not _set_start_timecode(timeline, plan["start_timecode"]):
+            return {"error": f"Created multicam timeline '{plan['name']}' but could not set "
+                             f"its start timecode to {plan['start_timecode']!r}; refusing to "
+                             "append, because the angles would be laid out against the "
+                             "wrong start"}
 
     video_tracks = _ensure_timeline_tracks_for_multicam(timeline, "video", plan.get("max_video_track", 0))
     if not video_tracks.get("success"):

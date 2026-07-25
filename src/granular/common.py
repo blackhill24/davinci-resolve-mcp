@@ -27,7 +27,7 @@ from src.core.resolve_launch import launch_resolve
 # #113 Tier 1: read-back-verified current-timeline switch, shared with the
 # compound server rather than reimplemented here. Re-exported via __all__ below
 # (which excludes only dunders), so `from src.granular.common import *` picks it up.
-from src.core.timeline_lookup import _set_current_timeline
+from src.core.timeline_lookup import _set_current_timeline, _set_start_timecode
 from src.domains.color_grade.utils.cdl import normalize_cdl_payload
 from src.domains.project_lifecycle.utils.cloud_operations import (
     create_cloud_project,

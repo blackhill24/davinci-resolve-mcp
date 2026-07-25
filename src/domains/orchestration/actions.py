@@ -433,8 +433,19 @@ def _orchestrate_gc_snapshots_live(proj, cleared: List[Dict[str, Any]]) -> Dict[
                 if tl and tl.GetName() in duplicate_ids:
                     targets.append(tl)
             if targets and mp:
-                mp.DeleteTimelines(targets)
-                deleted.extend(t.GetName() for t in targets)
+                # #113 Tier 2: the return was discarded and every target was
+                # recorded as deleted unconditionally, so a refused delete left
+                # the snapshot timelines in the project while the job record said
+                # they were reclaimed — GC that reports work it did not do.
+                # Capture the names BEFORE the delete; GetName() on a deleted
+                # timeline is not answerable.
+                target_names = [t.GetName() for t in targets]
+                if mp.DeleteTimelines(targets):
+                    deleted.extend(target_names)
+                else:
+                    failed.append(
+                        "timeline_duplicate cleanup: DeleteTimelines refused for "
+                        + ", ".join(repr(n) for n in target_names))
         except Exception as exc:
             failed.append(f"timeline_duplicate cleanup: {type(exc).__name__}: {exc}")
     for snap in cleared:
@@ -475,13 +486,17 @@ def _orchestrate_restore_snapshot(proj, *, kind: str, snapshot_id: str) -> Dict[
             if snapshot_tl is None:
                 return {"success": False, "error": f"snapshot timeline {snapshot_id!r} not found",
                         "consumed": False}
+            # Discarding the pre-restore timeline is genuinely best-effort — the
+            # restore succeeds either way and a refused delete only leaves clutter
+            # — but #113 Tier 2: say so rather than reporting a clean restore.
+            stale_timeline = None
             if current_tl is not None and current_tl.GetUniqueId() != snapshot_tl.GetUniqueId():
                 try:
                     mp = proj.GetMediaPool()
-                    if mp:
-                        mp.DeleteTimelines([current_tl])
+                    if mp and not mp.DeleteTimelines([current_tl]):
+                        stale_timeline = current_tl.GetName()
                 except Exception:
-                    pass  # best-effort — the snapshot still becomes current below
+                    stale_timeline = "<unknown>"  # the snapshot still becomes current below
             # #113 Tier 1: making the snapshot current IS the restore — reporting
             # success without it having taken effect tells the caller their
             # rollback landed when the old timeline is still in front of them.
@@ -490,7 +505,12 @@ def _orchestrate_restore_snapshot(proj, *, kind: str, snapshot_id: str) -> Dict[
                 return {"success": False, "consumed": False,
                         "error": "snapshot timeline could not be made current; the restore "
                                  "did not take effect"}
-            return {"success": True, "consumed": True}
+            out = {"success": True, "consumed": True}
+            if stale_timeline:
+                out["warning"] = (
+                    f"restored the snapshot, but the pre-restore timeline {stale_timeline!r} "
+                    "could not be deleted and is still in the project")
+            return out
         except Exception as exc:
             return {"success": False, "error": f"{type(exc).__name__}: {exc}", "consumed": False}
     if kind == "grade_version":

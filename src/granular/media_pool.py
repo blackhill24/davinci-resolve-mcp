@@ -272,10 +272,11 @@ def setup_multicam_timeline(
     timeline = mp.CreateEmptyTimeline(plan["name"])
     if not timeline:
         return {"error": f"Failed to create multicam setup timeline: {plan['name']}"}
-    try:
-        project.SetCurrentTimeline(timeline)
-    except Exception:
-        pass
+    # #113 Tier 1: the appends that build the multicam layout target the current
+    # timeline implicitly (granular mirror of the media_pool_ingest fix).
+    if not _set_current_timeline(project, timeline):
+        return {"error": f"Created multicam timeline '{plan['name']}' but could not make it "
+                         "current; refusing to append, which would target the wrong timeline"}
     if plan.get("start_timecode"):
         try:
             timeline.SetStartTimecode(plan["start_timecode"])

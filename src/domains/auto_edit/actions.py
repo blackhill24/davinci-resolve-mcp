@@ -232,6 +232,7 @@ from src.core.timeline_lookup import (
     _range_track_indices,
     _range_track_types,
     _safe_timeline_item_id,
+    _set_current_timeline,
     _safe_timeline_item_name,
     _timecode_to_frame_id,
     _timeline_by_selector,
@@ -613,10 +614,13 @@ def edit_engine(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
         tl = mp.CreateEmptyTimeline(name)
         if not tl:
             return _err("Failed to create selects timeline")
-        try:
-            proj.SetCurrentTimeline(tl)
-        except Exception:
-            pass
+        # #113 Tier 1: AppendToTimeline below targets Resolve's CURRENT timeline
+        # implicitly, so a silently-failed switch appends onto whatever was
+        # current instead — into the user's own timeline. Refuse rather than
+        # build the selects somewhere unintended.
+        if not _set_current_timeline(proj, tl):
+            return _err(f"Created selects timeline '{name}' but could not make it current; "
+                        "refusing to append, which would target the wrong timeline")
         timeline_start = _timeline_start_frame(tl)
         built = []
         build_errors = []
@@ -865,10 +869,11 @@ def edit_engine(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
         tl, _tl_index = _find_timeline_by_name(proj, plan.get("timeline_name"))
         if not tl:
             return _err(f"Timeline '{plan.get('timeline_name')}' not found")
-        try:
-            proj.SetCurrentTimeline(tl)
-        except Exception:
-            pass
+        # #113 Tier 1: the swap mutates the current timeline; a failed switch
+        # would apply it to whichever timeline happened to be current.
+        if not _set_current_timeline(proj, tl):
+            return _err(f"Could not make timeline '{plan.get('timeline_name')}' current; "
+                        "refusing to swap, which would mutate the wrong timeline")
         before = _edit_engine_capture(tl)
         before["track_counts"] = _edit_engine_track_counts(tl)
         slot_start = int(item_block.get("timeline_start_frame"))
@@ -1515,10 +1520,12 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         tl = mp.CreateEmptyTimeline(name)
         if not tl:
             return _err("Failed to create timeline")
-        try:
-            proj.SetCurrentTimeline(tl)
-        except Exception:
-            pass
+        # #113 Tier 1: the whole build (title, appends, overlays) targets the
+        # current timeline implicitly. Building into the wrong one is worse than
+        # not building at all, so fail here instead.
+        if not _set_current_timeline(proj, tl):
+            return _err(f"Created timeline '{name}' but could not make it current; "
+                        "refusing to build, which would target the wrong timeline")
         timeline_start = _timeline_start_frame(tl)
 
         # 1) Intro title at the head of V1 — the only reliable placement.
@@ -1712,10 +1719,12 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         blocked = _consume_confirm_token(action="auto_edit.finish", params=p)
         if blocked:
             return blocked
-        try:
-            proj.SetCurrentTimeline(tl)
-        except Exception:
-            pass
+        # #113 Tier 1: finish grades/subtitles/renders the current timeline. A
+        # failed switch would grade and render the wrong one — and this step is
+        # past the confirm-token gate, so it runs unattended.
+        if not _set_current_timeline(proj, tl):
+            return _err(f"Could not make timeline '{built_name}' current; refusing to "
+                        "grade/render, which would target the wrong timeline")
         result: Dict[str, Any] = {"success": True, "timeline": built_name}
 
         if grade:

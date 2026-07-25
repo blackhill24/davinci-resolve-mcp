@@ -167,7 +167,23 @@ def archive_current_timeline(
     # DuplicateTimeline drops the duplicate in the *current* folder (Archive),
     # but it also switches Resolve's current timeline to the duplicate. Restore
     # the working timeline as the active one so downstream mutation hits it.
-    project.SetCurrentTimeline(tl)
+    #
+    # #113 Tier 1: this return was discarded, and the comment above says exactly
+    # why that is unsafe — every mutation this archive is protecting runs next,
+    # and if current is still the ARCHIVE COPY they land there instead. The
+    # archive itself succeeded, so report the failure rather than discarding it.
+    # Imported lazily: src.core.destructive_hook imports this module, and
+    # timeline_lookup pulls in envelope/live_connection, so a module-level
+    # import cycles depending on which entry point loads first.
+    from src.core.timeline_lookup import _set_current_timeline
+    if not _set_current_timeline(project, tl):
+        return {
+            "success": False,
+            "error": (f"archived to '{archived_name}', but the working timeline could not be "
+                      "restored as current; refusing to continue so the pending edit cannot "
+                      "land on the archive copy"),
+            "archived_timeline_name": archived_name,
+        }
 
     # Timebase snapshot — timeline_clip_usage stores ABSOLUTE record frames
     # (GetStart() includes the start-timecode offset), so readers need the
@@ -617,7 +633,17 @@ def rollback_to_version(
     if restored is None:
         return {"success": False, "error": f"DuplicateTimeline('{restored_name}') failed"}
 
-    project.SetCurrentTimeline(restored)
+    # #113 Tier 1: making the restored copy current IS the rollback's deliverable
+    # — without it the caller is told the rollback landed while still looking at
+    # the pre-rollback timeline. The copy exists either way, so name it.
+    from src.core.timeline_lookup import _set_current_timeline  # lazy: see above
+    if not _set_current_timeline(project, restored):
+        return {
+            "success": False,
+            "error": (f"restored timeline '{restored_name}' was created but could not be made "
+                      "current; the rollback did not take effect in the UI"),
+            "restored_timeline_name": restored_name,
+        }
 
     return {
         "success": True,

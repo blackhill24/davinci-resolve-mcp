@@ -238,6 +238,7 @@ from src.core.timeline_lookup import (
     _safe_media_pool_item_id,
     _safe_media_pool_item_name,
     _safe_timeline_item_id,
+    _set_current_timeline,
     _safe_timeline_item_name,
     _timecode_to_frame_id,
     _timeline_by_selector,
@@ -633,10 +634,12 @@ def _setup_multicam_timeline(proj, mp, p: Dict[str, Any]):
     new_tl = mp.CreateEmptyTimeline(plan["name"])
     if not new_tl:
         return _err(f"Failed to create multicam setup timeline: {plan['name']}")
-    try:
-        proj.SetCurrentTimeline(new_tl)
-    except Exception:
-        pass
+    # #113 Tier 1: the appends that build the multicam layout target the current
+    # timeline implicitly, so a failed switch scatters them into whichever
+    # timeline was already open.
+    if not _set_current_timeline(proj, new_tl):
+        return _err(f"Created multicam timeline '{plan['name']}' but could not make it "
+                    "current; refusing to append, which would target the wrong timeline")
     if plan.get("start_timecode"):
         try:
             new_tl.SetStartTimecode(plan["start_timecode"])
@@ -2133,10 +2136,11 @@ def media_pool(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str
             tl = mp.CreateEmptyTimeline(create_name)
             if not tl:
                 return _err("Failed to create timeline from clip_infos")
-            try:
-                proj.SetCurrentTimeline(tl)
-            except Exception:
-                pass
+            # #113 Tier 1: the appends below target the current timeline
+            # implicitly — a failed switch appends into the user's own timeline.
+            if not _set_current_timeline(proj, tl):
+                return _err(f"Created timeline '{create_name}' but could not make it current; "
+                            "refusing to append, which would target the wrong timeline")
             timeline_start = _timeline_start_frame(tl)
             built = []
             for i, ci in enumerate(raw):

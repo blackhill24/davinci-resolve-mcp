@@ -534,6 +534,54 @@ def _find_timeline_by_id(proj, timeline_id: Any):
             return tl, index
     return None, None
 
+
+def _set_current_timeline(proj, tl) -> bool:
+    """Make `tl` current, verified by reading the current timeline back.
+
+    #113 Tier 1. Resolve targets the CURRENT timeline implicitly in several
+    APIs (`AppendToTimeline` has no target argument, render jobs bind to
+    whatever is current), so a switch that silently fails sends the next
+    mutation to the WRONG timeline. `timeline_edit._timeline_insert_edit_impl`
+    documents that exact bug being found live — "the clip silently appended
+    onto the original, colliding with content the ripple never touched there".
+    Every one of those call sites discarded `SetCurrentTimeline`'s return.
+
+    Verification is by read-back rather than by trusting the return value,
+    which is the defense `src/core/readback.py` exists for: Resolve setters
+    return values that "do not reflect what actually happened". Read-back also
+    keeps this change safe — a build that returns a falsy value on a switch
+    that *did* take effect still reports True here, so turning these sites into
+    hard failures cannot break a working flow.
+
+    Returns True when the current timeline is `tl` afterwards, False otherwise.
+    Never raises.
+    """
+    if proj is None or tl is None:
+        return False
+
+    reported = None
+    try:
+        reported = proj.SetCurrentTimeline(tl)
+    except Exception:
+        logger.debug("SetCurrentTimeline raised", exc_info=True)
+        # Fall through — the read-back below is the authority either way.
+
+    try:
+        want = str(tl.GetUniqueId())
+    except Exception:
+        # No id to compare against; the reported value is all we have.
+        return bool(reported)
+
+    try:
+        current = proj.GetCurrentTimeline()
+        if current is not None and str(current.GetUniqueId()) == want:
+            return True
+    except Exception:
+        logger.debug("GetCurrentTimeline read-back failed", exc_info=True)
+        return bool(reported)
+
+    return False
+
 def _clip_name(clip):
     try:
         return clip.GetName()

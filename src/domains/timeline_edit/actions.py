@@ -233,6 +233,7 @@ from src.core.timeline_lookup import (
     _range_track_types,
     _safe_timeline_item_id,
     _set_current_timeline,
+    _normalize_timecode,
     _set_start_timecode,
     _safe_timeline_item_name,
     _timecode_to_frame_id,
@@ -1971,7 +1972,20 @@ def _timeline_thumbnail_contact_sheet(proj, tl, p: Dict[str, Any]) -> Dict[str, 
                 sampled.append(sample)
                 continue
             try:
+                # #113 Tier 3: the return was discarded and the thumbnail was
+                # grabbed regardless, then labelled with the REQUESTED timecode.
+                # A playhead that did not move produced a contact sheet whose
+                # frames are all from the wrong position but carry correct-looking
+                # timecodes — worse than a missing thumbnail, because nothing
+                # about the output says it is wrong. Verify by read-back.
                 tl.SetCurrentTimecode(timecode)
+                landed = _normalize_timecode(tl.GetCurrentTimecode())
+                if landed is not None and landed != _normalize_timecode(timecode):
+                    sample["error"] = (
+                        f"playhead did not move to {timecode} (landed on {landed}); "
+                        "thumbnail skipped rather than captured at the wrong frame")
+                    sampled.append(sample)
+                    continue
                 thumbnail = tl.GetCurrentClipThumbnailImage()
                 if not thumbnail:
                     sample["error"] = "No thumbnail available at frame"
@@ -3058,7 +3072,14 @@ def _timeline_render_in_place_impl(proj, tl, p: Dict[str, Any]):
                         disabled_tracks.append(ti)
             except Exception:
                 pass
-        proj.SetCurrentRenderMode(1)  # 1 = single clip (one continuous movie)
+        # 1 = single clip (one continuous movie). #113 Tier 3: the return was
+        # discarded. Render-in-place bakes the range into ONE clip; left in
+        # "individual clips" mode Resolve emits a file per timeline clip instead,
+        # and the re-import below would bring back the wrong media entirely.
+        if not proj.SetCurrentRenderMode(1):
+            return _err("could not switch Resolve to single-clip render mode; refusing to "
+                        "render in place, which would bake one file per clip instead of the "
+                        "requested continuous range")
         format_ok = None
         if fmt and codec:
             format_ok = bool(proj.SetCurrentRenderFormatAndCodec(_render_format_id(proj, fmt), codec))

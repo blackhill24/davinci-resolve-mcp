@@ -112,33 +112,42 @@ def scan_discarded_mutator_returns() -> collections.Counter:
 
 # ── Accepted baseline ────────────────────────────────────────────────────────
 #
-# Discarded mutator returns still accepted: 33 keys, 44 call sites. Tracked for
-# triage in #113 — this is NOT an assertion that they are all correct.
+# Discarded mutator returns still accepted: 31 keys, 39 call sites. #113 is now
+# fully triaged — every entry below has a stated reason, grouped. This is the
+# record so a future audit does not re-derive the same list a fourth time.
 #
-#   Tier 1 — DONE. All 18 SetCurrentTimeline-before-a-mutation sites on tool paths
-#            go through `_set_current_timeline()` (read-back verified). The 6
-#            remaining SetCurrentTimeline entries below are all in *_live_probe.py,
-#            which are diagnostic harnesses rather than tool paths.
-#   Tier 2 — DONE. All 8 destructive / user-visible sites now report what actually
-#            happened: SetStartTimecode goes through `_set_start_timecode()`
-#            (read-back verified) and refuses the append when it does not take,
+#   Tier 1 — DONE (#115). All 18 SetCurrentTimeline-before-a-mutation sites on
+#            tool paths go through `_set_current_timeline()` (read-back verified).
+#   Tier 2 — DONE (#116). All 8 destructive / user-visible sites report what
+#            actually happened: SetStartTimecode goes through
+#            `_set_start_timecode()` and refuses the append when it does not take,
 #            because the record frames were computed from that start;
-#            DeleteTimelines, DeleteStills and DeleteMarkerByCustomData either
-#            fail or surface a warning instead of claiming work they did not do.
-#   Tier 3 — OPEN, and mostly a DECISION rather than a fix: the Fusion
-#            SetInput/SetAttrs/SetPos/AddModifier cluster (chatty setters where a
-#            per-call check would be noise), SetCurrentFolder/SetSelectedClip/
-#            SetCurrentTimecode state restores, SetCurrentRenderMode,
-#            _run_inline_lua's SetData, plus the *_live_probe.py entries, which are
-#            diagnostic harnesses rather than tool paths.
+#            DeleteTimelines / DeleteStills / DeleteMarkerByCustomData either fail
+#            or surface a warning instead of claiming work they did not do.
+#   Tier 3 — DONE. Triage found 4 that were NOT ignorable and fixed them:
+#            SetCurrentRenderMode x2 (a wrong mode silently renders one stitched
+#            file instead of per-clip proxies, or one file per clip instead of a
+#            continuous render-in-place), the Lua completion sentinel (a failed
+#            clear returned the PREVIOUS script's output as the current run's),
+#            and the contact-sheet playhead (thumbnails captured at the wrong
+#            frame but labelled with correct-looking timecodes). The rest are
+#            genuinely ignorable and each group below says why.
 #
-# Shrink this dict as #113 lands. Do not grow it without a reason in the diff.
+# Do not grow this dict without a reason in the diff, and do not add an entry
+# just to make the guard pass — that is the habit it exists to interrupt.
 ACCEPTED_DISCARDED_RETURNS = {
-    ("src/domains/audio_fairlight/utils/audio_fairlight_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
-    ("src/domains/color_grade/utils/color_grade_live_probe.py", "run_probe", "AppendToTimeline"): 1,
-    ("src/domains/color_grade/utils/color_grade_live_probe.py", "run_probe", "SetCurrentTimecode"): 1,
-    ("src/domains/color_grade/utils/color_grade_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
-    ("src/domains/extension_authoring/actions.py", "_run_inline_lua", "SetData"): 4,
+    # ── Fusion tool setters (26) ──────────────────────────────────────────────
+    # Fusion's tool/flow setters come through the Lua bridge and have no
+    # dependable return. The repo's own live-verified ledger says so for the
+    # clearest case: src/core/api_truth.py on FlowView.SetPos — "SetPos returns
+    # nothing reliable; ... confirm with GetPosTable" (re-verified on Resolve
+    # Studio 21.0.2.4). Checking these would be checking noise.
+    #
+    # Verification here is by READ-BACK where it matters, which is already in
+    # place: _safe_set_fusion_inputs reads each value back with GetInput() and
+    # reports it (`readback` param, default on), and set_position confirms via
+    # GetPosTable. That is the src/core/readback.py doctrine, and it is a better
+    # check than the return value would be even if the return existed.
     ("src/domains/fusion_composition/actions.py", "_fusion_add_mask", "SetAttrs"): 1,
     ("src/domains/fusion_composition/actions.py", "_fusion_add_mask", "SetInput"): 1,
     ("src/domains/fusion_composition/actions.py", "_fusion_comp_bulk_set_expressions", "SetExpression"): 1,
@@ -151,22 +160,57 @@ ACCEPTED_DISCARDED_RETURNS = {
     ("src/domains/fusion_composition/actions.py", "fusion_comp", "SetAttrs"): 4,
     ("src/domains/fusion_composition/actions.py", "fusion_comp", "SetInput"): 2,
     ("src/domains/fusion_composition/actions.py", "fusion_comp", "SetPos"): 3,
-    ("src/domains/fusion_composition/utils/fusion_composition_live_probe.py", "run_probe", "SetCurrentTimecode"): 1,
-    ("src/domains/fusion_composition/utils/fusion_composition_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
+
+    # ── Verified by read-back instead of by the return (2) ────────────────────
+    # These DO matter, and #113 Tier 3 fixed them — but the fix was to verify the
+    # observed state, not to check the return, so the bare call still appears
+    # here. Do not "fix" these by wrapping the return; the read-back beneath each
+    # one is the real check.
+    #
+    # _run_inline_lua clears four sentinel slots before RunScript; a clear that
+    #   did not take leaves the previous run's __mcp_done__ == "1", so the poll
+    #   exits immediately and returns the PREVIOUS script's output as this one's.
+    #   Now read back with GetData and refused if the sentinel is still set.
+    # _timeline_thumbnail_contact_sheet moves the playhead per sample; a playhead
+    #   that did not move produced thumbnails from the wrong frame labelled with
+    #   correct-looking timecodes. Now compared with GetCurrentTimecode and the
+    #   sample is skipped with an error rather than captured at the wrong frame.
+    ("src/domains/extension_authoring/actions.py", "_run_inline_lua", "SetData"): 1,
+    ("src/domains/timeline_edit/actions.py", "_timeline_thumbnail_contact_sheet", "SetCurrentTimecode"): 1,
+
+    # ── Context navigation whose real outcome is captured elsewhere (5) ───────
+    # media_pool_item navigates to the clip's folder purely so SetSelectedClip
+    #   can see it; the actual result is `select_ok = bool(mp.SetSelectedClip(...))`,
+    #   which IS checked. The navigation failing on its own is not an outcome.
+    # _restore_current_folder and _resolve_restore_state put the user's UI back
+    #   where it was. Nothing downstream depends on them, they cannot corrupt
+    #   anything, and _resolve_restore_state already reports what it managed to
+    #   restore via its `restored` dict (its timeline restore was hardened in
+    #   Tier 1 because that one WAS claimed as restored regardless).
     ("src/domains/media_pool_ingest/actions.py", "_restore_current_folder", "SetCurrentFolder"): 1,
     ("src/domains/media_pool_ingest/actions.py", "media_pool_item", "SetCurrentFolder"): 1,
-    ("src/domains/render_deliver/actions.py", "_build_proxies", "SetCurrentRenderMode"): 1,
+    ("src/server.py", "_resolve_restore_state", "SetCurrentFolder"): 1,
+    ("src/server.py", "_resolve_restore_state", "SetCurrentTimecode"): 1,
+    ("src/server.py", "_resolve_restore_state", "SetSelectedClip"): 1,
+
+    # ── Diagnostic live probes, not tool paths (12) ───────────────────────────
+    # *_live_probe.py harnesses are run by hand against a real Resolve to record
+    # what the API does; they report their own findings and are not reachable
+    # from MCP dispatch. They stay listed so a NEW discarded return in one is
+    # still a deliberate choice rather than an accident.
+    ("src/domains/audio_fairlight/utils/audio_fairlight_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
+    ("src/domains/color_grade/utils/color_grade_live_probe.py", "run_probe", "AppendToTimeline"): 1,
+    ("src/domains/color_grade/utils/color_grade_live_probe.py", "run_probe", "SetCurrentTimecode"): 1,
+    ("src/domains/color_grade/utils/color_grade_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
+    ("src/domains/fusion_composition/utils/fusion_composition_live_probe.py", "run_probe", "SetCurrentTimecode"): 1,
+    ("src/domains/fusion_composition/utils/fusion_composition_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
     ("src/domains/render_deliver/utils/render_deliver_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
     ("src/domains/review_annotation/utils/review_annotation_live_probe.py", "run_probe", "SetCurrentTimecode"): 1,
     ("src/domains/review_annotation/utils/review_annotation_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
     ("src/domains/timeline_conform_interchange/utils/timeline_conform_live_probe.py", "run_probe", "AppendToTimeline"): 1,
     ("src/domains/timeline_conform_interchange/utils/timeline_conform_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
-    ("src/domains/timeline_edit/actions.py", "_timeline_render_in_place_impl", "SetCurrentRenderMode"): 1,
-    ("src/domains/timeline_edit/actions.py", "_timeline_thumbnail_contact_sheet", "SetCurrentTimecode"): 1,
     ("src/domains/timeline_edit/utils/timeline_kernel_live_probe.py", "run_probe", "SetClipsLinked"): 1,
-    ("src/server.py", "_resolve_restore_state", "SetCurrentFolder"): 1,
-    ("src/server.py", "_resolve_restore_state", "SetCurrentTimecode"): 1,
-    ("src/server.py", "_resolve_restore_state", "SetSelectedClip"): 1,
+
 }
 
 

@@ -663,7 +663,14 @@ def _build_proxies(proj, p):
         if not _set_current_timeline(proj, timeline):
             return _err(f"Created the proxy-render timeline '{tl_name}' but could not make it "
                         "current; refusing to render, which would target the wrong timeline")
-        proj.SetCurrentRenderMode(0)  # 0 = Individual clips
+        # 0 = Individual clips. #113 Tier 3: the return was discarded. Proxy
+        # building needs one file PER CLIP so each can be relinked to its source;
+        # left in single-clip mode Resolve emits one stitched movie and the
+        # per-clip relink below silently finds nothing to attach.
+        if not proj.SetCurrentRenderMode(0):
+            return _err("could not switch Resolve to individual-clips render mode; refusing "
+                        "to render, which would produce one stitched file instead of one "
+                        "proxy per clip")
         format_ok = None
         if fmt and codec:
             format_ok = bool(proj.SetCurrentRenderFormatAndCodec(_render_format_id(proj, fmt), codec))

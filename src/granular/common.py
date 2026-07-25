@@ -716,6 +716,24 @@ def _has_method(obj, method_name):
     except Exception:
         return False
 
+def _api_constant(obj, const_name):
+    """Resolve a Resolve API *constant* (EXPORT_DRT, EXPORT_LUT_CUBE, ...).
+
+    Mirror of src/core/envelope._api_constant — see that docstring. Constants need
+    the OPPOSITE technique to _has_method above: dir() does NOT list them (it
+    returns only methods), while getattr DOES return their real numeric value and
+    yields None for a fabricated name.
+    """
+    if obj is None or not const_name:
+        return None
+    try:
+        value = getattr(obj, const_name, None)
+    except Exception:
+        return None
+    if value is None or callable(value):
+        return None
+    return value
+
 def _requires_method(obj, method_name, min_version):
     if _has_method(obj, method_name):
         return None

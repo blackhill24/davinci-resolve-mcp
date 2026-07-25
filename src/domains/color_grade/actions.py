@@ -138,6 +138,7 @@ from src.core.envelope import (
     ERROR_CATEGORIES,
     _CATEGORY_RETRYABLE_DEFAULT,
     _RETRYABLE_UNSET,
+    _api_constant,
     _callable_method_names,
     _check,
     _err,
@@ -328,8 +329,13 @@ def _resolve_lut_export_type(export_type, resolve_obj=None):
         const_name = raw
     if not const_name:
         return None, _err(f"Unknown LUT export type: {raw}")
-    if resolve_obj and const_name in dir(resolve_obj):
-        return getattr(resolve_obj, const_name), None
+    # EXPORT_LUT_* is a CONSTANT, not a method — dir() does not list it, so the
+    # dir() test always failed and the literal name reached ExportLUT(). See
+    # _api_constant()'s docstring (regression from cc007ef / #110 finding 11).
+    if resolve_obj:
+        value = _api_constant(resolve_obj, const_name)
+        if value is not None:
+            return value, None
     return const_name, None
 
 def _validate_cdl_payload(cdl):

@@ -712,11 +712,13 @@ def timeline_export(file_path: str, export_type: str, export_subtype: str = "EXP
         return err
     # Map string constants to resolve constants
     try:
-        # #110 finding 11: hasattr on a Resolve object is always True (the bridge
-        # fabricates a callable for any name), so a bogus export_type still
-        # reached getattr and returned None. dir() lists only real attributes.
-        etype = getattr(resolve, export_type) if export_type in dir(resolve) else export_type
-        esub = getattr(resolve, export_subtype) if export_subtype in dir(resolve) else export_subtype
+        # EXPORT_* are CONSTANTS, which dir() does not list — the dir() test that
+        # #110 finding 11 introduced always failed here and passed the literal
+        # name to Export(), which returns False. See _api_constant()'s docstring.
+        etype = _api_constant(resolve, export_type)
+        etype = etype if etype is not None else export_type
+        esub = _api_constant(resolve, export_subtype)
+        esub = esub if esub is not None else export_subtype
     except Exception:
         logger.debug("Could not resolve timeline export constants", exc_info=True)
         etype = export_type

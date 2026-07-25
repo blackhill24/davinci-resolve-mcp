@@ -126,6 +126,48 @@ def _has_method(obj, method_name):
         return False
 
 
+def _api_constant(obj, const_name):
+    """Resolve a Resolve API *constant* (EXPORT_DRT, EXPORT_LUT_CUBE, ...).
+
+    Returns the numeric value, or None when the name is not a real constant.
+
+    This needs the OPPOSITE technique to `_has_method` above, and getting it
+    backwards silently breaks every export path:
+
+      * METHODS are listed by `dir(obj)` but fabricated by `getattr`, so
+        capability detection must use dir() — that is what `_has_method` does.
+      * CONSTANTS are NOT listed by `dir(obj)` at all (on Resolve Studio
+        21.0.2.4 `dir(resolve)` returns 25 entries, all methods, and no
+        `EXPORT_*`), but `getattr` DOES return their real numeric value.
+
+    So a `const_name in dir(obj)` test always fails for a constant, falls back to
+    passing the literal NAME to the API, and `Timeline.Export(path, 'EXPORT_DRT')`
+    returns False. That regressed every .drt/AAF/EDL/XML export in cc007ef (the
+    #110 finding-11 fix, which correctly moved method probes to dir() and then
+    over-applied it to constants); found by the live suite, 8 harnesses failing
+    with "drt export failed".
+
+    The discriminator is the fabrication behaviour itself: a made-up name yields
+    None, a real constant yields a number. Verified live on 21.0.2.4 —
+    `getattr(resolve, 'EXPORT_DRT')` is `1.0`, `getattr(resolve, 'TOTALLY_FAKE')`
+    is `None`.
+    """
+    if obj is None or not const_name:
+        return None
+    try:
+        value = getattr(obj, const_name, None)
+    except Exception:
+        return None
+    # Two things to exclude, and nothing more: a fabricated name (None), and a
+    # real METHOD of the same name (callable). Deliberately NOT restricted to
+    # numbers — on 21.0.2.4 these are floats, but the contract that actually
+    # holds is the fabrication behaviour, and an over-tight type check would
+    # silently fall back to passing the name string, which is the bug itself.
+    if value is None or callable(value):
+        return None
+    return value
+
+
 def _requires_method(obj, method_name, min_version):
     if _has_method(obj, method_name):
         return None

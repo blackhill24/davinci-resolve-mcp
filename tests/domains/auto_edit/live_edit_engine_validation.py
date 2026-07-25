@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -58,6 +59,20 @@ def synth_clip(name: str, *, speech: str, speech_at: float, duration: float, pat
 
 
 def main() -> int:
+    # The synthetic speech comes from macOS `say`, which does not exist on Linux
+    # or Windows. Without this gate the harness died with an uncaught
+    # FileNotFoundError and scored as a FAIL, so a missing OS tool was
+    # indistinguishable from a real regression in the edit engine. Every other
+    # harness self-gates (preflight, and the cloud probe's "SKIPPED:" path); this
+    # one did not. Exit 2 is preflight's "environment not ready" code — exit 1 is
+    # deliberately reserved for a genuine test failure.
+    missing = [tool for tool in ("say", "ffmpeg", "ffprobe") if shutil.which(tool) is None]
+    if missing:
+        print(f"[gate] NOT READY — missing required tool(s): {', '.join(missing)}. "
+              "`say` is macOS-only, so this harness cannot run on Linux/Windows; "
+              "aborting without running any checks.")
+        return 2
+
     print(f"media dir: {MEDIA_DIR}")
     clip_talk = synth_clip("talk_clip", speech="This is the main interview line for the pilot, spoken at the start.",
                            speech_at=1.0, duration=20.0, pattern="testsrc")

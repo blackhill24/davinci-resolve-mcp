@@ -138,6 +138,7 @@ from src.core.envelope import (
     ERROR_CATEGORIES,
     _CATEGORY_RETRYABLE_DEFAULT,
     _RETRYABLE_UNSET,
+    _api_constant,
     _callable_method_names,
     _check,
     _err,
@@ -527,10 +528,16 @@ def _timeline_export_value(value, resolve_obj=None):
     if not raw:
         return "", None
     const_name = raw if raw.startswith("EXPORT_") else None
-    # #110 finding 11: hasattr on a Resolve object is always True (the bridge
-    # fabricates a callable for any name); dir() lists only real constants.
-    if const_name and resolve_obj is not None and const_name in dir(resolve_obj):
-        return getattr(resolve_obj, const_name), const_name
+    # #110 finding 11 correctly moved METHOD probes off hasattr and onto dir(),
+    # but this is a CONSTANT: dir() does not list EXPORT_* at all, so the dir()
+    # test always failed here and the literal name "EXPORT_DRT" was passed to
+    # Timeline.Export(), which returns False. That broke every .drt/AAF/EDL/XML
+    # export until the live suite caught it. _api_constant() uses getattr and
+    # rejects the bridge's fabricated None — see its docstring.
+    if const_name and resolve_obj is not None:
+        value = _api_constant(resolve_obj, const_name)
+        if value is not None:
+            return value, const_name
     if const_name:
         return const_name, const_name
     return raw, None

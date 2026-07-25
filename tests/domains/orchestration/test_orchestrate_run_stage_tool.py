@@ -548,9 +548,21 @@ class RollbackStageTests(OrchestrateRunStageBase):
         self.proj.GetCurrentTimeline.return_value = current_tl
         self.proj.GetTimelineCount.return_value = 1
         self.proj.GetTimelineByIndex.return_value = snap_tl
+
+        # #113 Tier 1: the restore is now verified by reading the current timeline
+        # back, so the stub has to actually model the switch instead of leaving
+        # GetCurrentTimeline pinned to the pre-restore timeline forever.
+        def _switch(tl):
+            self.proj.GetCurrentTimeline.return_value = tl
+            return True
+
+        self.proj.SetCurrentTimeline.side_effect = _switch
+
         out = self._call("rollback_stage", {"job_id": job_id, "stage": "edit"})
         self.assertTrue(out.get("success"), out)
         self.proj.SetCurrentTimeline.assert_called_once_with(snap_tl)
+        self.assertIs(self.proj.GetCurrentTimeline(), snap_tl,
+                      "the snapshot must actually be current after a rollback")
         job = orchestrate.load_job(self.root, job_id)
         self.assertEqual(job["stages"]["edit"]["status"], "pending")
         self.assertEqual(job["stages"]["edit"]["snapshot_ids"], [])

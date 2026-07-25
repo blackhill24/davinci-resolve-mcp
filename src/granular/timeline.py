@@ -1042,11 +1042,12 @@ def create_timeline_from_clips(
         tl = mp.CreateEmptyTimeline(name)
         if not tl:
             return {"success": False, "error": "Failed to create timeline"}
-        try:
-            if project:
-                project.SetCurrentTimeline(tl)
-        except Exception:
-            logger.debug("Could not set newly created timeline current", exc_info=True)
+        # #113 Tier 1: the appends below target the current timeline implicitly,
+        # so a failed switch builds into whatever was already current.
+        if not _set_current_timeline(project, tl):
+            return {"success": False,
+                    "error": f"Created timeline '{name}' but could not make it current; "
+                             "refusing to append, which would target the wrong timeline"}
         timeline_start = _timeline_start_frame(tl)
         built = []
         for i, ci in enumerate(clip_infos):

@@ -231,6 +231,7 @@ from src.core.timeline_lookup import (
     _range_track_indices,
     _range_track_types,
     _safe_timeline_item_id,
+    _set_current_timeline,
     _safe_timeline_item_name,
     _timecode_to_frame_id,
     _timeline_by_selector,
@@ -481,7 +482,14 @@ def _orchestrate_restore_snapshot(proj, *, kind: str, snapshot_id: str) -> Dict[
                         mp.DeleteTimelines([current_tl])
                 except Exception:
                     pass  # best-effort — the snapshot still becomes current below
-            proj.SetCurrentTimeline(snapshot_tl)
+            # #113 Tier 1: making the snapshot current IS the restore — reporting
+            # success without it having taken effect tells the caller their
+            # rollback landed when the old timeline is still in front of them.
+            # The pre-restore timeline was already deleted above, so say so.
+            if not _set_current_timeline(proj, snapshot_tl):
+                return {"success": False, "consumed": False,
+                        "error": "snapshot timeline could not be made current; the restore "
+                                 "did not take effect"}
             return {"success": True, "consumed": True}
         except Exception as exc:
             return {"success": False, "error": f"{type(exc).__name__}: {exc}", "consumed": False}

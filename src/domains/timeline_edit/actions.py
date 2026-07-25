@@ -232,6 +232,7 @@ from src.core.timeline_lookup import (
     _range_track_indices,
     _range_track_types,
     _safe_timeline_item_id,
+    _set_current_timeline,
     _safe_timeline_item_name,
     _timecode_to_frame_id,
     _timeline_by_selector,
@@ -1848,7 +1849,11 @@ def _timeline_create_variant_from_ranges(proj, source_tl, p: Dict[str, Any]) -> 
     new_tl = mp.CreateEmptyTimeline(name)
     if not new_tl:
         return _err(f"Failed to create timeline: {name}")
-    proj.SetCurrentTimeline(new_tl)
+    # #113 Tier 1: the appends below target the current timeline implicitly, so a
+    # failed switch would build the variant into whatever was already current.
+    if not _set_current_timeline(proj, new_tl):
+        return _err(f"Created timeline '{name}' but could not make it current; refusing to "
+                    "build the variant, which would target the wrong timeline")
     if p.get("start_timecode"):
         try:
             new_tl.SetStartTimecode(p["start_timecode"])
@@ -2191,10 +2196,13 @@ def _advanced_timeline_edit(
     # drifting onto the previous action's output). Restore the ORIGINAL
     # current timeline so "no existing timeline is modified" also covers the
     # user's current-timeline context, not just its content.
-    try:
-        proj.SetCurrentTimeline(tl)
-    except Exception:
-        pass
+    #
+    # #113: this is a context RESTORE, not a switch-before-mutation — nothing
+    # below depends on it, so a failure is reported rather than fatal. But it is
+    # still worth reporting: the comment above records a live bug where later
+    # independent timeline() calls drifted onto the previous action's output,
+    # which is exactly what a silently-failed restore leaves behind.
+    restore_ok = _set_current_timeline(proj, tl)
 
     media = imported.get("media") or {}
     dropped = _auto_edit_mod.dropped_source_clips(
@@ -2213,6 +2221,10 @@ def _advanced_timeline_edit(
         out["warning"] = (
             f"{dropped} source clip(s) went offline after the drt round-trip — "
             "check media relinking.")
+    if not restore_ok:
+        out["current_timeline_warning"] = (
+            f"could not restore '{source_name}' as the current timeline; later timeline "
+            "actions may target the new one instead unless you pass an explicit selector")
     if extra_result:
         out.update(extra_result)
     return out
@@ -2730,10 +2742,9 @@ def _timeline_import_srt_impl(proj, tl, p: Dict[str, Any]):
                 subtitle_tracks = int(imp_tl.GetTrackCount("subtitle") or 0)
             except Exception:
                 pass
-        try:
-            proj.SetCurrentTimeline(tl)
-        except Exception:
-            pass
+        # #113: context restore, not a switch-before-mutation — nothing below
+        # depends on it, so report rather than fail.
+        restore_ok = _set_current_timeline(proj, tl)
 
         out = _ok(
             new_timeline=final_name,
@@ -2748,6 +2759,10 @@ def _timeline_import_srt_impl(proj, tl, p: Dict[str, Any]):
         if subtitle_tracks == 0:
             out["warning"] = ("reimported timeline reports 0 subtitle tracks — the authored "
                               "cues did not survive; check the blob template")
+        if not restore_ok:
+            out["current_timeline_warning"] = (
+                f"could not restore '{source_name}' as the current timeline; later timeline "
+                "actions may target the imported one instead")
         return out
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
@@ -3299,12 +3314,19 @@ def _timeline_insert_edit_impl(proj, tl, p: Dict[str, Any]):
     # the ORIGINAL timeline, so it must be switched to new_tl for this append
     # (found live: without this, the clip silently appended onto the original,
     # colliding with content the ripple never touched there).
-    proj.SetCurrentTimeline(new_tl)
+    #
+    # #113 Tier 1: that return used to be discarded, so the very bug the comment
+    # above records could recur silently — a failed switch reproduces it exactly.
+    # Bail before appending; the ripple already succeeded and is reported.
+    if not _set_current_timeline(proj, new_tl):
+        result["place_error"] = (
+            "ripple succeeded but the new timeline could not be made current; the clip was "
+            "NOT appended (appending would have targeted the original timeline)")
+        return result
     appended = mp.AppendToTimeline([built])
-    try:
-        proj.SetCurrentTimeline(tl)
-    except Exception:
-        pass
+    if not _set_current_timeline(proj, tl):
+        result["current_timeline_warning"] = (
+            "could not restore the original timeline as current after the append")
     if not appended or len(appended) < 1:
         result["place_error"] = "ripple succeeded but AppendToTimeline of the new clip failed"
         return result

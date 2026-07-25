@@ -244,10 +244,23 @@ class FinishActionTest(unittest.TestCase):
         from unittest import mock
         tl = mock.Mock()
         tl.GetName.return_value = timeline_name
+        tl.GetUniqueId.return_value = f"uid-{timeline_name}"
         tl.GetItemListInTrack.return_value = []
         proj = mock.Mock()
         proj.GetTimelineCount.return_value = 1
         proj.GetTimelineByIndex.return_value = tl
+
+        # #113 Tier 1: finish() now verifies the current-timeline switch by
+        # reading it back before it grades/renders, so the stub must model the
+        # switch rather than leaving GetCurrentTimeline as a bare auto-Mock
+        # (whose GetUniqueId would never match the timeline being switched to).
+        def _switch(target):
+            proj.GetCurrentTimeline.return_value = target
+            return True
+
+        proj.SetCurrentTimeline.side_effect = _switch
+        proj.GetCurrentTimeline.return_value = tl
+
         proj.SetRenderSettings.return_value = True
         proj.AddRenderJob.return_value = "job-1"
         proj.StartRendering.return_value = True

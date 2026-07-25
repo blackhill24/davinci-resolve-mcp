@@ -270,6 +270,7 @@ from src.core.timeline_lookup import (
     _project_name_and_id,
     _project_summary,
     _safe_timeline_item_id,
+    _set_current_timeline,
     _safe_timeline_item_name,
     _timecode_to_frame_id,
     _timeline_by_selector,
@@ -3531,14 +3532,20 @@ def _resolve_restore_state(p: Dict[str, Any]) -> Dict[str, Any]:
             for i in range(1, count + 1):
                 tl = proj.GetTimelineByIndex(i)
                 if tl and tl.GetUniqueId() == state["current_timeline_id"]:
-                    proj.SetCurrentTimeline(tl)
-                    restored["current_timeline_id"] = state["current_timeline_id"]
-                    if state.get("current_timecode"):
-                        try:
-                            tl.SetCurrentTimecode(state["current_timecode"])
-                            restored["current_timecode"] = state["current_timecode"]
-                        except Exception:
-                            pass
+                    # #113 Tier 1: this used to record the timeline as restored
+                    # regardless of whether the switch took effect, so a failed
+                    # restore was reported to the caller as a successful one.
+                    if _set_current_timeline(proj, tl):
+                        restored["current_timeline_id"] = state["current_timeline_id"]
+                        if state.get("current_timecode"):
+                            try:
+                                tl.SetCurrentTimecode(state["current_timecode"])
+                                restored["current_timecode"] = state["current_timecode"]
+                            except Exception:
+                                pass
+                    else:
+                        restored["timeline_error"] = (
+                            f"could not make timeline {state['current_timeline_id']} current")
                     break
         except Exception as exc:
             restored["timeline_error"] = str(exc)

@@ -231,6 +231,7 @@ from src.core.timeline_lookup import (
     _range_track_indices,
     _range_track_types,
     _safe_timeline_item_id,
+    _set_current_timeline,
     _safe_timeline_item_name,
     _timecode_to_frame_id,
     _timeline_by_selector,
@@ -656,7 +657,12 @@ def _build_proxies(proj, p):
     prev_mode = proj.GetCurrentRenderMode()
     job_id = None
     try:
-        proj.SetCurrentTimeline(timeline)
+        # #113 Tier 1: render jobs bind to the CURRENT timeline. A failed switch
+        # would render whatever the user had open into the proxy directory
+        # instead of the proxy-build timeline — wrong media, silently.
+        if not _set_current_timeline(proj, timeline):
+            return _err(f"Created the proxy-render timeline '{tl_name}' but could not make it "
+                        "current; refusing to render, which would target the wrong timeline")
         proj.SetCurrentRenderMode(0)  # 0 = Individual clips
         format_ok = None
         if fmt and codec:

@@ -948,10 +948,24 @@ def _run_inline_lua(source: str) -> Dict[str, Any]:
     )
 
     # Clear prior slots so we can detect if RunScript silently did nothing.
-    fusion.SetData("__mcp_done__", "")
-    fusion.SetData("__mcp_stdout__", "")
-    fusion.SetData("__mcp_result__", "")
-    fusion.SetData("__mcp_error__", "")
+    #
+    # #113 Tier 3: these four returns were discarded, and the clear is
+    # load-bearing exactly as the comment says. The completion poll below is
+    # `while fusion.GetData("__mcp_done__") != "1"`, so a clear that did not take
+    # leaves the PREVIOUS run's sentinel at "1": the loop exits immediately and
+    # the stdout/result/error slots read back are the previous invocation's
+    # output, returned as if this script had produced it. Verify the sentinel is
+    # actually cleared rather than trusting the setter — Fusion's SetData has no
+    # dependable return, so read-back is the only real check.
+    for slot in ("__mcp_done__", "__mcp_stdout__", "__mcp_result__", "__mcp_error__"):
+        fusion.SetData(slot, "")
+    try:
+        if fusion.GetData("__mcp_done__") == "1":
+            return _err("could not clear the Lua completion sentinel (__mcp_done__ is still "
+                        "set from a previous run); refusing to run, because the poll would "
+                        "return the previous script's output as this one's")
+    except Exception as exc:
+        return _err(f"could not read back the Lua completion sentinel: {exc}")
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.lua',
                                       prefix='mcp-lua-inline-',

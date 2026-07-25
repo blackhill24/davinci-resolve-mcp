@@ -582,6 +582,68 @@ def _set_current_timeline(proj, tl) -> bool:
 
     return False
 
+
+def _normalize_timecode(value: Any) -> Optional[str]:
+    """Canonicalize an HH:MM:SS:FF timecode for comparison.
+
+    Zero-pads each field and normalizes the frame separator, so a drop-frame
+    timeline reporting `01:00:00;00` compares equal to a requested
+    `01:00:00:00`, and `1:00:00:00` equals `01:00:00:00`. Returns None when the
+    value isn't timecode-shaped, which callers treat as "cannot verify".
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    parts = re.split(r"[:;.]", text)
+    if len(parts) != 4 or not all(part.isdigit() for part in parts):
+        return None
+    return ":".join(part.zfill(2) for part in parts)
+
+
+def _set_start_timecode(tl, timecode: Any) -> bool:
+    """Set a timeline's start timecode, verified by reading it back.
+
+    #113 Tier 2, and the same class as #111 finding 5 (`ensure_timeline`
+    discarding the `timelineFrameRate` set): callers compute ABSOLUTE record
+    frames from the requested start, then `AppendToTimeline` places clips at
+    those frames. If the timecode silently fails to take, every clip lands at
+    the wrong offset — a conform/delivery tool mis-timing its whole output while
+    reporting success. All three call sites wrapped this in
+    `try: ... except: pass` and discarded the return.
+
+    Verified by read-back rather than by the return value, per
+    `src/core/readback.py`. Comparison is normalized, so a drop-frame timeline
+    reporting `01:00:00;00` for a requested `01:00:00:00` is not a false
+    failure. Returns True when the start timecode reads back as requested.
+    Never raises.
+    """
+    if tl is None:
+        return False
+
+    reported = None
+    try:
+        reported = tl.SetStartTimecode(str(timecode))
+    except Exception:
+        logger.debug("SetStartTimecode raised", exc_info=True)
+
+    want = _normalize_timecode(timecode)
+    if want is None:
+        # Not timecode-shaped — nothing meaningful to compare against.
+        return bool(reported)
+
+    try:
+        got = _normalize_timecode(tl.GetStartTimecode())
+    except Exception:
+        logger.debug("GetStartTimecode read-back failed", exc_info=True)
+        return bool(reported)
+
+    if got is None:
+        return bool(reported)
+    return got == want
+
+
 def _clip_name(clip):
     try:
         return clip.GetName()

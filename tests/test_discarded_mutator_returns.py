@@ -112,26 +112,29 @@ def scan_discarded_mutator_returns() -> collections.Counter:
 
 # ── Accepted baseline ────────────────────────────────────────────────────────
 #
-# Discarded mutator returns still accepted: 41 keys, 52 call sites. Tracked for
+# Discarded mutator returns still accepted: 33 keys, 44 call sites. Tracked for
 # triage in #113 — this is NOT an assertion that they are all correct.
 #
 #   Tier 1 — DONE. All 18 SetCurrentTimeline-before-a-mutation sites on tool paths
-#            now go through `_set_current_timeline()` (read-back verified). The 6
+#            go through `_set_current_timeline()` (read-back verified). The 6
 #            remaining SetCurrentTimeline entries below are all in *_live_probe.py,
 #            which are diagnostic harnesses rather than tool paths.
-#   Tier 2 — OPEN. Destructive / user-visible mutations still reported as success:
-#            DeleteTimelines (orchestration x2), DeleteStills (color_grade),
-#            DeleteMarkerByCustomData (media_analysis x2), SetStartTimecode
-#            (timeline_edit, media_pool_ingest, granular/media_pool).
-#   Tier 3 — OPEN (decide + document as ignorable, don't necessarily fix): the
-#            Fusion SetInput/SetAttrs/SetPos/AddModifier cluster,
-#            SetCurrentFolder/SetSelectedClip/SetCurrentTimecode state restores,
-#            SetCurrentRenderMode, _run_inline_lua's SetData.
+#   Tier 2 — DONE. All 8 destructive / user-visible sites now report what actually
+#            happened: SetStartTimecode goes through `_set_start_timecode()`
+#            (read-back verified) and refuses the append when it does not take,
+#            because the record frames were computed from that start;
+#            DeleteTimelines, DeleteStills and DeleteMarkerByCustomData either
+#            fail or surface a warning instead of claiming work they did not do.
+#   Tier 3 — OPEN, and mostly a DECISION rather than a fix: the Fusion
+#            SetInput/SetAttrs/SetPos/AddModifier cluster (chatty setters where a
+#            per-call check would be noise), SetCurrentFolder/SetSelectedClip/
+#            SetCurrentTimecode state restores, SetCurrentRenderMode,
+#            _run_inline_lua's SetData, plus the *_live_probe.py entries, which are
+#            diagnostic harnesses rather than tool paths.
 #
 # Shrink this dict as #113 lands. Do not grow it without a reason in the diff.
 ACCEPTED_DISCARDED_RETURNS = {
     ("src/domains/audio_fairlight/utils/audio_fairlight_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
-    ("src/domains/color_grade/actions.py", "gallery_stills", "DeleteStills"): 1,
     ("src/domains/color_grade/utils/color_grade_live_probe.py", "run_probe", "AppendToTimeline"): 1,
     ("src/domains/color_grade/utils/color_grade_live_probe.py", "run_probe", "SetCurrentTimecode"): 1,
     ("src/domains/color_grade/utils/color_grade_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
@@ -150,24 +153,17 @@ ACCEPTED_DISCARDED_RETURNS = {
     ("src/domains/fusion_composition/actions.py", "fusion_comp", "SetPos"): 3,
     ("src/domains/fusion_composition/utils/fusion_composition_live_probe.py", "run_probe", "SetCurrentTimecode"): 1,
     ("src/domains/fusion_composition/utils/fusion_composition_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
-    ("src/domains/media_analysis/actions.py", "_apply_media_analysis_clip_markers", "DeleteMarkerByCustomData"): 1,
-    ("src/domains/media_analysis/actions.py", "_apply_sync_event_markers", "DeleteMarkerByCustomData"): 1,
     ("src/domains/media_pool_ingest/actions.py", "_restore_current_folder", "SetCurrentFolder"): 1,
-    ("src/domains/media_pool_ingest/actions.py", "_setup_multicam_timeline", "SetStartTimecode"): 1,
     ("src/domains/media_pool_ingest/actions.py", "media_pool_item", "SetCurrentFolder"): 1,
-    ("src/domains/orchestration/actions.py", "_orchestrate_gc_snapshots_live", "DeleteTimelines"): 1,
-    ("src/domains/orchestration/actions.py", "_orchestrate_restore_snapshot", "DeleteTimelines"): 1,
     ("src/domains/render_deliver/actions.py", "_build_proxies", "SetCurrentRenderMode"): 1,
     ("src/domains/render_deliver/utils/render_deliver_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
     ("src/domains/review_annotation/utils/review_annotation_live_probe.py", "run_probe", "SetCurrentTimecode"): 1,
     ("src/domains/review_annotation/utils/review_annotation_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
     ("src/domains/timeline_conform_interchange/utils/timeline_conform_live_probe.py", "run_probe", "AppendToTimeline"): 1,
     ("src/domains/timeline_conform_interchange/utils/timeline_conform_live_probe.py", "run_probe", "SetCurrentTimeline"): 1,
-    ("src/domains/timeline_edit/actions.py", "_timeline_create_variant_from_ranges", "SetStartTimecode"): 1,
     ("src/domains/timeline_edit/actions.py", "_timeline_render_in_place_impl", "SetCurrentRenderMode"): 1,
     ("src/domains/timeline_edit/actions.py", "_timeline_thumbnail_contact_sheet", "SetCurrentTimecode"): 1,
     ("src/domains/timeline_edit/utils/timeline_kernel_live_probe.py", "run_probe", "SetClipsLinked"): 1,
-    ("src/granular/media_pool.py", "setup_multicam_timeline", "SetStartTimecode"): 1,
     ("src/server.py", "_resolve_restore_state", "SetCurrentFolder"): 1,
     ("src/server.py", "_resolve_restore_state", "SetCurrentTimecode"): 1,
     ("src/server.py", "_resolve_restore_state", "SetSelectedClip"): 1,

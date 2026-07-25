@@ -233,6 +233,7 @@ from src.core.timeline_lookup import (
     _range_track_types,
     _safe_timeline_item_id,
     _set_current_timeline,
+    _set_start_timecode,
     _safe_timeline_item_name,
     _timecode_to_frame_id,
     _timeline_by_selector,
@@ -1854,11 +1855,15 @@ def _timeline_create_variant_from_ranges(proj, source_tl, p: Dict[str, Any]) -> 
     if not _set_current_timeline(proj, new_tl):
         return _err(f"Created timeline '{name}' but could not make it current; refusing to "
                     "build the variant, which would target the wrong timeline")
+    # #113 Tier 2: the record_frame values in append_infos are ABSOLUTE and were
+    # computed from the requested start above, so a silently-failed timecode
+    # lands every clip at the wrong offset. Same class as #111 finding 5.
     if p.get("start_timecode"):
-        try:
-            new_tl.SetStartTimecode(p["start_timecode"])
-        except Exception:
-            pass
+        if not _set_start_timecode(new_tl, p["start_timecode"]):
+            return _err(
+                f"Created timeline '{name}' but could not set its start timecode to "
+                f"{p['start_timecode']!r}; refusing to append, because the record frames "
+                "were computed from that start and every clip would land mis-timed")
     for track_type, needed in max_tracks.items():
         while int(new_tl.GetTrackCount(track_type) or 0) < needed:
             if not new_tl.AddTrack(track_type):

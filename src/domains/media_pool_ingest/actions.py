@@ -239,6 +239,7 @@ from src.core.timeline_lookup import (
     _safe_media_pool_item_name,
     _safe_timeline_item_id,
     _set_current_timeline,
+    _set_start_timecode,
     _safe_timeline_item_name,
     _timecode_to_frame_id,
     _timeline_by_selector,
@@ -640,11 +641,14 @@ def _setup_multicam_timeline(proj, mp, p: Dict[str, Any]):
     if not _set_current_timeline(proj, new_tl):
         return _err(f"Created multicam timeline '{plan['name']}' but could not make it "
                     "current; refusing to append, which would target the wrong timeline")
+    # #113 Tier 2: the multicam rows are appended at record frames derived from
+    # this start, so a silently-failed timecode mis-times the whole sync layout.
     if plan.get("start_timecode"):
-        try:
-            new_tl.SetStartTimecode(plan["start_timecode"])
-        except Exception:
-            pass
+        if not _set_start_timecode(new_tl, plan["start_timecode"]):
+            return _err(
+                f"Created multicam timeline '{plan['name']}' but could not set its start "
+                f"timecode to {plan['start_timecode']!r}; refusing to append, because the "
+                "angles would be laid out against the wrong start")
 
     audio_type = str(p.get("audio_type", p.get("audioType", "stereo")) or "stereo")
     video_tracks = _ensure_timeline_tracks(new_tl, "video", plan.get("max_video_track", 0))

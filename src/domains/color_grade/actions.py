@@ -1552,9 +1552,14 @@ def gallery_stills(action: str, params: Optional[Dict[str, Any]] = None) -> Dict
                 used_format = try_fmt
                 break
             time.sleep(0.3)
-        # Clean up still from gallery
+        # Clean up still from gallery.
+        # #113 Tier 2: the return was discarded, so a refused delete left the
+        # grabbed still sitting in the user's gallery while the response implied
+        # the temporary grab had been cleaned up. The export itself is unaffected,
+        # so this is reported alongside the files rather than failing the action.
+        stale_still = False
         if delete_after:
-            album.DeleteStills([still])
+            stale_still = not album.DeleteStills([still])
         if not export_ok:
             return _err("ExportStills failed — ensure the Gallery panel is open on the Color page (Workspace > Gallery)")
         # Wait for filesystem
@@ -1595,7 +1600,12 @@ def gallery_stills(action: str, params: Optional[Dict[str, Any]] = None) -> Dict
                     os.rmdir(folder_path)
             except OSError:
                 pass
-        return {"files": file_details, "format": used_format, "folder": folder_path, "cleaned_up": cleanup}
+        out = {"files": file_details, "format": used_format, "folder": folder_path,
+               "cleaned_up": cleanup}
+        if stale_still:
+            out["warning"] = ("the grabbed still could not be removed from the gallery and is "
+                              "still there; delete it by hand if it was meant to be temporary")
+        return out
     elif action == "delete_stills":
         stills = album.GetStills() or []
         to_delete = [stills[i] for i in p["still_indices"] if i < len(stills)]

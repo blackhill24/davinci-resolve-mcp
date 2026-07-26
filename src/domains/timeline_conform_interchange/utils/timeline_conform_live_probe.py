@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.domains.timeline_edit.utils.timeline_kernel_probe import ProbeRecorder, render_markdown_report, utc_timestamp
+from src.domains.timeline_edit.utils.timeline_kernel_probe import ProbeRecorder, record_tool_result, render_markdown_report, utc_timestamp
 
 
 def _require_success(label: str, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -26,30 +26,13 @@ def _require_success(label: str, result: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _record_tool_result(
-    recorder: ProbeRecorder,
-    category: str,
-    name: str,
-    result: Dict[str, Any],
-    *,
-    expected_status: Optional[str] = None,
-) -> None:
-    if not isinstance(result, dict):
-        recorder.record(category, name, "error", details={"reason": "non-dict result", "result": repr(result)})
-        return
-    if result.get("error"):
-        recorder.record(category, name, expected_status or "error", details={"reason": result.get("error")}, evidence=result)
-        return
-    if "success" in result and result["success"] is not True:
-        recorder.record(
-            category,
-            name,
-            expected_status or "partially_supported",
-            details={"reason": "success returned false"},
-            evidence=result,
-        )
-        return
-    recorder.record(category, name, expected_status or "supported", evidence=result)
+# #119 task 9: the eleven copies of this function (seven divergent variants)
+# collapsed into src/domains/timeline_edit/utils/timeline_kernel_probe.record_tool_result.
+# Kept as a thin module-local alias so this probe's call sites read unchanged;
+# the behaviour — including the expected_status fix from task 8 — lives in one place.
+def _record_tool_result(recorder: ProbeRecorder, category: str, name: str,
+                        result: Dict[str, Any], **kwargs: Any) -> None:
+    record_tool_result(recorder, category, name, result, **kwargs)
 
 
 FFMPEG_TIMEOUT_SECONDS = 120
@@ -211,18 +194,33 @@ def run_probe(server, output_dir: Path, keep_open: bool = False) -> Dict[str, An
                     "include_clip_properties": False,
                 },
             )
-            roundtrip_status = None
-            if result.get("success") and (result.get("comparison") or {}).get("difference_count", 0):
-                roundtrip_status = "partially_supported"
-            elif not result.get("success"):
-                roundtrip_status = "version_or_page_dependent"
-            _record_tool_result(
-                recorder,
-                "interchange.roundtrip",
-                f"roundtrip_{fmt}",
-                result,
-                expected_status=roundtrip_status,
-            )
+            # The call itself succeeds; whether the *capability* works is decided by
+            # comparing the re-imported timeline against the original, which the
+            # recorder cannot see. That is a downgrade with evidence, not a claim
+            # about the outcome — hence classify_as rather than expected_status.
+            # (#119 task 8: conflating the two is what let a real regression and a
+            # newly-shipped capability both record as "expected".)
+            difference_count = (result.get("comparison") or {}).get("difference_count", 0)
+            if result.get("success") and difference_count:
+                _record_tool_result(
+                    recorder,
+                    "interchange.roundtrip",
+                    f"roundtrip_{fmt}",
+                    result,
+                    classify_as="partially_supported",
+                    classification_reason=(
+                        f"round trip succeeded but the re-imported timeline differs "
+                        f"from the original in {difference_count} place(s)"
+                    ),
+                )
+            else:
+                _record_tool_result(
+                    recorder,
+                    "interchange.roundtrip",
+                    f"roundtrip_{fmt}",
+                    result,
+                    expected_status=None if result.get("success") else "version_or_page_dependent",
+                )
 
         # Exercise synthetic-only missing-media and relink surfaces through the
         # existing Media Pool safe wrappers. These operate on generated media.

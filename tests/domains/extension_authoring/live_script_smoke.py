@@ -82,7 +82,14 @@ SCRIPTS_TO_INSTALL = [
 
 
 def main():
+    # #119 §5: this harness used to have no return value, no assertions, and a
+    # blocking input() mid-run — every failure printed a WARN and the process still
+    # exited 0. Failures are now counted and become the exit code, and the pause is
+    # opt-in via --interactive so an automated runner never blocks on stdin.
+    interactive = "--interactive" in sys.argv
+
     installed = []
+    failures = []
     print(f"=== Installing {len(SCRIPTS_TO_INSTALL)} scripts ===")
     for name, kind, category, language, options in SCRIPTS_TO_INSTALL:
         opts = dict(options or {})
@@ -92,6 +99,7 @@ def main():
         })
         if 'error' in gen:
             print(f"  [GEN FAIL] {name}: {gen['error']}")
+            failures.append(f"template {name}: {gen['error']}")
             continue
         r = script_plugin('install', {
             'name': name, 'source': gen['source'],
@@ -99,10 +107,23 @@ def main():
         })
         if 'error' in r:
             print(f"  [INSTALL FAIL] {name}: {r['error']}")
+            failures.append(f"install {name}: {r['error']}")
             continue
         installed.append((name, category, language, r['path']))
+        if not os.path.exists(r['path']):
+            print(f"  [VERIFY FAIL] {name}: install reported {r['path']}, not on disk")
+            failures.append(f"verify {name}: {r['path']} missing")
+            continue
         size = os.path.getsize(r['path'])
+        if size == 0:
+            print(f"  [VERIFY FAIL] {name}: installed file is empty")
+            failures.append(f"verify {name}: empty file")
+            continue
         print(f"  [OK] {name:25s} → {category}/  ({language}, {size} bytes)")
+
+    if len(installed) != len(SCRIPTS_TO_INSTALL):
+        failures.append(
+            f"installed {len(installed)}/{len(SCRIPTS_TO_INSTALL)} scripts")
 
     print()
     print("=== Verify scripts are visible to Resolve ===")
@@ -136,13 +157,15 @@ def main():
         except Exception:
             pass
 
-    # Cleanup prompt
-    print()
-    print("Press ENTER once you've confirmed (or just want to clean up)...")
-    try:
-        input()
-    except (KeyboardInterrupt, EOFError):
+    # Cleanup pause — opt-in only. A bare input() here made an automated runner
+    # either hang forever or silently eat the work list off stdin.
+    if interactive:
         print()
+        print("Press ENTER once you've confirmed (or just want to clean up)...")
+        try:
+            input()
+        except (KeyboardInterrupt, EOFError):
+            print()
 
     print("=== Cleanup ===")
     for name, category, language, path in installed:
@@ -152,10 +175,23 @@ def main():
         if r.get('success'):
             print(f"  removed: {name}.{language}")
         else:
-            print(f"  WARN remove failed: {name}.{language} — {r}")
+            print(f"  FAIL remove: {name}.{language} — {r}")
+            failures.append(f"remove {name}.{language}: {r}")
+        if os.path.exists(path):
+            print(f"  FAIL remove: {path} still on disk")
+            failures.append(f"remove {name}.{language}: {path} still on disk")
+
+    print()
+    if failures:
+        print(f"=== FAIL: {len(failures)} problem(s) ===")
+        for line in failures:
+            print(f"  - {line}")
+        return 1
+    print(f"=== PASS: {len(installed)} scripts installed, verified and removed ===")
+    return 0
 
 
 if __name__ == "__main__":
     from tests.preflight import gate
     gate("project")
-    main()
+    raise SystemExit(main())

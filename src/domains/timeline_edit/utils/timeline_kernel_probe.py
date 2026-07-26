@@ -129,6 +129,222 @@ class ProbeRecorder:
         }
 
 
+# An error that means "the harness itself is broken" rather than "the API said no".
+# A probe step is allowed to *expect* a capability boundary; it is never allowed to
+# expect the connection to drop or the call to blow up. Matched case-insensitively
+# against the error message, so these never satisfy an expectation (#119 §3, whose
+# worked example is precisely "Resolve connection lost" recorded as `unsupported`).
+_INFRASTRUCTURE_ERROR_MARKERS = (
+    "could not connect",
+    "connection lost",
+    "not connected",
+    "auto-launch failed",
+    "is not running",
+    "resolve is busy",
+    "traceback (most recent call last)",
+    "unexpected exception",
+    "internal error",
+)
+
+
+def _is_infrastructure_error(message: Any) -> bool:
+    text = str(message).lower()
+    return any(marker in text for marker in _INFRASTRUCTURE_ERROR_MARKERS)
+
+
+def observe_result(result: Any) -> Dict[str, Any]:
+    """Classify a tool result into a probe status from the result ALONE.
+
+    Deliberately takes no expectation: what the call actually did is separate from
+    what the probe hoped it would do. `record_tool_result` composes the two.
+
+    Returns ``{"status": <PROBE_STATUSES member>, "reason": str|None}``, plus
+    ``"infrastructure": True`` when the failure is the harness/connection rather
+    than the API answering.
+    """
+    if not isinstance(result, dict):
+        return {"status": "error", "reason": "non-dict result",
+                "result": repr(result), "infrastructure": True}
+    error = result.get("error")
+    if error:
+        message = error.get("message", error) if isinstance(error, dict) else error
+        observation = {"status": "error", "reason": message}
+        if _is_infrastructure_error(message):
+            observation["infrastructure"] = True
+        return observation
+    if "success" in result and result["success"] is not True:
+        return {"status": "partially_supported", "reason": "success returned false"}
+    if result.get("verified") is False:
+        return {
+            "status": "partially_supported",
+            "reason": "readback contradiction — API reported success but verification failed",
+        }
+    rows = result.get("results")
+    if isinstance(rows, list) and any(
+        isinstance(row, dict) and row.get("success") is False for row in rows
+    ):
+        return {"status": "partially_supported", "reason": "a sub-result reported success=false"}
+    return {"status": "supported", "reason": None}
+
+
+def _expectation_confirmed(expected: str, observation: Dict[str, Any]) -> bool:
+    """Did the observation bear out the probe's claim?
+
+    Two rules, and deliberately no more:
+
+    * **The success axis is decisive.** A claim that the call would not fully work
+      is contradicted by it fully working, and vice versa. Which *flavour* of
+      not-working a boundary produces (`error` vs `partially_supported` vs
+      `version_or_page_dependent`) is not something an observation can adjudicate —
+      the probe author knows that, the recorder does not — so a soft-fail claim is
+      confirmed by any soft-fail observation.
+    * **Infrastructure failures confirm nothing.** A dropped connection, a crash or
+      a non-dict result is the harness breaking, not the API answering, so it can
+      never satisfy an expectation regardless of direction. That is the case §3
+      calls out by name.
+    """
+    if observation.get("infrastructure"):
+        return False
+    observed = observation["status"]
+    return (observed == "supported") == (expected == "supported")
+
+
+def record_tool_result(
+    recorder: "ProbeRecorder",
+    category: str,
+    name: str,
+    result: Any,
+    *,
+    expected_status: Optional[str] = None,
+    expected_boundary: bool = False,
+    partial_on_false: bool = True,
+    extra_boundary_check: Optional[Any] = None,
+    classify_as: Optional[str] = None,
+    classification_reason: Optional[str] = None,
+) -> Dict[str, Any]:
+    """The one result recorder for every live probe (#119 tasks 8 and 9).
+
+    Replaces eleven copy-pasted `_record_tool_result` definitions across seven
+    divergent variants — a fix applied to one never reached the other ten, which is
+    the direct mechanism behind "fixes never stick".
+
+    **`expected_status` asserts; it does not declare.** Six of the eleven copies
+    returned the caller's `expected_status` on *all* branches, including full
+    success, so the real outcome was discarded: a probe step declared
+    `expected_status="unsupported"` recorded `unsupported` whether the call errored,
+    half-failed, or worked perfectly. Two regressions were invisible as a result —
+    a genuine new fault in such a step, and a capability Blackmagic newly ships
+    (which would keep `docs/reference/api-limitations.md` ossified forever).
+
+    Here the observation is made first and compared against the expectation:
+
+    * expectation confirmed -> record the expected status, with the real
+      observation kept in ``details["observed"]`` as evidence it was checked;
+    * expectation contradicted **in either direction** -> record ``error``, so the
+      harness gate (``if report["counts"].get("error", 0): return 1``) fails the
+      run. An unexpected *success* is a failure of the expectation, not a pass.
+
+    Parameters
+    ----------
+    expected_status:
+        What the probe claims this call will do (usually ``"unsupported"``).
+        ``None`` means "no claim" — record whatever was observed.
+    expected_boundary:
+        Legacy spelling of ``expected_status="unsupported"``, kept because several
+        probes read better that way.
+    partial_on_false:
+        When a call returns ``success=False`` with no claim attached, record
+        ``partially_supported`` (default) or ``unsupported``.
+    extra_boundary_check:
+        Optional ``(result) -> str|None`` returning a reason when a nominally
+        successful result is really a boundary (media_pool's ``imported == 0``).
+    classify_as / classification_reason:
+        A probe-side **downgrade**, not a claim. Some steps inspect evidence the
+        recorder cannot see — the interchange round-trip calls succeed, and the
+        probe then compares the re-imported timeline against the original and finds
+        lost media links — so "the call worked" and "the capability works" genuinely
+        differ. Passing ``classify_as`` records the probe's classification and keeps
+        the raw observation in ``details["observed"]``.
+
+        It may only move a **supported** observation to a non-supported status: a
+        downgrade is a judgement the probe has evidence for, while an upgrade would
+        be laundering a failure into a pass, which is the §3 defect wearing a
+        different hat. Anything else raises. A reason is mandatory, so the report
+        always says why the raw outcome was not taken at face value.
+    """
+    if expected_boundary and expected_status is None:
+        expected_status = "unsupported"
+    if expected_status is not None and expected_status not in PROBE_STATUSES:
+        raise ValueError(f"unknown expected_status: {expected_status}")
+    if classify_as is not None:
+        if classify_as not in PROBE_STATUSES:
+            raise ValueError(f"unknown classify_as: {classify_as}")
+        if classify_as == "supported":
+            raise ValueError(
+                "classify_as may only downgrade; upgrading an outcome to 'supported' "
+                "would launder a failure into a pass")
+        if not classification_reason:
+            raise ValueError("classify_as requires a classification_reason")
+    elif classification_reason is not None:
+        raise ValueError("classification_reason given without classify_as")
+
+    observation = observe_result(result)
+    observed = observation["status"]
+    details: Dict[str, Any] = {}
+    if observation.get("reason"):
+        details["reason"] = observation["reason"]
+    if "result" in observation:
+        details["result"] = observation["result"]
+
+    if observed == "supported" and extra_boundary_check is not None:
+        extra_reason = extra_boundary_check(result)
+        if extra_reason:
+            observed = "unsupported"
+            observation = dict(observation, status=observed, reason=extra_reason)
+            details["reason"] = extra_reason
+
+    if classify_as is not None:
+        if observed != "supported":
+            raise ValueError(
+                f"classify_as is a downgrade lever, but the call already observed "
+                f"{observed!r}; drop it and let the observation stand")
+        details["observed"] = observed
+        details["classification_reason"] = classification_reason
+        observed = classify_as
+        observation = dict(observation, status=observed)
+
+    evidence = result if isinstance(result, dict) else None
+
+    # No claim attached — record what happened.
+    if expected_status is None:
+        if observed == "partially_supported" and not partial_on_false:
+            observed = "unsupported"
+        return recorder.record(category, name, observed, details=details or None,
+                               evidence=evidence)
+
+    details["expected_status"] = expected_status
+    details["observed"] = observed
+
+    if _expectation_confirmed(expected_status, observation):
+        return recorder.record(category, name, expected_status, details=details,
+                               evidence=evidence)
+
+    # Contradicted. Either the harness broke, the step regressed, or the capability
+    # started working — all three must reach the exit gate, none may be swallowed.
+    note = f"expectation not met: declared {expected_status!r}, observed {observed!r}"
+    if observation.get("infrastructure"):
+        note += (" — infrastructure failure (connection/crash), which can never "
+                 "satisfy an expectation")
+        details["infrastructure"] = True
+    elif observed == "supported":
+        note += (" — the capability now works; update the probe and "
+                 "docs/reference/api-limitations.md")
+    if observation.get("reason"):
+        details["observed_reason"] = observation["reason"]
+    details["reason"] = note
+    return recorder.record(category, name, "error", details=details, evidence=evidence)
+
+
 def render_markdown_report(report: Dict[str, Any]) -> str:
     metadata = report.get("metadata", {})
     counts = report.get("counts", {})

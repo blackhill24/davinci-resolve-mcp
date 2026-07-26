@@ -838,8 +838,14 @@ def main() -> int:
     if args.output_dir is not None:
         from src.domains.timeline_edit.utils.timeline_kernel_live_probe import run_probe
 
-        run_probe(server, args.output_dir, keep_open=args.keep_open)
-        return 0
+        # #119 §5: this used to `return 0` here, discarding BOTH results — so
+        # --output-dir, which is exactly what a release run passes to collect
+        # reports, turned the harness into an unconditional pass.
+        probe_report = run_probe(server, args.output_dir, keep_open=args.keep_open)
+        probe_errors = (probe_report or {}).get("counts", {}).get("error", 0)
+        if probe_errors:
+            print(f"FAIL: kernel probe recorded {probe_errors} error record(s)")
+        return 1 if (validation_result or probe_errors) else 0
 
     return validation_result
 

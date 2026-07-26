@@ -118,3 +118,13 @@ davinci-resolve-mcp-analysis/
 
 # KDE Dolphin per-folder view metadata (icon/sort), written by the file manager.
 .directory
+
+# Empty files created by a mistyped shell redirect — `ls > -l`, `foo > -rf` and
+# friends. A stray `-l` has been committed and removed three times now (#92, #104,
+# and again by a `git add -A` during #119), because it sorts to the top of
+# `git status` where it reads as a flag rather than a filename. Ignore the shapes
+# that only ever arise this way.
+/-l
+/-r
+/-rf
+/-la

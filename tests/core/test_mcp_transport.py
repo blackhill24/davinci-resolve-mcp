@@ -1,23 +1,22 @@
 """Tests for networked transport helpers + bearer-auth middleware."""
 import os
 import unittest
+from unittest import mock
 
 from src.core import mcp_transport as T
 
 
 class TokenTest(unittest.TestCase):
     def test_env_token_honored(self):
-        os.environ["DAVINCI_MCP_TOKEN"] = "fixed-tok"
-        try:
+        with mock.patch.dict(os.environ, {"DAVINCI_MCP_TOKEN": "fixed-tok"}):
             tok, gen = T.resolve_token()
-            self.assertEqual(tok, "fixed-tok")
-            self.assertFalse(gen)
-        finally:
-            del os.environ["DAVINCI_MCP_TOKEN"]
+        self.assertEqual(tok, "fixed-tok")
+        self.assertFalse(gen)
 
     def test_generated_token(self):
-        os.environ.pop("DAVINCI_MCP_TOKEN", None)
-        tok, gen = T.resolve_token()
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("DAVINCI_MCP_TOKEN", None)
+            tok, gen = T.resolve_token()
         self.assertTrue(gen)
         self.assertTrue(len(tok) >= 16)
 

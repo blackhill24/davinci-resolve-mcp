@@ -48,9 +48,10 @@ class RenderScratchTest(unittest.TestCase):
 
     def test_cleanup_keeps_dir_when_env_set(self):
         d = render_scratch.make_render_dir("drm-x-render-")
-        os.environ["DRM_KEEP_RENDERS"] = "1"
-        render_scratch.cleanup_render_dir(d)
+        with mock.patch.dict(os.environ, {"DRM_KEEP_RENDERS": "1"}):
+            render_scratch.cleanup_render_dir(d)
         self.assertTrue(os.path.isdir(d))
+        render_scratch.cleanup_render_dir(d)
 
     def test_no_videos_dir_falls_back_to_tempdir(self):
         with mock.patch.object(render_scratch, "_VIDEOS", "/nonexistent-videos-xyz"):

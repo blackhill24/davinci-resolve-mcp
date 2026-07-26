@@ -22,6 +22,22 @@ folder.
 
 ## Key files (only where the name doesn't say enough)
 
+- `bridge_double.py` (root) — the ONE faithful `PyRemoteObject` double. Use it for any
+  Resolve object, never `MagicMock`: `_has_method` tests `dir()`, and a mock's `dir()`
+  lists only the children a test touched, so every unconfigured method reads as absent
+  and the test silently exercises the capability-missing branch (#119). Pinned by
+  `core/test_bridge_double_fidelity.py`; hand-rolled doubles must not re-implement its
+  fabrication behaviour (`test_hand_rolled_double_audit.py`).
+- `conftest.py` (root) — repo root on `sys.path` + `bridge_double` / `resolve_double`
+  fixtures. Collection rules live in `pytest.ini` at the repo root, including the
+  `test_*.py` / `live_*.py` split that keeps Resolve-requiring harnesses out of an
+  offline run.
+- `test_live_harness_exit_codes.py` (root) — every `live_*.py` must be able to FAIL:
+  status propagated, a reachable nonzero exit, no computed-then-discarded result, no
+  unguarded `input()`. #119 §5 found two harnesses that always exited 0.
+- `test_mutation_gate.py` (root) + `scripts/mutation_gate.py` — mutation testing for the
+  bridge helpers, run on every publish. Re-introduces defects that have shipped and
+  fails if the suite stays green.
 - `_error_envelope_helpers.py` (root) — shared assertions for the action-dispatch error
   envelope, imported across many domains; reuse when asserting tool responses.
 - `preflight.py` (root) — pre-run Resolve status gate (closed / open_no_project /

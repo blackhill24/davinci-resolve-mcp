@@ -84,7 +84,9 @@ class TimelineBrainDB(unittest.TestCase):
 
     def test_transaction_rolls_back_on_exception(self) -> None:
         conn = timeline_brain_db.connect(self.project_root)
-        try:
+        # assertRaises: a swallowed RuntimeError would still commit, and a bare
+        # `except: pass` could not tell the difference (#121 task 3, shape 3).
+        with self.assertRaises(RuntimeError):
             with timeline_brain_db.transaction(self.project_root) as txn:
                 txn.execute(
                     "INSERT INTO timeline_versions(timeline_name, version, created_at, archived_timeline_name, archived_bin_path) "
@@ -92,8 +94,6 @@ class TimelineBrainDB(unittest.TestCase):
                     ("Rollback", 1, "2026-05-26T00:00:00Z", "X", "Master/Archive"),
                 )
                 raise RuntimeError("simulated")
-        except RuntimeError:
-            pass
         row = conn.execute(
             "SELECT 1 FROM timeline_versions WHERE timeline_name='Rollback'"
         ).fetchone()

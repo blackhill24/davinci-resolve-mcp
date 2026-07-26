@@ -40,11 +40,12 @@ class PageLockTest(unittest.TestCase):
         self.assertEqual(order, ["main", "worker"])
 
     def test_depth_resets_on_exception(self):
-        try:
+        # assertRaises, not try/except: a bare `except ValueError: pass` also
+        # passes when the context manager SWALLOWS the exception, which is the
+        # bug this test is nominally about (#121 task 3, shape 3).
+        with self.assertRaises(ValueError):
             with plock():
                 raise ValueError("boom")
-        except ValueError:
-            pass
         self.assertEqual(page_lock._depth, 0)
 
 

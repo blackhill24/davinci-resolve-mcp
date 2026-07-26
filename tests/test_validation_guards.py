@@ -4,6 +4,8 @@
 - set_mark_in_out (clip + timeline): reject mark_in > mark_out.
 """
 import unittest
+
+from tests._error_envelope_helpers import assert_error_mentions
 from unittest import mock
 
 import src.server as s
@@ -52,7 +54,7 @@ class ExportStillGuardTest(unittest.TestCase):
 
     def test_missing_path_rejected(self):
         out, _ = self._call({})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'path', 'required')
 
     def test_nonexistent_dir_rejected(self):
         out, proj = self._call({"path": "/no/such/dir/frame.png"})

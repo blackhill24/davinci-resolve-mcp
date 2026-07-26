@@ -12,6 +12,8 @@ import shutil
 import tempfile
 import unittest
 
+from tests._error_envelope_helpers import assert_error_mentions
+
 import src.server as s
 import src.domains.auto_edit.actions as _dom_auto_edit
 from src.domains.auto_edit.utils import auto_edit, cut_ir, edit_engine
@@ -168,7 +170,7 @@ class ApproveCutActionTest(unittest.TestCase):
 
     def test_unknown_plan_errors(self):
         out = self._approve("nope")
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'cut list not found')
 
     def test_build_timeline_requires_approval_before_token(self):
         # The approval gate fires BEFORE any confirm-token ceremony — an

@@ -1,5 +1,7 @@
 import unittest
 
+from tests._error_envelope_helpers import assert_error_mentions
+
 from src.server import (
     _extension_capabilities,
     _extension_template_matrix,
@@ -39,7 +41,7 @@ class ExtensionAuthoringProbeTest(unittest.TestCase):
             "dry_run": True,
         })
 
-        self.assertIn("error", result)
+        assert_error_mentions(self, result, '_mcp_')
 
     def test_safe_install_dry_run_generates_marked_fuse(self):
         result = _safe_install_extension({

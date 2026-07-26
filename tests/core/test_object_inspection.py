@@ -5,6 +5,8 @@ __doc__-based docstring read, and back-compat of the thin wrappers.
 """
 import unittest
 
+from tests._error_envelope_helpers import assert_error_mentions
+
 import src.core.object_inspection as oi
 
 
@@ -94,7 +96,7 @@ class GetObjectMembersTest(unittest.TestCase):
         self.assertEqual(calls["n"], 0)
 
     def test_none_returns_error(self):
-        self.assertIn("error", oi.get_object_members(None))
+        assert_error_mentions(self, oi.get_object_members(None), "None")
 
 
 class BackCompatWrapperTest(unittest.TestCase):
@@ -109,8 +111,8 @@ class BackCompatWrapperTest(unittest.TestCase):
         self.assertNotIn("GetName", props)
 
     def test_wrappers_preserve_none_error(self):
-        self.assertIn("error", oi.get_object_methods(None))
-        self.assertIn("error", oi.get_object_properties(None))
+        assert_error_mentions(self, oi.get_object_methods(None), "None")
+        assert_error_mentions(self, oi.get_object_properties(None), "None")
 
 
 class InspectObjectTest(unittest.TestCase):
@@ -122,7 +124,7 @@ class InspectObjectTest(unittest.TestCase):
         self.assertIn("str", out)
 
     def test_none(self):
-        self.assertIn("error", oi.inspect_object(None))
+        assert_error_mentions(self, oi.inspect_object(None), "None")
 
 
 class PrintObjectHelpTest(unittest.TestCase):

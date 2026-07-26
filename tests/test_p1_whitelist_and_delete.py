@@ -1,5 +1,7 @@
 """Tests for deep-QC P1: settings/options whitelist + DeleteProject routing."""
 import unittest
+
+from tests._error_envelope_helpers import assert_error_mentions
 from unittest import mock
 
 import src.server as s
@@ -60,7 +62,7 @@ class RenderSettingsWhitelistTest(unittest.TestCase):
         fake_proj = mock.Mock()
         with mock.patch.object(_dom_render_deliver, "_check", return_value=(mock.Mock(), fake_proj, None)):
             out = s.render("set_settings", {})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'set_settings requires')
 
 
 class DeleteProjectRoutingTest(unittest.TestCase):
@@ -90,7 +92,7 @@ class DeleteProjectRoutingTest(unittest.TestCase):
         with mock.patch.object(_dom_project_lifecycle, "get_resolve", return_value=fake_resolve), \
              mock.patch("src.domains.project_lifecycle.utils.project_cleanup.delete_project_safely") as safe:
             out = s.project_manager("delete", {"name": "Disposable"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, '_mcp_')
         safe.assert_not_called()
 
     def test_raw_delete_requires_name(self):

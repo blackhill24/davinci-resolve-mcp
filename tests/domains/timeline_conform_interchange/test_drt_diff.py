@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+
+from tests._error_envelope_helpers import assert_error_mentions
 import zipfile
 
 from src.domains.timeline_conform_interchange.utils import drt_diff
@@ -174,7 +176,7 @@ class DiffContainersTest(unittest.TestCase):
         with open(junk, "w") as fh:
             fh.write("i am not a zip")
         out = drt_diff.diff_containers(junk, junk)
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'not a readable container archive')
 
 
 if __name__ == "__main__":

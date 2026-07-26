@@ -21,7 +21,11 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import sys
+import tempfile
+import textwrap
 import unittest
+from unittest import mock
 
 from src.core.destructive_hook import DESTRUCTIVE_ACTIONS_BY_TOOL
 
@@ -253,6 +257,94 @@ class CatastrophicSinkCoverageTest(unittest.TestCase):
             ("project_manager", "delete"), s._TOKEN_GATED_DESTRUCTIVE_ACTIONS,
             "project_manager delete must require a confirm token — it destroys a project "
             "irrecoverably (#110 finding 2).",
+        )
+
+
+class DestructiveGuardsAreNotVacuousTest(unittest.TestCase):
+    """Both guards above are fed their own drift (#121 task 2).
+
+    These two are the last line between a mis-registered action and an
+    unarchived, unconfirmed delete of the user's media — #110 findings 2 and 3
+    shipped precisely because nothing here fired. A guard in that position that
+    silently stopped detecting would be worse than not having it, so the drift
+    is reintroduced here and the failure asserted.
+    """
+
+    def test_registry_soundness_guard_detects_a_phantom_action(self):
+        # The EX2 shape: a registry entry naming something the tool never dispatches.
+        drifted = dict(DESTRUCTIVE_ACTIONS_BY_TOOL)
+        drifted["media_pool"] = tuple(drifted["media_pool"]) + ("delete_everything_now",)
+        with mock.patch.dict(DESTRUCTIVE_ACTIONS_BY_TOOL, drifted, clear=True):
+            with self.assertRaises(AssertionError) as caught:
+                RegistryDriftTest("test_registry_actions_are_real_handlers").debug()
+        self.assertIn("delete_everything_now", str(caught.exception))
+
+    def test_registry_soundness_guard_detects_an_undecorated_tool(self):
+        drifted = dict(DESTRUCTIVE_ACTIONS_BY_TOOL)
+        drifted["not_a_tool_at_all"] = ("delete_clips",)
+        with mock.patch.dict(DESTRUCTIVE_ACTIONS_BY_TOOL, drifted, clear=True):
+            with self.assertRaises(AssertionError) as caught:
+                RegistryDriftTest("test_registry_actions_are_real_handlers").debug()
+        self.assertIn("not_a_tool_at_all", str(caught.exception))
+
+    def test_token_gate_guard_detects_a_gate_that_can_never_fire(self):
+        drifted = list(s._TOKEN_GATED_DESTRUCTIVE_ACTIONS) + [("media_pool", "no_such_action")]
+        with mock.patch.object(s, "_TOKEN_GATED_DESTRUCTIVE_ACTIONS", drifted):
+            with self.assertRaises(AssertionError) as caught:
+                RegistryDriftTest("test_token_gated_actions_are_real_handlers").debug()
+        self.assertIn("no_such_action", str(caught.exception))
+
+    def _sink_tree(self, body: str):
+        """A temp repo root holding one src/ file, for the sink scanner."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = pathlib.Path(tmp.name)
+        (root / "src").mkdir()
+        (root / "src" / "synthetic_sink.py").write_text(textwrap.dedent(body), encoding="utf-8")
+        return root
+
+    def test_sink_guard_detects_a_new_unreviewed_call_site(self):
+        # #110 finding 3 exactly: a fresh DeleteAllRenderJobs() somewhere new.
+        root = self._sink_tree(
+            """
+            def some_new_helper(project):
+                project.DeleteAllRenderJobs()
+            """
+        )
+        with mock.patch.object(sys.modules[__name__], "ROOT", root):
+            with self.assertRaises(AssertionError) as caught:
+                CatastrophicSinkCoverageTest("test_no_unreviewed_catastrophic_sink_call_sites").debug()
+        message = str(caught.exception)
+        self.assertIn("src/synthetic_sink.py::some_new_helper", message)
+        self.assertIn("DeleteAllRenderJobs", message)
+
+    def test_sink_guard_ignores_timeline_scoped_deletes(self):
+        # tl.DeleteClips() is archived by version-on-mutate, so it must NOT trip
+        # the guard. A guard that flagged it would be retuned into uselessness.
+        root = self._sink_tree(
+            """
+            def trim(tl, items):
+                tl.DeleteClips(items)
+            """
+        )
+        with mock.patch.object(sys.modules[__name__], "ROOT", root):
+            with mock.patch.dict(CATASTROPHIC_SINK_ALLOWLIST, {}, clear=True):
+                CatastrophicSinkCoverageTest(
+                    "test_no_unreviewed_catastrophic_sink_call_sites"
+                ).debug()
+
+    def test_sink_guard_detects_a_stale_allowlist_entry(self):
+        root = self._sink_tree("def nothing():\n    return None\n")
+        with mock.patch.object(sys.modules[__name__], "ROOT", root):
+            with self.assertRaises(AssertionError) as caught:
+                CatastrophicSinkCoverageTest("test_allowlist_has_no_stale_entries").debug()
+        self.assertIn("no longer call any sink", str(caught.exception))
+
+    def test_the_real_sink_scan_is_not_empty(self):
+        sites = _sink_call_sites()
+        self.assertGreaterEqual(
+            len(sites), len(CATASTROPHIC_SINK_ALLOWLIST),
+            "sink scanner found fewer sites than the allowlist has entries — scan broken?",
         )
 
 

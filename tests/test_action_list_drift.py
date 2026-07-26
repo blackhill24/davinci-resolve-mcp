@@ -15,7 +15,11 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import sys
+import tempfile
+import textwrap
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SERVER = ROOT / "src" / "server.py"
@@ -188,6 +192,81 @@ class ActionListDriftTest(unittest.TestCase):
                                 f"unreachable — not in the enclosing membership set"
                             )
         self.assertEqual(problems, [], "\n".join(problems))
+
+
+class ActionListDriftGuardIsNotVacuousTest(unittest.TestCase):
+    """The guard above is itself fed the drift it claims to catch (#121 task 2).
+
+    A static guard that quietly stopped matching reads as coverage while
+    providing none — #110 found two guards that had been `ImportError`ing out of
+    every CI run for a whole restructure. So each direction of the check is
+    exercised against a synthetic source file appended to the real scan set.
+
+    Appended rather than substituted on purpose: the guard's own
+    ``assertGreater(len(checked_names), 10)`` and ``assertIn("timeline", ...)``
+    sanity assertions must still hold, otherwise a self-check could "pass"
+    because the guard blew up on an empty scan set instead of on the drift.
+    """
+
+    def _with_synthetic(self, source: str, method: str):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "synthetic_drift_module.py"
+            path.write_text(textwrap.dedent(source), encoding="utf-8")
+            with mock.patch.object(
+                sys.modules[__name__], "ALL_TOOL_SOURCE_FILES", ALL_TOOL_SOURCE_FILES + [path]
+            ), mock.patch.object(
+                sys.modules[__name__], "ALL_CONST_SOURCE_FILES", ALL_CONST_SOURCE_FILES + [path]
+            ):
+                with self.assertRaises(AssertionError) as caught:
+                    ActionListDriftTest(method).debug()
+            return str(caught.exception)
+
+    def test_detects_an_implemented_action_missing_from_the_list(self):
+        message = self._with_synthetic(
+            '''
+            def synthetic_tool(action, params=None):
+                if action == "alpha":
+                    return 1
+                if action == "beta":
+                    return 2
+                return _unknown(action, ["alpha"])
+            ''',
+            "test_unknown_action_lists_match_dispatch",
+        )
+        self.assertIn("synthetic_tool: implemented but not listed: ['beta']", message)
+
+    def test_detects_a_listed_action_that_is_not_implemented(self):
+        message = self._with_synthetic(
+            '''
+            def synthetic_tool(action, params=None):
+                if action == "alpha":
+                    return 1
+                return _unknown(action, ["alpha", "phantom"])
+            ''',
+            "test_unknown_action_lists_match_dispatch",
+        )
+        self.assertIn("synthetic_tool: listed but not implemented: ['phantom']", message)
+
+    def test_detects_an_unreachable_action_inside_a_membership_block(self):
+        message = self._with_synthetic(
+            '''
+            def synthetic_tool(action, params=None):
+                if action in {"alpha", "beta"}:
+                    if action == "gamma":
+                        return 3
+                    return 1
+                return _unknown(action, ["alpha", "beta"])
+            ''',
+            "test_no_unreachable_actions_inside_membership_blocks",
+        )
+        self.assertIn("action == 'gamma'", message)
+        self.assertIn("unreachable", message)
+
+    def test_the_real_scan_set_is_not_empty(self):
+        # A glob that stopped matching would make every assertion above vacuous.
+        self.assertGreater(len(DOMAIN_ACTION_FILES), 5)
+        self.assertGreater(len(CORE_FILES), 5)
+        self.assertTrue(SERVER.is_file())
 
 
 if __name__ == "__main__":

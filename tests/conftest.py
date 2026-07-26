@@ -31,6 +31,19 @@ from tests.bridge_double import (  # noqa: E402
 )
 
 
+# Not leaks:
+#   PYTEST_CURRENT_TEST — pytest rewrites it around every phase of every test.
+#   RESOLVE_SCRIPT_API / RESOLVE_SCRIPT_LIB — src/resolve_mcp_server.py sets these
+#     at import time; they are how the DaVinciResolveScript module is located at
+#     all. Whichever test imports the entry point first "leaks" them, and the
+#     value is the same one every subsequent import would compute.
+_ENV_LEAK_EXEMPT = frozenset({
+    "PYTEST_CURRENT_TEST",
+    "RESOLVE_SCRIPT_API",
+    "RESOLVE_SCRIPT_LIB",
+})
+
+
 @pytest.fixture(autouse=True)
 def _no_env_leak():
     """Fail the test that leaves ``os.environ`` modified (#121 task 4).
@@ -44,10 +57,8 @@ def _no_env_leak():
     ``mock.patch.dict(os.environ, ...)`` / ``monkeypatch.setenv``, both of which
     unwind before this fixture's teardown runs.
     """
-    # pytest itself rewrites PYTEST_CURRENT_TEST around every phase of every test;
-    # it is bookkeeping, not a leak.
     def snapshot():
-        return {k: v for k, v in os.environ.items() if k != "PYTEST_CURRENT_TEST"}
+        return {k: v for k, v in os.environ.items() if k not in _ENV_LEAK_EXEMPT}
 
     before = snapshot()
     yield

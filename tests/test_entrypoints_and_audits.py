@@ -71,5 +71,48 @@ class AuditScriptsTest(unittest.TestCase):
             audit_mod.BASELINE_HIGH_SIGNAL_GAPS = original
 
 
+class ApiParityAuditIsNotVacuousTest(unittest.TestCase):
+    """`audit_api_parity.py` exits 0 — prove that means something (#121 task 2).
+
+    `test_api_parity_audit_passes` only asserts the exit code. An audit whose
+    doc parser stopped matching, or whose source scan started returning nothing,
+    would report "PASS — all checks clean" with zero methods compared. The
+    readwrite audit already has this treatment (see
+    `test_readwrite_symmetry_audit_fails_on_new_gap`); this is its missing half.
+    """
+
+    def setUp(self):
+        import scripts.audit_api_parity as audit_mod
+
+        self.audit = audit_mod
+        self.docs = audit_mod.parse_documented_methods(audit_mod.DOCS_PATH)
+
+    def test_the_documented_surface_is_actually_parsed(self):
+        total = sum(len(v) for v in self.docs.values())
+        self.assertGreater(len(self.docs), 5, "API doc parser found almost no classes")
+        self.assertGreater(total, 200, f"API doc parser found only {total} methods")
+
+    def test_the_missing_method_detector_fires_on_an_empty_source_scan(self):
+        missing = self.audit.find_methods_missing_from_source(self.docs, "")
+        self.assertTrue(
+            missing,
+            "every documented method is 'present' in an EMPTY source text — the "
+            "detector matches nothing, so its clean result is meaningless",
+        )
+
+    def test_the_audit_reports_failure_when_the_source_scan_comes_back_empty(self):
+        # End-to-end: main() must return 1, not 0, when nothing implements the API.
+        import contextlib
+        import io
+        import unittest.mock as mock
+
+        buf = io.StringIO()
+        with mock.patch.object(self.audit, "collect_source_text", return_value=""):
+            with contextlib.redirect_stdout(buf):
+                rc = self.audit.main()
+        self.assertEqual(rc, 1, f"audit passed with an empty source scan:\n{buf.getvalue()[-2000:]}")
+        self.assertIn("MISSING", buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

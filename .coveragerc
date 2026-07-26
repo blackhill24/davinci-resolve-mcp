@@ -1,0 +1,34 @@
+# Coverage configuration (#121 task 1).
+#
+# The repo had no coverage config, so `coverage run --source=src` reported a
+# number that mixed two unrelated things: code the offline suite is supposed to
+# exercise, and code that by construction only ever runs against a live DaVinci
+# Resolve. The second kind can never rise under pytest, so leaving it in makes
+# the total drift downward for a reason nobody can act on.
+#
+# What is omitted and why:
+#
+#   *_live_probe.py  — executed by the `tests/live_*.py` harnesses against a
+#                      running Resolve, never collected by pytest (see
+#                      pytest.ini's `python_files = test_*.py`). Their coverage
+#                      under an offline run is noise, not a gap.
+#
+# Nothing else is omitted. In particular the dashboard and the domain action
+# modules stay in, because their low numbers are real gaps (#121 task 1).
+
+# `branch` is deliberately off: #121's baseline table is statement coverage, and
+# switching the metric in the same change that fixes the omit list would make the
+# before/after numbers incomparable.
+
+[run]
+source = src
+omit =
+    */*_live_probe.py
+
+[report]
+precision = 0
+show_missing = False
+exclude_also =
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    if __name__ == .__main__.:

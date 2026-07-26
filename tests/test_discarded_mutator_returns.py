@@ -42,7 +42,11 @@ from __future__ import annotations
 import ast
 import collections
 import pathlib
+import sys
+import tempfile
+import textwrap
 import unittest
+from unittest import mock
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = REPO_ROOT / "src"
@@ -306,6 +310,85 @@ class DiscardedMutatorReturnsTest(unittest.TestCase):
         for name in ("Settings", "Adder", "Deleted", "settings", "GetName", "Set", ""):
             with self.subTest(name=name):
                 self.assertFalse(_is_mutator(name))
+
+
+class RatchetIsNotVacuousTest(unittest.TestCase):
+    """The baseline comparison itself is exercised (#121 task 2).
+
+    The tests above check the *scanner* (it finds something; it excludes cleanup
+    blocks; the name matcher is right). None of them checks the thing that
+    actually gates a pull request: that a NEW site over the accepted count makes
+    the assertion fail, and that a FIXED site makes the stale check fail. Both
+    directions are driven here against a synthetic src/ tree.
+    """
+
+    def _scan_tree(self, body: str):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = pathlib.Path(tmp.name)
+        (root / "src").mkdir()
+        (root / "src" / "synthetic_mutators.py").write_text(textwrap.dedent(body), encoding="utf-8")
+        module = sys.modules[__name__]
+        return mock.patch.multiple(module, SRC=root / "src", REPO_ROOT=root)
+
+    def _run(self, method):
+        # setUpClass caches the scan, so drive the scan+assert by hand.
+        case = DiscardedMutatorReturnsTest(method)
+        case.found = scan_discarded_mutator_returns()
+        with self.assertRaises(AssertionError) as caught:
+            getattr(case, method)()
+        return str(caught.exception)
+
+    def test_a_new_discarded_return_fails_the_ratchet(self):
+        source = """
+        def apply_edit(tl, item):
+            tl.SetCurrentTimecode("01:00:00:00")
+            return True
+        """
+        with self._scan_tree(source), mock.patch.dict(ACCEPTED_DISCARDED_RETURNS, {}, clear=True):
+            message = self._run("test_no_new_discarded_mutator_returns")
+        self.assertIn("src/synthetic_mutators.py::apply_edit()", message)
+        self.assertIn("SetCurrentTimecode", message)
+
+    def test_a_second_call_at_the_same_site_fails_even_when_one_is_accepted(self):
+        # The count matters, not just the key: two dropped returns where one was
+        # reviewed is still one unreviewed drop.
+        source = """
+        def apply_edit(tl, item):
+            tl.SetCurrentTimecode("01:00:00:00")
+            tl.SetCurrentTimecode("02:00:00:00")
+        """
+        accepted = {("src/synthetic_mutators.py", "apply_edit", "SetCurrentTimecode"): 1}
+        with self._scan_tree(source), mock.patch.dict(
+            ACCEPTED_DISCARDED_RETURNS, accepted, clear=True
+        ):
+            message = self._run("test_no_new_discarded_mutator_returns")
+        self.assertIn("SetCurrentTimecode() x1", message)
+
+    def test_a_fixed_site_fails_the_stale_check(self):
+        source = """
+        def apply_edit(tl, item):
+            ok = tl.SetCurrentTimecode("01:00:00:00")
+            return ok
+        """
+        accepted = {("src/synthetic_mutators.py", "apply_edit", "SetCurrentTimecode"): 1}
+        with self._scan_tree(source), mock.patch.dict(
+            ACCEPTED_DISCARDED_RETURNS, accepted, clear=True
+        ):
+            message = self._run("test_baseline_has_no_stale_entries")
+        self.assertIn("now 0", message)
+
+    def test_a_checked_return_is_not_reported(self):
+        # The converse — assigning the return must clear the finding entirely,
+        # or the guard would fire on correct code and get tuned into silence.
+        source = """
+        def apply_edit(tl, item):
+            if not tl.SetCurrentTimecode("01:00:00:00"):
+                return False
+            return True
+        """
+        with self._scan_tree(source):
+            self.assertEqual(scan_discarded_mutator_returns(), collections.Counter())
 
 
 if __name__ == "__main__":

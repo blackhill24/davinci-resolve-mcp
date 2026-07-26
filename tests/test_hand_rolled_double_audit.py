@@ -28,7 +28,11 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import sys
+import tempfile
+import textwrap
 import unittest
+from unittest import mock
 
 TESTS = pathlib.Path(__file__).resolve().parent
 REPO_ROOT = TESTS.parent
@@ -158,6 +162,76 @@ class HandRolledDoubleAuditTest(unittest.TestCase):
         self.assertGreaterEqual(
             len(users), 8,
             f"only {len(users)} test modules use the shared double: {users}")
+
+
+class FabricationDetectorIsNotVacuousTest(unittest.TestCase):
+    """The fabrication check is fed a fabricating double (#121 task 2).
+
+    `test_no_hand_rolled_double_reimplements_bridge_fabrication` asserts an
+    empty offender list. That is indistinguishable from an AST walk that stopped
+    recognising class definitions — and the whole point of #119 was that a
+    second, unpinned copy of the bridge model is how the bug class spreads. So
+    the offender is recreated in a temp tree and the failure asserted.
+    """
+
+    def _tests_tree(self, files: dict):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = pathlib.Path(tmp.name)
+        for name, body in files.items():
+            (root / name).write_text(textwrap.dedent(body), encoding="utf-8")
+        return mock.patch.multiple(
+            sys.modules[__name__],
+            TESTS=root,
+            REPO_ROOT=root.parent,
+            _SHARED_DOUBLE=root / "bridge_double.py",
+        )
+
+    def test_detects_a_double_that_fabricates_attributes(self):
+        files = {
+            "test_synthetic_double.py": """
+            class FakeTimeline:
+                def __getattr__(self, name):
+                    return None
+            """
+        }
+        with self._tests_tree(files):
+            with self.assertRaises(AssertionError) as caught:
+                HandRolledDoubleAuditTest(
+                    "test_no_hand_rolled_double_reimplements_bridge_fabrication"
+                ).debug()
+        message = str(caught.exception)
+        self.assertIn("FakeTimeline defines __getattr__", message)
+
+    def test_detects_a_double_that_hides_names_from_dir(self):
+        files = {
+            "test_synthetic_double.py": """
+            class StubResolve:
+                def __dir__(self):
+                    return ["GetProjectManager"]
+            """
+        }
+        with self._tests_tree(files):
+            with self.assertRaises(AssertionError) as caught:
+                HandRolledDoubleAuditTest(
+                    "test_no_hand_rolled_double_reimplements_bridge_fabrication"
+                ).debug()
+        self.assertIn("StubResolve defines __dir__", str(caught.exception))
+
+    def test_the_shared_double_is_exempt(self):
+        # bridge_double.py is the one place allowed to model fabrication; if the
+        # exemption broke, the guard would fail on the very file it points people at.
+        files = {
+            "bridge_double.py": """
+            class FakeBridgeObject:
+                def __getattr__(self, name):
+                    return None
+            """
+        }
+        with self._tests_tree(files):
+            HandRolledDoubleAuditTest(
+                "test_no_hand_rolled_double_reimplements_bridge_fabrication"
+            ).debug()
 
 
 if __name__ == "__main__":

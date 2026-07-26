@@ -31,16 +31,9 @@ def _require_success(label: str, result: Dict[str, Any]) -> Dict[str, Any]:
 # collapsed into src/domains/timeline_edit/utils/timeline_kernel_probe.record_tool_result.
 # Kept as a thin module-local alias so this probe's call sites read unchanged;
 # the behaviour — including the expected_status fix from task 8 — lives in one place.
-def _record_tool_result(
-    recorder: ProbeRecorder,
-    category: str,
-    name: str,
-    result: Dict[str, Any],
-    *,
-    expected_status: Optional[str] = None,
-) -> None:
-    record_tool_result(recorder, category, name, result,
-                       expected_status=expected_status)
+def _record_tool_result(recorder: ProbeRecorder, category: str, name: str,
+                        result: Dict[str, Any], **kwargs: Any) -> None:
+    record_tool_result(recorder, category, name, result, **kwargs)
 
 
 def _confirm_and_retry(call, action: str, params: Dict[str, Any]) -> Dict[str, Any]:

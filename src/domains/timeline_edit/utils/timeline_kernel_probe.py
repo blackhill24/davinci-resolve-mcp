@@ -219,6 +219,8 @@ def record_tool_result(
     expected_boundary: bool = False,
     partial_on_false: bool = True,
     extra_boundary_check: Optional[Any] = None,
+    classify_as: Optional[str] = None,
+    classification_reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """The one result recorder for every live probe (#119 tasks 8 and 9).
 
@@ -256,11 +258,35 @@ def record_tool_result(
     extra_boundary_check:
         Optional ``(result) -> str|None`` returning a reason when a nominally
         successful result is really a boundary (media_pool's ``imported == 0``).
+    classify_as / classification_reason:
+        A probe-side **downgrade**, not a claim. Some steps inspect evidence the
+        recorder cannot see — the interchange round-trip calls succeed, and the
+        probe then compares the re-imported timeline against the original and finds
+        lost media links — so "the call worked" and "the capability works" genuinely
+        differ. Passing ``classify_as`` records the probe's classification and keeps
+        the raw observation in ``details["observed"]``.
+
+        It may only move a **supported** observation to a non-supported status: a
+        downgrade is a judgement the probe has evidence for, while an upgrade would
+        be laundering a failure into a pass, which is the §3 defect wearing a
+        different hat. Anything else raises. A reason is mandatory, so the report
+        always says why the raw outcome was not taken at face value.
     """
     if expected_boundary and expected_status is None:
         expected_status = "unsupported"
     if expected_status is not None and expected_status not in PROBE_STATUSES:
         raise ValueError(f"unknown expected_status: {expected_status}")
+    if classify_as is not None:
+        if classify_as not in PROBE_STATUSES:
+            raise ValueError(f"unknown classify_as: {classify_as}")
+        if classify_as == "supported":
+            raise ValueError(
+                "classify_as may only downgrade; upgrading an outcome to 'supported' "
+                "would launder a failure into a pass")
+        if not classification_reason:
+            raise ValueError("classify_as requires a classification_reason")
+    elif classification_reason is not None:
+        raise ValueError("classification_reason given without classify_as")
 
     observation = observe_result(result)
     observed = observation["status"]
@@ -276,6 +302,16 @@ def record_tool_result(
             observed = "unsupported"
             observation = dict(observation, status=observed, reason=extra_reason)
             details["reason"] = extra_reason
+
+    if classify_as is not None:
+        if observed != "supported":
+            raise ValueError(
+                f"classify_as is a downgrade lever, but the call already observed "
+                f"{observed!r}; drop it and let the observation stand")
+        details["observed"] = observed
+        details["classification_reason"] = classification_reason
+        observed = classify_as
+        observation = dict(observation, status=observed)
 
     evidence = result if isinstance(result, dict) else None
 

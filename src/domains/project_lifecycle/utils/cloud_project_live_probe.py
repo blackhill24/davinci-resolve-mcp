@@ -50,8 +50,9 @@ def _skip_report(reason: str) -> Dict[str, Any]:
 # collapsed into src/domains/timeline_edit/utils/timeline_kernel_probe.record_tool_result.
 # Kept as a thin module-local alias so this probe's call sites read unchanged;
 # the behaviour — including the expected_status fix from task 8 — lives in one place.
-def _record_tool_result(recorder: ProbeRecorder, category: str, name: str, result: Dict[str, Any]) -> None:
-    record_tool_result(recorder, category, name, result)
+def _record_tool_result(recorder: ProbeRecorder, category: str, name: str,
+                        result: Dict[str, Any], **kwargs: Any) -> None:
+    record_tool_result(recorder, category, name, result, **kwargs)
 
 
 def run_probe(server, output_dir: Path, *, keep_open: bool = False) -> Dict[str, Any]:

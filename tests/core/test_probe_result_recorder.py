@@ -231,6 +231,71 @@ class NoExpectationTest(unittest.TestCase):
         self.assertEqual([], called)
 
 
+class ClassifyAsIsADowngradeNotAClaimTest(unittest.TestCase):
+    """The distinction the live suite forced out on the first run after task 8.
+
+    `live_timeline_conform_validation` calls `probe_interchange_roundtrip`, which
+    *succeeds*, and then compares the re-imported timeline against the original and
+    finds lost media links. "The call worked" and "the capability works" genuinely
+    differ there, and the recorder cannot see the difference. Encoding that as
+    `expected_status="partially_supported"` made it look like a falsified claim and
+    failed the harness; it is a downgrade with evidence, which is a different thing.
+
+    The lever is deliberately one-directional: it can only move a success down. An
+    upgrade would launder a failure into a pass — §3's defect wearing a new hat.
+    """
+
+    def setUp(self):
+        self.recorder = ProbeRecorder()
+
+    def test_a_successful_call_can_be_downgraded_with_a_reason(self):
+        record = record_tool_result(
+            self.recorder, "interchange.roundtrip", "roundtrip_fcpxml",
+            {"success": True, "comparison": {"difference_count": 3}},
+            classify_as="partially_supported",
+            classification_reason="re-imported timeline differs in 3 places")
+
+        self.assertEqual("partially_supported", record["status"])
+        self.assertEqual("supported", record["details"]["observed"])
+        self.assertEqual("re-imported timeline differs in 3 places",
+                         record["details"]["classification_reason"])
+        self.assertEqual(0, self.recorder.counts()["error"])
+
+    def test_a_downgrade_must_carry_a_reason(self):
+        with self.assertRaises(ValueError):
+            record_tool_result(self.recorder, "c", "step", {"success": True},
+                               classify_as="partially_supported")
+
+    def test_it_cannot_launder_a_failure_into_a_pass(self):
+        with self.assertRaises(ValueError):
+            record_tool_result(self.recorder, "c", "step", {"error": "boom"},
+                               classify_as="supported",
+                               classification_reason="looks fine to me")
+
+    def test_it_cannot_be_used_on_a_call_that_already_failed(self):
+        """Nothing to downgrade — the observation already says so."""
+        with self.assertRaises(ValueError):
+            record_tool_result(self.recorder, "c", "step", {"success": False},
+                               classify_as="unsupported",
+                               classification_reason="whatever")
+
+    def test_an_unknown_classification_is_rejected(self):
+        with self.assertRaises(ValueError):
+            record_tool_result(self.recorder, "c", "step", {"success": True},
+                               classify_as="mostly_ok", classification_reason="x")
+
+    def test_a_reason_without_a_classification_is_rejected(self):
+        with self.assertRaises(ValueError):
+            record_tool_result(self.recorder, "c", "step", {"success": True},
+                               classification_reason="orphaned reason")
+
+    def test_expected_status_still_asserts_alongside_the_new_lever(self):
+        """The task-8 guarantee is unchanged for genuine claims."""
+        record = record_tool_result(self.recorder, "c", "boundary", {"success": True},
+                                    expected_status="unsupported")
+        self.assertEqual("error", record["status"])
+
+
 class SingleDefinitionTest(unittest.TestCase):
     """§4: eleven copies is the bug — guard the collapse structurally."""
 

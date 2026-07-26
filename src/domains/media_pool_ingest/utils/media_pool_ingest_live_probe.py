@@ -46,18 +46,14 @@ def _zero_import_is_a_boundary(result: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _record_tool_result(
-    recorder: ProbeRecorder,
-    category: str,
-    name: str,
-    result: Dict[str, Any],
-    *,
-    expected_boundary: bool = False,
-) -> None:
+def _record_tool_result(recorder: ProbeRecorder, category: str, name: str,
+                        result: Dict[str, Any], *, expected_boundary: bool = False,
+                        **kwargs: Any) -> None:
     record_tool_result(
         recorder, category, name, result,
         expected_boundary=expected_boundary,
         extra_boundary_check=_zero_import_is_a_boundary if expected_boundary else None,
+        **kwargs,
     )
 
 

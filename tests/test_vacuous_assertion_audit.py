@@ -119,7 +119,7 @@ class VacuousAssertionRatchetTest(unittest.TestCase):
             [], new,
             "`except ...: pass` inside a test body also passes when the code under test "
             "SWALLOWS the exception, which is usually the bug being tested. Use "
-            f"assertRaises:\n  " + "\n  ".join(new),
+            "assertRaises:\n  " + "\n  ".join(new),
         )
 
     def test_the_accepted_lists_have_no_stale_entries(self):

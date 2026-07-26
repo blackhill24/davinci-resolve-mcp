@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.domains.timeline_edit.utils.timeline_kernel_probe import ProbeRecorder, render_markdown_report, utc_timestamp
+from src.domains.timeline_edit.utils.timeline_kernel_probe import ProbeRecorder, record_tool_result, render_markdown_report, utc_timestamp
 
 ENV_ALLOW_SUBTITLE_GENERATION = "RESOLVE_PROBE_ALLOW_SUBTITLE_GENERATION"
 
@@ -38,6 +38,10 @@ def _require_success(label: str, result: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+# #119 task 9: the eleven copies of this function (seven divergent variants)
+# collapsed into src/domains/timeline_edit/utils/timeline_kernel_probe.record_tool_result.
+# Kept as a thin module-local alias so this probe's call sites read unchanged;
+# the behaviour — including the expected_status fix from task 8 — lives in one place.
 def _record_tool_result(
     recorder: ProbeRecorder,
     category: str,
@@ -46,16 +50,8 @@ def _record_tool_result(
     *,
     expected_status: Optional[str] = None,
 ) -> None:
-    if not isinstance(result, dict):
-        recorder.record(category, name, "error", details={"reason": "non-dict result", "result": repr(result)})
-        return
-    if result.get("error"):
-        recorder.record(category, name, expected_status or "error", details={"reason": result.get("error")}, evidence=result)
-        return
-    if "success" in result and result["success"] is not True:
-        recorder.record(category, name, expected_status or "partially_supported", details={"reason": "success returned false"}, evidence=result)
-        return
-    recorder.record(category, name, expected_status or "supported", evidence=result)
+    record_tool_result(recorder, category, name, result,
+                       expected_status=expected_status)
 
 
 def _run_ffmpeg(args: list[str]) -> None:

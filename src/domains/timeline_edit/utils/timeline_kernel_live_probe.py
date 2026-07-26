@@ -26,6 +26,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from src.domains.timeline_edit.utils.timeline_kernel_probe import (
     ProbeRecorder,
     ordered_unique,
+    record_tool_result,
     parse_api_class_methods,
     parse_timeline_item_property_keys,
     render_markdown_report,
@@ -323,6 +324,10 @@ def _record_method_availability(
         )
 
 
+# #119 task 9: the eleven copies of this function (seven divergent variants)
+# collapsed into src/domains/timeline_edit/utils/timeline_kernel_probe.record_tool_result.
+# Kept as a thin module-local alias so this probe's call sites read unchanged;
+# the behaviour — including the expected_status fix from task 8 — lives in one place.
 def _record_tool_result(
     recorder: ProbeRecorder,
     category: str,
@@ -331,31 +336,8 @@ def _record_tool_result(
     *,
     expected_boundary: bool = False,
 ) -> None:
-    if not isinstance(result, dict):
-        recorder.record(category, name, "error", details={"reason": "non-dict result", "result": repr(result)})
-        return
-    if result.get("error"):
-        recorder.record(
-            category,
-            name,
-            "unsupported" if expected_boundary else "error",
-            details={"reason": result.get("error"), "expected_boundary": expected_boundary},
-            evidence=result,
-        )
-        return
-    if "success" in result and result["success"] is not True:
-        recorder.record(
-            category,
-            name,
-            "partially_supported",
-            details={"reason": "success flag was false"},
-            evidence=result,
-        )
-        return
-    if result.get("results") and any(row.get("success") is False for row in result["results"] if isinstance(row, dict)):
-        recorder.record(category, name, "partially_supported", evidence=result)
-        return
-    recorder.record(category, name, "supported", evidence=result)
+    record_tool_result(recorder, category, name, result,
+                       expected_boundary=expected_boundary)
 
 
 def _probe_property(recorder: ProbeRecorder, item, item_label: str, key: str) -> None:

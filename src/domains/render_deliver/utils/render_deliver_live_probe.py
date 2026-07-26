@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.domains.timeline_edit.utils.timeline_kernel_probe import ProbeRecorder, render_markdown_report, utc_timestamp
+from src.domains.timeline_edit.utils.timeline_kernel_probe import ProbeRecorder, record_tool_result, render_markdown_report, utc_timestamp
 
 
 def _require_success(label: str, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -32,6 +32,10 @@ def _require_success(label: str, result: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+# #119 task 9: the eleven copies of this function (seven divergent variants)
+# collapsed into src/domains/timeline_edit/utils/timeline_kernel_probe.record_tool_result.
+# Kept as a thin module-local alias so this probe's call sites read unchanged;
+# the behaviour — including the expected_status fix from task 8 — lives in one place.
 def _record_tool_result(
     recorder: ProbeRecorder,
     category: str,
@@ -40,22 +44,8 @@ def _record_tool_result(
     *,
     partial_on_false: bool = True,
 ) -> None:
-    if not isinstance(result, dict):
-        recorder.record(category, name, "error", details={"reason": "non-dict result", "result": repr(result)})
-        return
-    if result.get("error"):
-        recorder.record(category, name, "error", details={"reason": result.get("error")}, evidence=result)
-        return
-    if "success" in result and result["success"] is not True:
-        recorder.record(
-            category,
-            name,
-            "partially_supported" if partial_on_false else "unsupported",
-            details={"reason": "success returned false"},
-            evidence=result,
-        )
-        return
-    recorder.record(category, name, "supported", evidence=result)
+    record_tool_result(recorder, category, name, result,
+                       partial_on_false=partial_on_false)
 
 
 def _run_ffmpeg(args: list[str]) -> None:

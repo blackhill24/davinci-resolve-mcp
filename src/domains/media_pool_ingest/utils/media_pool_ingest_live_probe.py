@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.domains.timeline_edit.utils.timeline_kernel_probe import ProbeRecorder, render_markdown_report, utc_timestamp
+from src.domains.timeline_edit.utils.timeline_kernel_probe import ProbeRecorder, record_tool_result, render_markdown_report, utc_timestamp
 
 
 def _require_success(label: str, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -36,6 +36,16 @@ def _require_success(label: str, result: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+# #119 task 9: the eleven copies of this function (seven divergent variants)
+# collapsed into src/domains/timeline_edit/utils/timeline_kernel_probe.record_tool_result.
+# Kept as a thin module-local alias so this probe's call sites read unchanged;
+# the behaviour — including the expected_status fix from task 8 — lives in one place.
+def _zero_import_is_a_boundary(result: Dict[str, Any]) -> Optional[str]:
+    if result.get("imported") == 0:
+        return "Resolve returned zero imported items for expected negative fixture"
+    return None
+
+
 def _record_tool_result(
     recorder: ProbeRecorder,
     category: str,
@@ -44,37 +54,11 @@ def _record_tool_result(
     *,
     expected_boundary: bool = False,
 ) -> None:
-    if not isinstance(result, dict):
-        recorder.record(category, name, "error", details={"reason": "non-dict result", "result": repr(result)})
-        return
-    if result.get("error"):
-        recorder.record(
-            category,
-            name,
-            "unsupported" if expected_boundary else "error",
-            details={"reason": result.get("error"), "expected_boundary": expected_boundary},
-            evidence=result,
-        )
-        return
-    if "success" in result and result["success"] is not True:
-        recorder.record(
-            category,
-            name,
-            "partially_supported" if not expected_boundary else "unsupported",
-            details={"reason": "success returned false", "expected_boundary": expected_boundary},
-            evidence=result,
-        )
-        return
-    if expected_boundary and result.get("imported") == 0:
-        recorder.record(
-            category,
-            name,
-            "unsupported",
-            details={"reason": "Resolve returned zero imported items for expected negative fixture"},
-            evidence=result,
-        )
-        return
-    recorder.record(category, name, "supported", evidence=result)
+    record_tool_result(
+        recorder, category, name, result,
+        expected_boundary=expected_boundary,
+        extra_boundary_check=_zero_import_is_a_boundary if expected_boundary else None,
+    )
 
 
 FFMPEG_TIMEOUT_SECONDS = 120

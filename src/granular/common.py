@@ -28,6 +28,16 @@ from src.core.resolve_launch import launch_resolve
 # compound server rather than reimplemented here. Re-exported via __all__ below
 # (which excludes only dunders), so `from src.granular.common import *` picks it up.
 from src.core.timeline_lookup import _set_current_timeline, _set_start_timecode
+# #119 task 6: _has_method / _api_constant used to be COPIES of the originals in
+# src/core/envelope, and the copy is the one the export path actually binds —
+# src/granular/timeline.py does `from src.granular.common import *`, so
+# Timeline.Export and ExportLUT resolve constants through here, not through
+# envelope. That is why the #118 regression test pinned the wrong function: it
+# imports the envelope copy, so the exact cc007ef defect could be re-introduced in
+# this module with the offline suite staying 100% green. One definition now,
+# re-exported via __all__ so every granular star-import binds the same object.
+# tests/core/test_bridge_helper_identity.py asserts that identity holds.
+from src.core.envelope import _api_constant, _has_method
 from src.domains.color_grade.utils.cdl import normalize_cdl_payload
 from src.domains.project_lifecycle.utils.cloud_operations import (
     create_cloud_project,
@@ -703,36 +713,6 @@ def _get_timeline_item(track_type="video", track_index=1, item_index=0):
     if not items or item_index >= len(items):
         return None, {"error": f"No item at index {item_index} on {track_type} track {track_index}"}
     return items[item_index], None
-
-def _has_method(obj, method_name):
-    # The Python bridge fabricates a callable for ANY attribute name, so
-    # getattr/hasattr can never report a method as absent (verified on 21.0.0:
-    # SetStart, Razor, AddNode etc. all reported present though none exist).
-    # dir(obj) lists only the real methods — test membership against it.
-    if obj is None:
-        return False
-    try:
-        return method_name in dir(obj)
-    except Exception:
-        return False
-
-def _api_constant(obj, const_name):
-    """Resolve a Resolve API *constant* (EXPORT_DRT, EXPORT_LUT_CUBE, ...).
-
-    Mirror of src/core/envelope._api_constant — see that docstring. Constants need
-    the OPPOSITE technique to _has_method above: dir() does NOT list them (it
-    returns only methods), while getattr DOES return their real numeric value and
-    yields None for a fabricated name.
-    """
-    if obj is None or not const_name:
-        return None
-    try:
-        value = getattr(obj, const_name, None)
-    except Exception:
-        return None
-    if value is None or callable(value):
-        return None
-    return value
 
 def _requires_method(obj, method_name, min_version):
     if _has_method(obj, method_name):

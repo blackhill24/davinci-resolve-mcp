@@ -81,8 +81,9 @@ class FolderAnalysisGateTest(unittest.TestCase):
 
     def _run(self, fn, folder, **kwargs):
         mp = _double({"GetRootFolder": folder}, name="mediaPool")
-        with mock.patch.object(granular_folder, "_get_mp", return_value=(None, mp, None)), \
-             mock.patch.object(granular_folder, "_resolve_folder",
+        with mock.patch.object(granular_folder, "_get_mp", autospec=True,
+                               return_value=(None, mp, None)), \
+             mock.patch.object(granular_folder, "_resolve_folder", autospec=True,
                                return_value=(folder, None)):
             return fn(**kwargs)
 
@@ -122,8 +123,10 @@ class ClipAnalysisGateTest(unittest.TestCase):
 
     def _run(self, fn, clip, **kwargs):
         mp = _double({"GetRootFolder": _double({}, name="root")}, name="mediaPool")
-        with mock.patch.object(granular_mpi, "_get_mp", return_value=(None, mp, None)), \
-             mock.patch.object(granular_mpi, "_find_clip_by_id", return_value=clip):
+        with mock.patch.object(granular_mpi, "_get_mp", autospec=True,
+                               return_value=(None, mp, None)), \
+             mock.patch.object(granular_mpi, "_find_clip_by_id", autospec=True,
+                               return_value=clip):
             return fn(clip_id="clip-1", **kwargs)
 
     def test_gate_open_calls_through(self):
@@ -155,15 +158,18 @@ class MotionBlurGateTest(unittest.TestCase):
 
     def _run_folder(self, folder):
         mp = _double({"GetRootFolder": folder}, name="mediaPool")
-        with mock.patch.object(granular_folder, "_get_mp", return_value=(None, mp, None)), \
-             mock.patch.object(granular_folder, "_resolve_folder",
+        with mock.patch.object(granular_folder, "_get_mp", autospec=True,
+                               return_value=(None, mp, None)), \
+             mock.patch.object(granular_folder, "_resolve_folder", autospec=True,
                                return_value=(folder, None)):
             return granular_folder.folder_remove_motion_blur()
 
     def _run_clip(self, clip):
         mp = _double({"GetRootFolder": _double({}, name="root")}, name="mediaPool")
-        with mock.patch.object(granular_mpi, "_get_mp", return_value=(None, mp, None)), \
-             mock.patch.object(granular_mpi, "_find_clip_by_id", return_value=clip):
+        with mock.patch.object(granular_mpi, "_get_mp", autospec=True,
+                               return_value=(None, mp, None)), \
+             mock.patch.object(granular_mpi, "_find_clip_by_id", autospec=True,
+                               return_value=clip):
             return granular_mpi.remove_clip_motion_blur(clip_id="clip-1")
 
     def test_clip_gate_open_returns_the_new_clips_identity(self):
@@ -213,9 +219,10 @@ class MagicMockWouldHaveHiddenAllOfThisTest(unittest.TestCase):
             with self.subTest(gate=method):
                 folder = mock.MagicMock()
                 mp = mock.MagicMock()
-                with mock.patch.object(granular_folder, "_get_mp",
+                with mock.patch.object(granular_folder, "_get_mp", autospec=True,
                                        return_value=(None, mp, None)), \
                      mock.patch.object(granular_folder, "_resolve_folder",
+                                       autospec=True,
                                        return_value=(folder, None)):
                     out = fn()
                 self.assertIn(

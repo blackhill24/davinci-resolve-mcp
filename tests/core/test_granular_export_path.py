@@ -47,7 +47,7 @@ class TimelineExportConstantResolutionTest(unittest.TestCase):
 
     def _export(self, resolve, timeline, **kwargs):
         with mock.patch.object(granular_timeline, "resolve", resolve), \
-             mock.patch.object(granular_timeline, "_get_timeline",
+             mock.patch.object(granular_timeline, "_get_timeline", autospec=True,
                                return_value=(None, timeline, None)):
             return granular_timeline.timeline_export(**kwargs)
 
@@ -102,7 +102,7 @@ class TimelineExportConstantResolutionTest(unittest.TestCase):
         self.assertNotIn("EXPORT_DRT", dir(resolve))   # dir() lists methods only
 
         with mock.patch.object(
-                granular_timeline, "_api_constant",
+                granular_timeline, "_api_constant", autospec=True,
                 side_effect=lambda obj, n: (n in dir(obj)) and getattr(obj, n) or None):
             self._export(resolve, timeline,
                          file_path="/tmp/cut.drt", export_type="EXPORT_DRT")
@@ -125,7 +125,7 @@ class ExportLutConstantResolutionTest(unittest.TestCase):
 
     def _export_lut(self, resolve, item, **kwargs):
         with mock.patch.object(granular_timeline_item, "resolve", resolve), \
-             mock.patch.object(granular_timeline_item, "_get_timeline_item",
+             mock.patch.object(granular_timeline_item, "_get_timeline_item", autospec=True,
                                return_value=(item, None)):
             return granular_timeline_item.ti_export_lut(**kwargs)
 

@@ -105,6 +105,48 @@ class HandRolledDoubleAuditTest(unittest.TestCase):
         with self.assertRaises(AttributeError):            # bridge: returns None
             fake.TotallyMadeUp
 
+    def test_internal_helper_patches_use_autospec(self):
+        """The other half of the policy: mocks stay, but they must carry a spec.
+
+        `ResolveBridgeDouble` replaces a mock only where the object is a *bridge*
+        object. Patching an internal helper (`_get_mp`, `_get_timeline`,
+        `_find_clip_by_id`) is still a mock's job — but an unspecced one accepts any
+        signature, so a test keeps passing after the helper it patches changes
+        arity. `autospec=True` makes that a failure. Before #119 there were zero
+        uses of `spec=`/`autospec` anywhere under tests/.
+        """
+        gate_tests = [
+            TESTS / "core/test_capability_gate_behaviour.py",
+            TESTS / "core/test_granular_export_path.py",
+        ]
+        for path in gate_tests:
+            with self.subTest(module=path.name):
+                source = path.read_text(encoding="utf-8")
+                patched_functions = source.count('mock.patch.object(granular')
+                autospecced = source.count("autospec=True")
+                self.assertGreater(autospecced, 0)
+                # The module-level `resolve` handle is data, not a callable, so it
+                # is patched without a spec; everything else is a function.
+                self.assertGreaterEqual(
+                    autospecced, patched_functions - source.count('"resolve", resolve'),
+                    f"{path.name} patches a helper without autospec")
+
+    def test_autospec_actually_catches_signature_drift(self):
+        """Non-vacuous check on the claim above."""
+        from unittest import mock
+
+        class Helper:
+            @staticmethod
+            def get(clip_id):
+                return clip_id
+
+        with mock.patch.object(Helper, "get", autospec=True, return_value="x"):
+            with self.assertRaises(TypeError):
+                Helper.get("a", "b")          # arity drift is caught
+
+        with mock.patch.object(Helper, "get", return_value="x"):
+            self.assertEqual("x", Helper.get("a", "b"))   # unspecced: silently fine
+
     def test_the_shared_double_is_actually_adopted(self):
         """Task 4/5 only counts if the double is used, not merely available."""
         users = [

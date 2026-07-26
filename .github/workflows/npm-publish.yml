@@ -73,6 +73,16 @@ jobs:
           pip install "mcp[cli]" -r requirements.txt pytest
           python -m pytest tests/ -q
 
+      - name: Run the bridge-helper mutation gate
+        # #119: a green offline suite proved nothing about the code that kept
+        # regressing — breaking _api_constant or _has_method outright still left
+        # "2153 passed, 0 failed", and coverage percentages could not see it.
+        # This step re-introduces defects that have actually shipped (cc007ef's
+        # dir()-based constant lookup, the _has_method fabrication inversion, the
+        # granular copy #118's test could not reach) and fails if the suite stays
+        # green. A survivor means the suite has gone blind to that defect again.
+        run: python scripts/mutation_gate.py
+
       - name: Lint with ruff
         # #110 finding (packaging): ruff was enforced by nothing automated —
         # no CI step, no test. The lint gate is real (ruff.toml defines a

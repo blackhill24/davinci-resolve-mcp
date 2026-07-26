@@ -24,6 +24,7 @@ from src.core.app_control import (
     restart_resolve_app,
 )
 from src.core.resolve_launch import launch_resolve
+from src.core import locale_guard as _locale_guard
 # #113 Tier 1: read-back-verified current-timeline switch, shared with the
 # compound server rather than reimplemented here. Re-exported via __all__ below
 # (which excludes only dunders), so `from src.granular.common import *` picks it up.
@@ -237,6 +238,7 @@ try:
     import DaVinciResolveScript as dvr_script  # type: ignore
 
     resolve = dvr_script.scriptapp("Resolve")
+    _locale_guard.restore()  # scriptapp() resets the C locale — see the module docstring
     if resolve:
         logger.info(
             f"Connected to DaVinci Resolve: {resolve.GetProductName()} {resolve.GetVersionString()}"
@@ -315,6 +317,7 @@ def _try_connect():
     global resolve
     try:
         candidate = dvr_script.scriptapp("Resolve")
+        _locale_guard.restore()
         if candidate and _is_resolve_handle_live(candidate):
             resolve = candidate
             logger.info(f"Connected: {resolve.GetProductName()} {resolve.GetVersionString()}")

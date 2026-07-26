@@ -13,6 +13,7 @@ import logging
 
 from src.core.platform import get_resolve_paths
 from src.core.resolve_launch import launch_resolve
+from src.core import locale_guard as _locale_guard
 from src.core import destructive_hook as _destructive_hook
 from src.domains.media_analysis.utils.clip_identity_registry import (
     resolve_output_root as resolve_media_analysis_output_root,
@@ -90,6 +91,7 @@ def _try_connect():
             return None
         try:
             candidate = dvr_script.scriptapp("Resolve")
+            _locale_guard.restore()  # scriptapp() resets the C locale — see the module docstring
             if candidate and _is_resolve_handle_live(candidate):
                 resolve = candidate
                 logger.info(f"Connected: {resolve.GetProductName()} {resolve.GetVersionString()}")

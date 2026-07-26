@@ -19,6 +19,13 @@ behaviours:
 `ResolveBridgeDouble` reproduces all four. `tests/core/test_bridge_double_fidelity.py`
 is the meta-test that pins them, so the double itself cannot silently drift.
 
+A `MagicMock` reproduces none of them, and its failure mode is quiet: `dir()` on a
+mock lists only the children a test has *touched*, so any method the test did not
+explicitly configure reads as absent to `_has_method`, the capability gate closes,
+and production code takes its fallback branch. The test then asserts on the
+fallback's output — which is usually plausible — and passes without ever executing
+the path it was written for.
+
 Usage
 -----
 

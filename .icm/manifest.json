@@ -3,11 +3,11 @@
   "layers": 3,
   "root_nav": "CLAUDE.md",
   "synced": "2026-07-27",
-  "_root_structure": "70f46f0b14b23ff4",
+  "_root_structure": "4c31c2025e3cd06d",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "f959efecf20f7deb",
+      "fingerprint": "2bfb345e64546dd3",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -163,6 +163,7 @@
         "src/granular/folder.py",
         "src/granular/gallery.py",
         "src/granular/graph.py",
+        "src/granular/guards.py",
         "src/granular/media_pool.py",
         "src/granular/media_pool_item.py",
         "src/granular/media_storage.py",
@@ -614,7 +615,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "34bb5414ae313f09",
+      "fingerprint": "29e6cf048d0d5cb0",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -687,7 +688,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "790df9164849c325",
+      "fingerprint": "5dc9370f21cf91b3",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -923,6 +924,8 @@
         "tests/test_env_leak_guard.py",
         "tests/test_exhaustive_wave_a.py",
         "tests/test_granular_disconnected_smoke.py",
+        "tests/test_granular_guard_drift.py",
+        "tests/test_granular_guards.py",
         "tests/test_hand_rolled_double_audit.py",
         "tests/test_import.py",
         "tests/test_keyframe_delete_readback.py",
@@ -956,7 +959,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "ce48df42f6697dc9",
+      "fingerprint": "2052d78e291fdc59",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

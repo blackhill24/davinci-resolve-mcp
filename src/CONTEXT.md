@@ -32,11 +32,15 @@ advanced-bridge) is `core/` — see `core/CONTEXT.md`.
 - `server.py` — compound server (preferred); `resolve_mcp_server.py` — granular entrypoint.
 - `granular/` — one module per Resolve-API object; untouched, separate taxonomy from the
   domains above (`docs/decisions/0001-domain-taxonomy.md`).
+- `granular/guards.py` — granular surface's door onto the confirm-token gate + AI-ops ledger
+  in `core/tool_kernel.py`, plus the registries `tests/test_granular_guard_drift.py` reads.
 - `core/api_truth.py` — API-gap source of truth; regenerates `docs/reference/api-limitations.md`.
 
 ## Conventions & gotchas
 
 - Prefer the compound server unless a task specifically needs granular tools.
+- Granular is a different *shape*, not a guardrail opt-out (#138/#139): a destructive or
+  AI/render granular tool goes through `granular/guards.py`, never the raw API call.
 - Source-media safety in root `AGENTS.md` is non-negotiable, every tool here.
 - "No tools of its own" (audio_fairlight, timeline_conform_interchange) means dispatched
   through another domain's compound tool — its `CONTEXT.md` says which.

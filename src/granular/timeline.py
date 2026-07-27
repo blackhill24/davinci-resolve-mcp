@@ -291,16 +291,32 @@ def timeline_add_track(
 
 
 @mcp.tool()
-def timeline_delete_track(track_type: str, track_index: int) -> Dict[str, Any]:
+def timeline_delete_track(track_type: str, track_index: int,
+                          confirm_token: Optional[str] = None) -> Dict[str, Any]:
     """Delete a track from the timeline.
 
     Args:
         track_type: 'video', 'audio', or 'subtitle'.
         track_index: 1-based track index to delete.
+        confirm_token: Omit on the first call to receive a token plus a preview of
+            what is lost, then re-call with that token to proceed.
     """
     _, tl, err = _get_timeline()
     if err:
         return err
+    items = tl.GetItemListInTrack(track_type, track_index) or []
+    gate = confirm_gate(
+        action="timeline.delete_track",
+        confirm_token=confirm_token,
+        params={"track_type": track_type, "track_index": track_index},
+        preview=lambda: {"operation": "timeline.delete_track",
+                 "warning": "Deletes the track and every clip on it.",
+                 "track_type": track_type,
+                 "track_index": track_index,
+                 "clips_lost": len(items)},
+    )
+    if gate:
+        return gate
     result = tl.DeleteTrack(track_type, track_index)
     return {"success": bool(result)}
 
@@ -412,13 +428,18 @@ def timeline_set_voice_isolation_state(track_index: int, state: Dict[str, Any]) 
 
 
 @mcp.tool()
-def timeline_delete_clips(clip_ids: List[str], track_type: str = "video", track_index: int = 1) -> Dict[str, Any]:
+def timeline_delete_clips(clip_ids: List[str], track_type: str = "video", track_index: int = 1,
+                          ripple: bool = False, confirm_token: Optional[str] = None) -> Dict[str, Any]:
     """Delete clips from the timeline.
 
     Args:
         clip_ids: List of clip unique IDs to delete.
         track_type: 'video' or 'audio'. Default: 'video'.
         track_index: 1-based track index. Default: 1.
+        ripple: True closes the gap left by the deleted items, shifting everything
+            downstream. Default: False (leaves a gap).
+        confirm_token: Required only for ripple=True — omit on the first call to
+            receive a token plus a preview, then re-call with that token.
     """
     _, tl, err = _get_timeline()
     if err:
@@ -429,7 +450,23 @@ def timeline_delete_clips(clip_ids: List[str], track_type: str = "video", track_
     to_delete = [i for i in items if i.GetUniqueId() in clip_ids]
     if not to_delete:
         return {"error": "No matching clips found"}
-    result = tl.DeleteClips(to_delete)
+    # Only the rippling form is gated — same line the compound path draws, since
+    # a non-rippling delete leaves the rest of the timeline where it was.
+    if ripple:
+        gate = confirm_gate(
+            action="timeline.delete_clips_ripple",
+            confirm_token=confirm_token,
+            params={"clip_ids": sorted(clip_ids), "track_type": track_type,
+                    "track_index": track_index, "ripple": True},
+            preview=lambda: {"operation": "timeline.delete_clips",
+                     "ripple": True,
+                     "warning": "ripple=True closes the gap left by deleted items; cannot be selectively undone.",
+                     "clip_count": len(to_delete),
+                     "clip_ids_found": [i.GetUniqueId() for i in to_delete]},
+        )
+        if gate:
+            return gate
+    result = tl.DeleteClips(to_delete, bool(ripple))
     return {"success": bool(result), "deleted": len(to_delete)}
 
 

@@ -327,7 +327,10 @@ def folder_perform_audio_classification(folder_path: str = "") -> Dict[str, Any]
         return err
     if not _has_method(folder, "PerformAudioClassification"):
         return {"error": "PerformAudioClassification requires DaVinci Resolve 21+"}
-    return {"success": bool(folder.PerformAudioClassification())}
+    with ledger_timed("perform_audio_classification") as _rec:
+        ok = bool(folder.PerformAudioClassification())
+        _rec.success = ok
+    return {"success": ok}
 
 
 @mcp.tool()
@@ -345,7 +348,10 @@ def folder_clear_audio_classification(folder_path: str = "") -> Dict[str, Any]:
         return err
     if not _has_method(folder, "ClearAudioClassification"):
         return {"error": "ClearAudioClassification requires DaVinci Resolve 21+"}
-    return {"success": bool(folder.ClearAudioClassification())}
+    with ledger_timed("clear_audio_classification") as _rec:
+        ok = bool(folder.ClearAudioClassification())
+        _rec.success = ok
+    return {"success": ok}
 
 
 @mcp.tool()
@@ -365,7 +371,10 @@ def folder_analyze_for_intellisearch(folder_path: str = "", identify_faces: bool
         return err
     if not _has_method(folder, "AnalyzeForIntellisearch"):
         return {"error": "AnalyzeForIntellisearch requires DaVinci Resolve 21+"}
-    return {"success": bool(folder.AnalyzeForIntellisearch(bool(identify_faces), bool(is_better_mode)))}
+    with ledger_timed("analyze_for_intellisearch") as _rec:
+        ok = bool(folder.AnalyzeForIntellisearch(bool(identify_faces), bool(is_better_mode)))
+        _rec.success = ok
+    return {"success": ok}
 
 
 @mcp.tool()
@@ -387,11 +396,15 @@ def folder_analyze_for_slate(folder_path: str = "", marker_color: str = "Blue") 
         return {"error": "AnalyzeForSlate requires DaVinci Resolve 21+"}
     if marker_color not in _MARKER_COLORS:
         return {"error": f"Invalid marker_color '{marker_color}'. Valid: {', '.join(_MARKER_COLORS)}"}
-    return {"success": bool(folder.AnalyzeForSlate(marker_color))}
+    with ledger_timed("analyze_for_slate") as _rec:
+        ok = bool(folder.AnalyzeForSlate(marker_color))
+        _rec.success = ok
+    return {"success": ok}
 
 
 @mcp.tool()
-def folder_remove_motion_blur(folder_path: str = "", deblur_option: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def folder_remove_motion_blur(folder_path: str = "", deblur_option: Optional[Dict[str, Any]] = None,
+                              confirm_token: Optional[str] = None) -> Dict[str, Any]:
     """Render motion-deblurred copies of all clips in a folder (Resolve 21+).
 
     Creates NEW media files; source media is not modified.
@@ -400,6 +413,8 @@ def folder_remove_motion_blur(folder_path: str = "", deblur_option: Optional[Dic
         folder_path: Path from root. Empty for current folder.
         deblur_option: Settings dict (FileName, Format, Codec, EncodingProfile,
             UseExtremeMode, UseMarkInMarkOut, RenderAtSourceRes, UseMoreGpuMemory).
+        confirm_token: Omit on the first call to receive a token plus a preview of
+            what will be rendered, then re-call with that token to proceed.
     """
     _, mp, err = _get_mp()
     if err:
@@ -409,15 +424,40 @@ def folder_remove_motion_blur(folder_path: str = "", deblur_option: Optional[Dic
         return err
     if not _has_method(folder, "RemoveMotionBlur"):
         return {"error": "RemoveMotionBlur requires DaVinci Resolve 21+"}
-    result = folder.RemoveMotionBlur(deblur_option or {})
+    deblur = deblur_option or {}
+    gate = confirm_gate(
+        action="folder.remove_motion_blur",
+        confirm_token=confirm_token,
+        params={"folder_path": folder_path, "deblur_option": deblur},
+        preview=lambda: {
+            "operation": "folder.remove_motion_blur",
+            "warning": "Renders NEW deblurred media files for clips in the folder; source media is not modified.",
+            "folder": folder.GetName(),
+            "deblur_option": deblur,
+        },
+    )
+    if gate:
+        return gate
     created = []
-    for pair in (result or []):
-        try:
-            # Live-verified on 21.0.2.4 (issue #20): each pair is an int-keyed
-            # dict {1: origMediaPoolItem, 2: newMediaPoolItem}, not a 2-tuple —
-            # see core/api_truth.py.
-            orig, new = (pair[1], pair[2]) if isinstance(pair, dict) else pair
-            created.append({"original": orig.GetName(), "new": new.GetName(), "new_id": new.GetUniqueId()})
-        except Exception:
-            continue
+    with ledger_timed("remove_motion_blur") as _rec:
+        result = folder.RemoveMotionBlur(deblur)
+        _rec.success = bool(result)
+        total_bytes = 0
+        for pair in (result or []):
+            try:
+                # Live-verified on 21.0.2.4 (issue #20): each pair is an int-keyed
+                # dict {1: origMediaPoolItem, 2: newMediaPoolItem}, not a 2-tuple —
+                # see core/api_truth.py.
+                orig, new = (pair[1], pair[2]) if isinstance(pair, dict) else pair
+                path, nbytes = _clip_file_size(new)
+                if nbytes:
+                    total_bytes += nbytes
+                created.append({"original": orig.GetName(), "new": new.GetName(), "new_id": new.GetUniqueId(),
+                                "output_path": path, "output_bytes": nbytes})
+            except Exception:
+                continue
+        # Folder deblur creates many files; record the first path + summed bytes.
+        if created:
+            _rec.output_path = created[0].get("output_path")
+            _rec.output_bytes = total_bytes or None
     return {"success": bool(result), "created": created}

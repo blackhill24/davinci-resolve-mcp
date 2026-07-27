@@ -962,7 +962,10 @@ def perform_clip_audio_classification(clip_id: str) -> Dict[str, Any]:
         return {"error": f"Clip {clip_id} not found"}
     if not _has_method(clip, "PerformAudioClassification"):
         return {"error": "PerformAudioClassification requires DaVinci Resolve 21+"}
-    return {"success": bool(clip.PerformAudioClassification())}
+    with ledger_timed("perform_audio_classification", clip_id=clip_id) as _rec:
+        ok = bool(clip.PerformAudioClassification())
+        _rec.success = ok
+    return {"success": ok}
 
 
 @mcp.tool()
@@ -980,7 +983,10 @@ def clear_clip_audio_classification(clip_id: str) -> Dict[str, Any]:
         return {"error": f"Clip {clip_id} not found"}
     if not _has_method(clip, "ClearAudioClassification"):
         return {"error": "ClearAudioClassification requires DaVinci Resolve 21+"}
-    return {"success": bool(clip.ClearAudioClassification())}
+    with ledger_timed("clear_audio_classification", clip_id=clip_id) as _rec:
+        ok = bool(clip.ClearAudioClassification())
+        _rec.success = ok
+    return {"success": ok}
 
 
 @mcp.tool()
@@ -1000,7 +1006,10 @@ def analyze_clip_for_intellisearch(clip_id: str, identify_faces: bool = False, i
         return {"error": f"Clip {clip_id} not found"}
     if not _has_method(clip, "AnalyzeForIntellisearch"):
         return {"error": "AnalyzeForIntellisearch requires DaVinci Resolve 21+"}
-    return {"success": bool(clip.AnalyzeForIntellisearch(bool(identify_faces), bool(is_better_mode)))}
+    with ledger_timed("analyze_for_intellisearch", clip_id=clip_id) as _rec:
+        ok = bool(clip.AnalyzeForIntellisearch(bool(identify_faces), bool(is_better_mode)))
+        _rec.success = ok
+    return {"success": ok}
 
 
 @mcp.tool()
@@ -1022,11 +1031,15 @@ def analyze_clip_for_slate(clip_id: str, marker_color: str = "Blue") -> Dict[str
         return {"error": "AnalyzeForSlate requires DaVinci Resolve 21+"}
     if marker_color not in _MARKER_COLORS:
         return {"error": f"Invalid marker_color '{marker_color}'. Valid: {', '.join(_MARKER_COLORS)}"}
-    return {"success": bool(clip.AnalyzeForSlate(marker_color))}
+    with ledger_timed("analyze_for_slate", clip_id=clip_id) as _rec:
+        ok = bool(clip.AnalyzeForSlate(marker_color))
+        _rec.success = ok
+    return {"success": ok}
 
 
 @mcp.tool()
-def remove_clip_motion_blur(clip_id: str, deblur_option: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def remove_clip_motion_blur(clip_id: str, deblur_option: Optional[Dict[str, Any]] = None,
+                            confirm_token: Optional[str] = None) -> Dict[str, Any]:
     """Render a motion-deblurred copy of a clip (Resolve 21+).
 
     Creates a NEW media file; the source clip is not modified.
@@ -1035,6 +1048,8 @@ def remove_clip_motion_blur(clip_id: str, deblur_option: Optional[Dict[str, Any]
         clip_id: Unique ID of the clip.
         deblur_option: Settings dict (FileName, Format, Codec, EncodingProfile,
             UseExtremeMode, UseMarkInMarkOut, RenderAtSourceRes, UseMoreGpuMemory).
+        confirm_token: Omit on the first call to receive a token plus a preview of
+            what will be rendered, then re-call with that token to proceed.
     """
     _, mp, err = _get_mp()
     if err:
@@ -1044,7 +1059,26 @@ def remove_clip_motion_blur(clip_id: str, deblur_option: Optional[Dict[str, Any]
         return {"error": f"Clip {clip_id} not found"}
     if not _has_method(clip, "RemoveMotionBlur"):
         return {"error": "RemoveMotionBlur requires DaVinci Resolve 21+"}
-    new_clip = clip.RemoveMotionBlur(deblur_option or {})
+    deblur = deblur_option or {}
+    gate = confirm_gate(
+        action="media_pool_item.remove_motion_blur",
+        confirm_token=confirm_token,
+        params={"clip_id": clip_id, "deblur_option": deblur},
+        preview=lambda: {
+            "operation": "media_pool_item.remove_motion_blur",
+            "warning": "Renders a NEW deblurred media file; the source clip is not modified.",
+            "clip": clip.GetName(),
+            "deblur_option": deblur,
+        },
+    )
+    if gate:
+        return gate
+    with ledger_timed("remove_motion_blur", clip_id=clip_id) as _rec:
+        new_clip = clip.RemoveMotionBlur(deblur)
+        _rec.success = bool(new_clip)
+        if new_clip:
+            _rec.output_path, _rec.output_bytes = _clip_file_size(new_clip)
     if not new_clip:
         return {"success": False}
-    return {"success": True, "new": new_clip.GetName(), "new_id": new_clip.GetUniqueId()}
+    return {"success": True, "new": new_clip.GetName(), "new_id": new_clip.GetUniqueId(),
+            "output_path": _rec.output_path, "output_bytes": _rec.output_bytes}

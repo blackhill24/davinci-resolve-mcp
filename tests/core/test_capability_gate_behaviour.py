@@ -31,12 +31,26 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 import src.server  # noqa: E402,F401  imported first: the domain modules import back
                    # from it, so importing one directly hits a circular import
 import src.granular.folder as granular_folder  # noqa: E402
+import src.granular.guards as granular_guards  # noqa: E402
 import src.granular.media_pool_item as granular_mpi  # noqa: E402
 from tests.bridge_double import ResolveBridgeDouble, call_names  # noqa: E402
 
 
 def _double(methods, name="obj"):
     return ResolveBridgeDouble(methods=methods, name=name)
+
+
+def _no_confirm_gate():
+    """Stand the #138 confirm-token gate down for the length of a `with`.
+
+    These tests are about the *capability* gate (`_has_method`). The deblur tools
+    also sit behind the two-call confirm token, which would short-circuit every
+    success path here into a `confirmation_required` envelope and test nothing.
+    That the token gate is armed by default is covered in
+    tests/test_granular_guards.py instead.
+    """
+    return mock.patch.object(granular_guards, "_confirm_token_required",
+                             autospec=True, return_value=False)
 
 
 # (tool function, gated method name, kwargs) for the Resolve-21 analysis family.
@@ -161,7 +175,8 @@ class MotionBlurGateTest(unittest.TestCase):
         with mock.patch.object(granular_folder, "_get_mp", autospec=True,
                                return_value=(None, mp, None)), \
              mock.patch.object(granular_folder, "_resolve_folder", autospec=True,
-                               return_value=(folder, None)):
+                               return_value=(folder, None)), \
+             _no_confirm_gate():
             return granular_folder.folder_remove_motion_blur()
 
     def _run_clip(self, clip):
@@ -169,7 +184,8 @@ class MotionBlurGateTest(unittest.TestCase):
         with mock.patch.object(granular_mpi, "_get_mp", autospec=True,
                                return_value=(None, mp, None)), \
              mock.patch.object(granular_mpi, "_find_clip_by_id", autospec=True,
-                               return_value=clip):
+                               return_value=clip), \
+             _no_confirm_gate():
             return granular_mpi.remove_clip_motion_blur(clip_id="clip-1")
 
     def test_clip_gate_open_returns_the_new_clips_identity(self):

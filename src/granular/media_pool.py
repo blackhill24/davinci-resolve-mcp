@@ -416,11 +416,13 @@ def import_timeline_from_file(file_path: str, import_options: Optional[Dict[str,
 
 
 @mcp.tool()
-def delete_timelines_by_id(timeline_ids: List[str]) -> Dict[str, Any]:
+def delete_timelines_by_id(timeline_ids: List[str], confirm_token: Optional[str] = None) -> Dict[str, Any]:
     """Delete timelines by their unique IDs.
 
     Args:
         timeline_ids: List of timeline unique IDs to delete.
+        confirm_token: Omit on the first call to receive a token plus a preview of
+            what is lost, then re-call with that token to proceed.
     """
     project, mp, err = _get_mp()
     if err:
@@ -432,6 +434,17 @@ def delete_timelines_by_id(timeline_ids: List[str]) -> Dict[str, Any]:
             timelines.append(tl)
     if not timelines:
         return {"error": "No matching timelines found"}
+    gate = confirm_gate(
+        action="media_pool.delete_timelines",
+        confirm_token=confirm_token,
+        params={"timeline_ids": sorted(timeline_ids)},
+        preview=lambda: {"operation": "media_pool.delete_timelines",
+                 "warning": "Permanently deletes timelines from the Media Pool.",
+                 "timelines_lost": len(timelines),
+                 "names": [tl.GetName() for tl in timelines][:25]},
+    )
+    if gate:
+        return gate
     result = mp.DeleteTimelines(timelines)
     return {"success": bool(result), "deleted_count": len(timelines)}
 
@@ -454,11 +467,13 @@ def set_current_media_pool_folder(folder_path: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def delete_media_pool_clips(clip_ids: List[str]) -> Dict[str, Any]:
+def delete_media_pool_clips(clip_ids: List[str], confirm_token: Optional[str] = None) -> Dict[str, Any]:
     """Delete clips from the Media Pool by their unique IDs.
 
     Args:
         clip_ids: List of clip unique IDs to delete.
+        confirm_token: Omit on the first call to receive a token plus a preview of
+            what is lost, then re-call with that token to proceed.
     """
     _, mp, err = _get_mp()
     if err:
@@ -466,6 +481,17 @@ def delete_media_pool_clips(clip_ids: List[str]) -> Dict[str, Any]:
     clips = _find_clips_by_ids(mp.GetRootFolder(), set(clip_ids))
     if not clips:
         return {"error": "No matching clips found"}
+    gate = confirm_gate(
+        action="media_pool.delete_clips",
+        confirm_token=confirm_token,
+        params={"clip_ids": sorted(clip_ids)},
+        preview=lambda: {"operation": "media_pool.delete_clips",
+                 "warning": "Permanently deletes Media Pool clips.",
+                 "clips_lost": len(clips),
+                 "names": [c.GetName() for c in clips][:25]},
+    )
+    if gate:
+        return gate
     result = mp.DeleteClips(clips)
     return {"success": bool(result), "deleted_count": len(clips)}
 
@@ -485,11 +511,13 @@ def import_folder_from_file(file_path: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def delete_media_pool_folders(folder_names: List[str]) -> Dict[str, Any]:
+def delete_media_pool_folders(folder_names: List[str], confirm_token: Optional[str] = None) -> Dict[str, Any]:
     """Delete folders from the current Media Pool location.
 
     Args:
         folder_names: List of folder names to delete.
+        confirm_token: Omit on the first call to receive a token plus a preview of
+            what is lost, then re-call with that token to proceed.
     """
     _, mp, err = _get_mp()
     if err:
@@ -498,6 +526,17 @@ def delete_media_pool_folders(folder_names: List[str]) -> Dict[str, Any]:
     folders = [sub for sub in (current.GetSubFolderList() or []) if sub.GetName() in folder_names]
     if not folders:
         return {"error": "No matching folders found"}
+    gate = confirm_gate(
+        action="media_pool.delete_folders",
+        confirm_token=confirm_token,
+        params={"folder_names": sorted(folder_names)},
+        preview=lambda: {"operation": "media_pool.delete_folders",
+                 "warning": "Permanently deletes Media Pool folders and everything inside them.",
+                 "folders_lost": len(folders),
+                 "names": [f.GetName() for f in folders][:25]},
+    )
+    if gate:
+        return gate
     result = mp.DeleteFolders(folders)
     return {"success": bool(result), "deleted_count": len(folders)}
 

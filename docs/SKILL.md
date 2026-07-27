@@ -119,6 +119,11 @@ before mutating Resolve state.
 This skill document covers the **compound server** (the default). Each compound
 tool accepts an `action` string and an optional `params` object.
 
+The granular surface is not a guardrail opt-out: the same operations sit behind
+the same two-call `confirm_token`, and the same AI/render ops are written to the
+AI-ops ledger, on either surface (issues #138, #139). Granular tools take
+`confirm_token` as an ordinary keyword argument.
+
 ### The advanced server (`davinci-resolve-advanced-mcp`)
 
 The same package ships an optional third surface: an offline Node server (18

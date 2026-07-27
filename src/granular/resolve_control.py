@@ -248,7 +248,7 @@ def export_layout_preset_tool(preset_name: str, export_path: str) -> Dict[str, A
 
 
 @mcp.tool()
-def import_layout_preset_tool(import_path: str, preset_name: str = None) -> Dict[str, Any]:
+def import_layout_preset_tool(import_path: str, preset_name: Optional[str] = None) -> Dict[str, Any]:
     """Import a layout preset from a file.
 
     Calls Resolve.ImportLayoutPreset() to import a preset from disk.

@@ -22,6 +22,35 @@ from src.domains.media_analysis.utils.technical_probe import _cut_boundary_analy
 from src.domains.media_analysis.utils.transcription import _transcribe
 from src.domains.media_analysis.utils.vision_prompt import _vision_analysis
 
+# Basename prefix of a disposable per-session analysis scratch root. Minted by
+# the media_analysis "plan" branch (actions.py) via tempfile.mkdtemp and threaded
+# back in as params["_session_temp_base_root"]. It is the ONLY thing that makes a
+# directory eligible for automatic removal after a session_only run.
+SESSION_SCRATCH_PREFIX = "davinci-resolve-mcp-analysis-session-"
+
+
+def _session_scratch_cleanup_root(
+    session_temp_base: Any, output_root: str
+) -> Optional[str]:
+    """The directory a session_only run may safely rmtree, or ``None``.
+
+    Eligibility is proof-based, never a fallback: the caller must have supplied a
+    session scratch base, its basename must carry :data:`SESSION_SCRATCH_PREFIX`
+    (i.e. this process minted it, it is not a user directory), and this run's
+    ``output_root`` must live inside it. Fail any of those and the answer is
+    ``None`` — the artifacts stay on disk and the caller removes them
+    deliberately. Returning ``output_root`` as a fallback is what let a *dry-run*
+    metadata publish destroy a project's persistent analysis root.
+    """
+    if not session_temp_base or not isinstance(session_temp_base, str):
+        return None
+    candidate = normalize_path(session_temp_base)
+    if not os.path.basename(candidate).startswith(SESSION_SCRATCH_PREFIX):
+        return None
+    if not _is_relative_to(normalize_path(output_root), candidate):
+        return None
+    return candidate
+
 
 def _synthesize_analysis(
     record: Dict[str, Any],
@@ -499,18 +528,32 @@ async def execute_plan_async(
         manifest["project_summary"] = summarize_reports(output_root)
         manifest["artifacts_cleaned_up"] = False
         if not keep_artifacts:
-            cleanup_root = output_root
-            session_temp_base = params.get("_session_temp_base_root")
-            if session_temp_base:
-                candidate = normalize_path(session_temp_base)
-                if (
-                    os.path.basename(candidate).startswith("davinci-resolve-mcp-analysis-session-")
-                    and _is_relative_to(output_root, candidate)
-                ):
-                    cleanup_root = candidate
-            shutil.rmtree(cleanup_root, ignore_errors=True)
-            manifest["artifacts_cleaned_up"] = True
-            manifest["artifact_cleanup_root"] = cleanup_root
+            # Only ever rmtree a directory we can PROVE is a disposable session
+            # scratch root: one this process minted with the session prefix, and
+            # that actually contains this run's output_root. Anything else is the
+            # caller's persistent analysis root (~/Documents/davinci-resolve-mcp-
+            # analysis/<project>) holding every clip report, the registry, the
+            # SQLite index and _memory/ — and session_only is not a licence to
+            # delete it. The previous code defaulted cleanup_root to output_root
+            # and used the containment check only to NARROW, so it could never
+            # refuse: a dry-run publish_clip_metadata (dry_run defaults True ->
+            # session_only=True) with no _session_temp_base_root, or a plan with
+            # an explicit analysis_root, wiped the persistent root silently.
+            cleanup_root = _session_scratch_cleanup_root(
+                params.get("_session_temp_base_root"), output_root
+            )
+            if cleanup_root:
+                shutil.rmtree(cleanup_root, ignore_errors=True)
+                manifest["artifacts_cleaned_up"] = True
+                manifest["artifact_cleanup_root"] = cleanup_root
+            else:
+                manifest["artifact_cleanup_skipped_reason"] = (
+                    "no verified session scratch root: artifacts were written to a "
+                    "caller-supplied or persistent analysis root, which is never "
+                    "removed automatically. Use media_analysis(action=\"cleanup_artifacts\") "
+                    "to remove them deliberately."
+                )
+                manifest["artifact_cleanup_root"] = None
 
     return manifest
 

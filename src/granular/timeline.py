@@ -987,20 +987,34 @@ def timeline_get_current_video_item() -> Dict[str, Any]:
 
 
 @mcp.tool()
-def timeline_get_current_clip_thumbnail(width: int = 320, height: int = 180) -> Dict[str, Any]:
+def timeline_get_current_clip_thumbnail() -> Dict[str, Any]:
     """Get thumbnail image data for the current clip.
 
-    Args:
-        width: Thumbnail width. Default: 320.
-        height: Thumbnail height. Default: 180.
+    Returns Resolve's thumbnail payload: width, height, format and the encoded
+    image data. Open the Color page with a video item under the playhead —
+    Resolve returns nothing otherwise.
+
+    The `width`/`height` parameters this tool used to declare are gone:
+    `Timeline.GetCurrentClipThumbnailImage()` takes no arguments, so a caller's
+    requested size was silently ignored (#143 finding 8). The payload itself was
+    also dropped — the tool returned only `{"success": true, "has_data": true}`,
+    so a caller migrating from the compound `timeline_markers(action=
+    "get_thumbnail")` lost the image entirely.
     """
     _, tl, err = _get_timeline()
     if err:
         return err
-    result = tl.GetCurrentClipThumbnailImage()
-    if result:
-        return {"success": True, "has_data": bool(result)}
-    return {"success": False}
+    thumbnail = tl.GetCurrentClipThumbnailImage()
+    if not thumbnail:
+        return {
+            "success": False,
+            "thumbnail": None,
+            "error": (
+                "Resolve did not return a thumbnail for the current playhead. "
+                "Open the Color page and ensure a video item is under the playhead."
+            ),
+        }
+    return {"success": True, "thumbnail": _ser(thumbnail)}
 
 
 @mcp.tool()

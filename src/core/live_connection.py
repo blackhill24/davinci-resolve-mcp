@@ -13,6 +13,7 @@ import logging
 
 from src.core.platform import get_resolve_paths
 from src.core.resolve_launch import launch_resolve
+from src.core.resolve_autolaunch import autolaunch_suppressed, passive_resolve_probe  # noqa: F401 - re-exported for src/server.py
 from src.core import locale_guard as _locale_guard
 from src.core import destructive_hook as _destructive_hook
 from src.domains.media_analysis.utils.clip_identity_registry import (
@@ -123,11 +124,9 @@ def get_resolve():
         # Try to connect to an already-running Resolve.
         if _try_connect():
             return resolve
-        # Not running — launch it automatically unless the caller opted out
-        # (test harnesses set DAVINCI_MCP_NO_AUTOLAUNCH=1 to fail fast with
-        # NOT_CONNECTED instead of blocking up to 60s on a Resolve launch).
-        if os.environ.get("DAVINCI_MCP_NO_AUTOLAUNCH"):
-            logger.info("Resolve not running; auto-launch disabled by DAVINCI_MCP_NO_AUTOLAUNCH")
+        # Not running — launch it automatically unless auto-launch is suppressed.
+        if autolaunch_suppressed():
+            logger.info("Resolve not running; auto-launch suppressed")
             return None
         logger.info("Resolve not running, attempting to launch automatically...")
         _launch_resolve()

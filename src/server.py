@@ -1095,6 +1095,7 @@ if _py_ver >= (3, 13):
 # get_resolve().
 from src.core.live_connection import (  # noqa: E402
     get_resolve,
+    passive_resolve_probe,
     _destructive_versioning_provider,
     _bridge_lock,
 )
@@ -3112,6 +3113,86 @@ def _control_panel_read_state() -> Optional[Dict[str, Any]]:
         return None
 
 
+# argv marker of the control-panel child (see the Popen cmd in
+# _open_control_panel). Used to tell "our panel" from an unrelated process that
+# inherited a recycled PID.
+_CONTROL_PANEL_CMDLINE_MARKER = "src.dashboard.main"
+
+
+def _process_cmdline(pid: int) -> str:
+    """Best-effort command line of ``pid``; empty string when unobtainable."""
+    if not pid or pid <= 0:
+        return ""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as handle:
+            raw = handle.read()
+        if raw:
+            return raw.replace(b"\0", b" ").decode("utf-8", "replace").strip()
+    except OSError:
+        pass
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "args=", "-p", str(pid)],
+            capture_output=True, timeout=3, text=True, check=False,
+            encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return (result.stdout or "").strip()
+
+
+def _control_panel_pid_is_ours(pid: int, state: Dict[str, Any]) -> Tuple[bool, str]:
+    """Whether ``pid`` really is the control panel this pidfile describes.
+
+    "Is the PID alive" is NOT identity. Nothing in ``src/dashboard/`` removes
+    the pidfile, so any crash, ``kill -9`` or reboot strands it; after a reboot
+    PIDs restart low and get reused, so the recorded PID is very likely alive
+    and belonging to something else entirely. SIGTERMing it on that basis kills
+    an innocent process.
+
+    Confirmation:
+
+    1. The command line of ``pid`` still carries the dashboard entry point.
+       Cheap (``/proc`` on Linux) and decisive against PID reuse — an unrelated
+       process that inherited the PID is not running ``src.dashboard.main``. It
+       also holds when the panel is wedged and no longer listening.
+    2. Only when the command line is unobtainable: ``pid`` is the process
+       LISTENing on the port we recorded.
+
+    Anything else is a refusal, including "cannot tell": declining to signal a
+    process we cannot identify is always the recoverable side of this call. This
+    check is deliberately cheap enough to run on the status path too.
+    """
+    if not _control_panel_pid_alive(pid):
+        return False, f"pid {pid} is not running"
+    cmdline = _process_cmdline(pid)
+    if cmdline:
+        if _CONTROL_PANEL_CMDLINE_MARKER in cmdline:
+            return True, f"pid {pid} is running {_CONTROL_PANEL_CMDLINE_MARKER}"
+        return False, (
+            f"pid {pid} is running an unrelated process ({cmdline[:120]!r}) — the "
+            "pidfile is stale and its PID has been reused"
+        )
+    host = state.get("host") or "127.0.0.1"
+    try:
+        port = int(state.get("port") or 0)
+    except (TypeError, ValueError):
+        port = 0
+    if port:
+        owner = _port_owner_pid(host, port)
+        if owner == pid:
+            return True, f"pid {pid} owns the recorded control-panel port {port}"
+        if owner is not None:
+            return False, (
+                f"port {port} is held by pid {owner}, not the recorded pid {pid} — "
+                "the pidfile is stale and its PID has been reused"
+            )
+    return False, (
+        f"could not confirm that pid {pid} is the control panel (no command line, "
+        "no port ownership evidence)"
+    )
+
+
 def _control_panel_pid_alive(pid: int) -> bool:
     """Check whether a PID is alive on this OS without killing it."""
     if not pid or pid <= 0:
@@ -3128,7 +3209,10 @@ def _control_panel_pid_alive(pid: int) -> bool:
 def _control_panel_status() -> Dict[str, Any]:
     state = _control_panel_read_state() or {}
     pid = int(state.get("pid") or 0)
-    running = _control_panel_pid_alive(pid)
+    # Identity, not just liveness: a recycled PID from a stale pidfile would
+    # otherwise be reported as a running panel, complete with a URL nothing is
+    # serving.
+    running, _identity_note = _control_panel_pid_is_ours(pid, state)
     if not running:
         # Stale pidfile — clean up
         if state:
@@ -3310,8 +3394,20 @@ def _open_control_panel(p: Dict[str, Any]) -> Dict[str, Any]:
     # Force-restart path: kill whatever owns the port (could be the tracked PID
     # or an untracked stale process) before re-spawning.
     if force_restart:
+        # The port owner is a deliberate target — force_restart's whole contract
+        # is "free this port". The *tracked* pid is not: it comes from a pidfile
+        # nothing ever cleans up, so after a reboot it is very likely a recycled
+        # PID belonging to an unrelated process. Only signal it once identity is
+        # confirmed (see _control_panel_pid_is_ours).
+        victims = {port_pid or 0} - {0}
         tracked_pid = int((existing or {}).get("pid") or 0)
-        for victim in {tracked_pid, port_pid or 0} - {0}:
+        if tracked_pid and tracked_pid not in victims:
+            tracked_is_ours, _tracked_note = _control_panel_pid_is_ours(
+                tracked_pid, existing or {}
+            )
+            if tracked_is_ours:
+                victims.add(tracked_pid)
+        for victim in victims:
             try:
                 os.kill(victim, 15)  # SIGTERM
             except (ProcessLookupError, PermissionError, OSError):
@@ -3579,12 +3675,21 @@ def _close_control_panel() -> Dict[str, Any]:
     if not state:
         return {"success": True, "was_running": False, "note": "No control panel was running."}
     pid = int(state.get("pid") or 0)
-    if not _control_panel_pid_alive(pid):
+    is_ours, identity_note = _control_panel_pid_is_ours(pid, state)
+    if not is_ours:
+        # Stale pidfile — including the dangerous case where the PID is alive
+        # but belongs to an unrelated process that inherited it after a reboot.
+        # Drop the pidfile and signal nothing.
         try:
             os.remove(_control_panel_pidfile())
         except OSError:
             pass
-        return {"success": True, "was_running": False, "note": "Stale pidfile cleaned up."}
+        return {
+            "success": True,
+            "was_running": False,
+            "note": f"Stale pidfile cleaned up; no signal sent ({identity_note}).",
+            "identity_check": identity_note,
+        }
     try:
         os.kill(pid, 15)  # SIGTERM
     except (ProcessLookupError, PermissionError, OSError) as exc:
@@ -4588,6 +4693,78 @@ def _install_threaded_tool_dispatch(fastmcp) -> int:
     return wrapped
 
 
+def _install_threaded_resource_dispatch(fastmcp) -> int:
+    """Same offload + ``_bridge_lock`` treatment for MCP **resource** handlers.
+
+    ``_install_threaded_tool_dispatch`` walks ``_tool_manager._tools`` only.
+    Resources live on a different manager, so they got neither the worker-thread
+    offload nor the bridge mutex: ``FunctionResource.read()`` calls ``self.fn()``
+    inline on the single asyncio thread (#143 finding 6). Two consequences,
+    both of them worse for resources than for tools because hosts read resources
+    *passively*, without a user turn:
+
+    - a resource that touches Resolve froze the whole server — stdio read loop
+      included — for as long as the call took, stalling unrelated in-flight
+      tool calls;
+    - with no ``_bridge_lock`` a resource could enter the non-reentrant Resolve
+      bridge while a tool body was already inside it, which per
+      ``src/core/resolve_busy.py`` "simply hangs with no feedback".
+
+    Templates are wrapped too: ``ResourceTemplate.create_resource`` calls
+    ``self.fn(**params)`` the same inline way, hence the ``**kwargs`` signature.
+
+    Couples to mcp SDK private attrs (ResourceManager._resources / ._templates,
+    FunctionResource.fn; verified on mcp 1.27). Best-effort, exactly like the
+    tool installer: an unexpected shape leaves the handler as-is.
+    """
+    import functools
+    import inspect as _inspect
+
+    import anyio
+
+    manager = getattr(fastmcp, "_resource_manager", None)
+    if manager is None:
+        return 0
+
+    def _offloaded(fn):
+        @functools.wraps(fn)
+        async def run_off_thread(**kwargs):
+            def call():
+                # passive_resolve_probe is entered INSIDE the worker thread —
+                # the flag is thread-local, and this is the thread the handler
+                # actually runs on. It stops a host's passive resource poll from
+                # auto-launching Resolve and blocking ~60s on a probe the user
+                # never initiated.
+                with _bridge_lock, passive_resolve_probe():
+                    return fn(**kwargs)
+            return await anyio.to_thread.run_sync(call)
+        run_off_thread._drm_offloaded = True
+        return run_off_thread
+
+    targets = []
+    for holder in (getattr(manager, "_resources", None), getattr(manager, "_templates", None)):
+        if isinstance(holder, dict):
+            targets.extend(holder.values())
+
+    wrapped = 0
+    for target in targets:
+        fn = getattr(target, "fn", None)
+        if fn is None or not callable(fn):
+            continue
+        if _inspect.iscoroutinefunction(fn) or getattr(fn, "_drm_offloaded", False):
+            continue
+        try:
+            target.fn = _offloaded(fn)
+        except Exception as exc:  # unexpected SDK shape — keep the original
+            logger.warning(
+                f"threaded resource dispatch skipped for {getattr(target, 'name', '?')}: {exc}"
+            )
+            continue
+        wrapped += 1
+    logger.info(f"Threaded resource dispatch installed for {wrapped} resources")
+    return wrapped
+
+
 def _log_preload_audit() -> None:
     """Warn prominently if THIS process inherited a known-crashy LD_PRELOAD.
 
@@ -5186,6 +5363,7 @@ if __name__ == "__main__":
     _log_preload_audit()
     start_background_update_check(VERSION, project_dir, logger, env=_setup_update_env())
     _install_threaded_tool_dispatch(mcp)
+    _install_threaded_resource_dispatch(mcp)
 
     # Support --full flag to run the 341-tool granular server instead
     if "--full" in sys.argv:
@@ -5194,6 +5372,7 @@ if __name__ == "__main__":
         from src.granular import mcp as granular_mcp
 
         _install_threaded_tool_dispatch(granular_mcp)
+        _install_threaded_resource_dispatch(granular_mcp)
         run_fastmcp_stdio(granular_mcp)
         sys.exit(0)
 

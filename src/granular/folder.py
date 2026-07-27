@@ -6,13 +6,22 @@ resolve = ResolveProxy()
 
 @mcp.tool()
 def export_folder(folder_name: str, export_path: str, export_type: str = "DRB") -> str:
-    """Export a folder to a DRB file or other format.
-    
+    """Export a folder to a DRB file.
+
     Args:
         folder_name: Name of the folder to export
         export_path: Path to save the exported file
-        export_type: Export format (DRB is default and currently the only supported option)
+        export_type: Export format. DRB is the only format `Folder.Export()`
+            supports — the API takes no format argument at all. Any other value
+            is REFUSED rather than accepted and ignored (#143 finding 9):
+            passing "DRT" used to report a successful DRT export while DRB
+            content had been written to the path.
     """
+    if str(export_type).strip().upper() != "DRB":
+        return (
+            f"Error: unsupported export_type {export_type!r}. Folder.Export() writes "
+            "DRB only; pass export_type=\"DRB\" or omit it."
+        )
     pm, current_project = get_current_project()
     if not current_project:
         return "Error: No project currently open"

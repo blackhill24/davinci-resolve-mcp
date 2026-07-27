@@ -16,14 +16,19 @@ import json
 import logging
 import os
 import secrets
-import tempfile
 import time
+
+from src.core.private_tmp import private_path, write_private_text
 
 logger = logging.getLogger("davinci-resolve-mcp")
 
-TRANSPORT_STATE_PATH = os.path.join(
-    tempfile.gettempdir(), "davinci_resolve_mcp_transport.json"
-)
+# This file holds the transport BEARER TOKEN, and src/dashboard/state.py reads a
+# pid out of it and SIGTERMs it. At a predictable bare-/tmp path with the default
+# umask that was both world-readable and plantable by any other local user
+# (#143 finding 3), so it lives in a per-uid 0700 directory and is written 0600.
+# None when no private directory could be established: the state file is then
+# skipped entirely rather than written somewhere weaker.
+TRANSPORT_STATE_PATH = private_path("davinci_resolve_mcp_transport.json")
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
@@ -55,23 +60,29 @@ def _auth_middleware_cls(token):
 
 
 def write_transport_state(transport, host, port, token):
-    try:
-        with open(TRANSPORT_STATE_PATH, "w", encoding="utf-8") as fh:
-            json.dump({
-                "transport": transport,
-                "host": host,
-                "port": port,
-                "url": f"http://{host}:{port}",
-                "token": token,
-                "loopback": host in LOOPBACK_HOSTS,
-                "pid": os.getpid(),
-                "started_at": time.time(),
-            }, fh)
-    except OSError as exc:
-        logger.warning("could not write transport state: %s", exc)
+    if TRANSPORT_STATE_PATH is None:
+        logger.warning(
+            "no private state directory available; the control panel will not "
+            "show the transport URL/token for this run"
+        )
+        return
+    payload = json.dumps({
+        "transport": transport,
+        "host": host,
+        "port": port,
+        "url": f"http://{host}:{port}",
+        "token": token,
+        "loopback": host in LOOPBACK_HOSTS,
+        "pid": os.getpid(),
+        "started_at": time.time(),
+    })
+    if not write_private_text(TRANSPORT_STATE_PATH, payload):
+        logger.warning("could not write transport state to %s", TRANSPORT_STATE_PATH)
 
 
 def clear_transport_state():
+    if TRANSPORT_STATE_PATH is None:
+        return
     try:
         os.remove(TRANSPORT_STATE_PATH)
     except OSError:
@@ -83,6 +94,8 @@ def read_transport_state():
 
     Treats a state file whose pid is no longer alive as stale (returns None).
     """
+    if TRANSPORT_STATE_PATH is None:
+        return None
     try:
         with open(TRANSPORT_STATE_PATH, encoding="utf-8") as fh:
             state = json.load(fh)

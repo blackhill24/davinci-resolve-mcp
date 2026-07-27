@@ -266,6 +266,82 @@ class BodyParsingTest(unittest.TestCase):
         self.assertEqual({"a": 1}, self._handler_with(b'{"a": 1}')._body())
 
 
+class MalformedBodyTest(unittest.TestCase):
+    """#143 finding 5: a malformed or truncated body must be a 4xx, and must
+    never pin the worker thread.
+
+    `_body()` used to do `int(self.headers.get("Content-Length") or 0)` and a
+    bare `self.rfile.read(length).decode("utf-8")`, so a non-numeric length or a
+    non-UTF-8 body escaped into `do_POST`'s blanket handler as a **500**, and a
+    client that announced more bytes than it wrote blocked that thread forever
+    (`Handler` set no socket timeout and `main.py` uses a plain
+    ThreadingHTTPServer, so the socket stays blocking).
+    """
+
+    def _post(self, raw, headers):
+        exchange = _Exchange("POST", "/api/panel_state")
+        merged = {"Host": "127.0.0.1:8899"}
+        merged.update(headers)
+        exchange.handler.headers = merged
+        exchange.handler.rfile = io.BytesIO(raw)
+        exchange.handler.do_POST()
+        return exchange._parse()
+
+    def test_a_non_numeric_content_length_is_a_400_not_a_500(self):
+        status, _headers, payload = self._post(b"{}", {"Content-Length": "abc"})
+        self.assertEqual(400, status)
+        self.assertIn("invalid Content-Length", json.loads(payload)["error"])
+
+    def test_a_negative_content_length_is_a_400(self):
+        status, _headers, payload = self._post(b"{}", {"Content-Length": "-5"})
+        self.assertEqual(400, status)
+        self.assertIn("negative", json.loads(payload)["error"])
+
+    def test_a_body_shorter_than_content_length_is_a_400_not_a_hang(self):
+        # The pinned-thread trigger: announce 4096, write 10. With BytesIO the
+        # short read returns immediately; on a real socket the class-level
+        # `timeout` is what stops it blocking.
+        status, _headers, payload = self._post(b"0123456789", {"Content-Length": "4096"})
+        self.assertEqual(400, status)
+        self.assertIn("shorter than Content-Length", json.loads(payload)["error"])
+
+    def test_an_oversized_body_is_refused_before_it_is_read(self):
+        status, _headers, payload = self._post(
+            b"{}", {"Content-Length": str(handler_mod.MAX_REQUEST_BODY_BYTES + 1)})
+        self.assertEqual(413, status)
+        self.assertIn("exceeds", json.loads(payload)["error"])
+
+    def test_a_non_utf8_body_is_a_400_not_a_500(self):
+        raw = b"\xff\xfe\x00garbage"
+        status, _headers, payload = self._post(raw, {"Content-Length": str(len(raw))})
+        self.assertEqual(400, status)
+        self.assertIn("UTF-8", json.loads(payload)["error"])
+
+    def test_a_chunked_body_is_refused_rather_than_silently_read_as_empty(self):
+        status, _headers, payload = self._post(b"", {"Transfer-Encoding": "chunked"})
+        self.assertEqual(411, status)
+        self.assertIn("chunked", json.loads(payload)["error"])
+
+    def test_the_handler_declares_a_socket_timeout(self):
+        # StreamRequestHandler.setup() applies this to the connection; without
+        # it a half-written body blocks a worker thread indefinitely.
+        self.assertTrue(Handler.timeout)
+        self.assertEqual(handler_mod.REQUEST_TIMEOUT_SECONDS, Handler.timeout)
+
+    def test_a_read_timeout_is_a_408(self):
+        class _TimingOut(io.BytesIO):
+            def read(self, *_a, **_k):
+                raise TimeoutError("timed out")
+
+        exchange = _Exchange("POST", "/api/panel_state")
+        exchange.handler.headers = {"Host": "127.0.0.1:8899", "Content-Length": "16"}
+        exchange.handler.rfile = _TimingOut(b"")
+        exchange.handler.do_POST()
+        status, _headers, payload = exchange._parse()
+        self.assertEqual(408, status)
+        self.assertIn("timed out", json.loads(payload)["error"])
+
+
 class NotFoundTest(unittest.TestCase):
     def test_an_unknown_get_route_is_a_404(self):
         status, _headers, payload = _Exchange("GET", "/api/nope").run()

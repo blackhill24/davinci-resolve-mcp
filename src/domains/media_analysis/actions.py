@@ -62,6 +62,7 @@ from src.domains.media_analysis.utils.capabilities_and_planning import (
     install_guidance as media_analysis_install_guidance,
 )
 from src.domains.media_analysis.utils.execute_engine import (
+    SESSION_SCRATCH_PREFIX as MEDIA_ANALYSIS_SESSION_SCRATCH_PREFIX,
     execute_plan_async as execute_media_analysis_plan_async,
     plan_requires_capabilities as media_analysis_plan_requires_capabilities,
 )
@@ -3852,7 +3853,7 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
             p["cleanup_frames"] = _media_analysis_bool(p.get("cleanup_frames"), True)
             if not p.get("analysis_root"):
                 p["_reuse_default_analysis_root"] = True
-                session_root = tempfile.mkdtemp(prefix="davinci-resolve-mcp-analysis-session-")
+                session_root = tempfile.mkdtemp(prefix=MEDIA_ANALYSIS_SESSION_SCRATCH_PREFIX)
                 p["analysis_root"] = session_root
                 p["_session_temp_base_root"] = session_root
 

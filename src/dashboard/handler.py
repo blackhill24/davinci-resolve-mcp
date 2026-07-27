@@ -7,7 +7,7 @@ import json
 import os
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, unquote, urlparse
 
 from src.core import brain_edits as _brain_edits
@@ -76,8 +76,22 @@ def _first_specified(*values: Any) -> Any:
     return None
 
 
+# Largest request body the panel will read. The panel's own POSTs are small
+# JSON documents; anything past this is either a mistake or an attempt to make a
+# worker thread allocate without bound.
+MAX_REQUEST_BODY_BYTES = 8 * 1024 * 1024
+
+# Per-connection socket timeout. ThreadingHTTPServer leaves sockets BLOCKING by
+# default, so without this a client that announces a Content-Length and then
+# stops writing pins its worker thread forever — one leaked thread per request
+# (#143 finding 5). BaseHTTPRequestHandler honours this attribute in
+# StreamRequestHandler.setup().
+REQUEST_TIMEOUT_SECONDS = 30
+
+
 class Handler(BaseHTTPRequestHandler):
     state: DashboardState
+    timeout = REQUEST_TIMEOUT_SECONDS
 
     def log_message(self, fmt: str, *args: Any) -> None:
         return
@@ -155,13 +169,84 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
-    def _body(self) -> Dict[str, Any]:
-        length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0:
+    def _body(self) -> Optional[Dict[str, Any]]:
+        """Read and decode the JSON request body.
+
+        Returns the decoded dict (``{}`` when there is no body), or ``None``
+        having ALREADY sent an error response — callers must return immediately
+        on ``None``.
+
+        Every step here is a guard the original lacked. It did
+        ``int(self.headers.get("Content-Length") or 0)`` and then a bare
+        ``self.rfile.read(length).decode("utf-8")``, so:
+
+        - a non-numeric Content-Length raised ValueError out of the route and
+          surfaced as a 500 with a stringified int() error, not a 400;
+        - a client that announced 4096 bytes, wrote 10, and held the connection
+          open blocked that worker thread indefinitely (see
+          REQUEST_TIMEOUT_SECONDS);
+        - a non-UTF-8 body raised UnicodeDecodeError, again as a 500;
+        - a chunked body was silently read as ``{}`` and the route ran with all
+          defaults, which is worse than refusing it.
+        """
+        encoding = (self.headers.get("Transfer-Encoding") or "").lower()
+        if "chunked" in encoding:
+            # http.server does not de-chunk; running the route on a silently
+            # empty body would be a wrong result rather than an error.
+            self._json(
+                {"success": False, "error": "chunked request bodies are not supported; send Content-Length"},
+                HTTPStatus.LENGTH_REQUIRED,
+            )
+            return None
+        raw_length = (self.headers.get("Content-Length") or "").strip()
+        if not raw_length:
             return {}
-        raw = self.rfile.read(length).decode("utf-8")
         try:
-            payload = json.loads(raw)
+            length = int(raw_length)
+        except ValueError:
+            self._json(
+                {"success": False, "error": f"invalid Content-Length: {raw_length!r}"},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return None
+        if length < 0:
+            self._json(
+                {"success": False, "error": "invalid Content-Length: negative"},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return None
+        if length == 0:
+            return {}
+        if length > MAX_REQUEST_BODY_BYTES:
+            self._json(
+                {"success": False, "error": f"request body exceeds {MAX_REQUEST_BODY_BYTES} bytes"},
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+            )
+            return None
+        try:
+            raw = self.rfile.read(length)
+        except (TimeoutError, OSError) as exc:
+            self._json(
+                {"success": False, "error": f"timed out reading request body: {exc}"},
+                HTTPStatus.REQUEST_TIMEOUT,
+            )
+            return None
+        if len(raw) < length:
+            self._json(
+                {"success": False, "error": "request body shorter than Content-Length"},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return None
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            self._json(
+                {"success": False, "error": "request body is not valid UTF-8"},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return None
+        try:
+            payload = json.loads(text)
         except json.JSONDecodeError:
             return {}
         return payload if isinstance(payload, dict) else {}
@@ -528,6 +613,8 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         body = self._body()
+        if body is None:
+            return  # _body() already sent the error response
         if path == "/api/browse/directory":
             if not _request_is_loopback(self):
                 self._json({"success": False, "error": "Native folder picker is only available to loopback clients."}, HTTPStatus.FORBIDDEN)

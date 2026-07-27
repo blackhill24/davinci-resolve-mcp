@@ -24,6 +24,7 @@ from src.core.app_control import (
     restart_resolve_app,
 )
 from src.core.resolve_launch import launch_resolve
+from src.core.resolve_autolaunch import autolaunch_suppressed, passive_resolve_probe  # noqa: F401 - passive_resolve_probe re-exported via __all__
 from src.core import locale_guard as _locale_guard
 # #113 Tier 1: read-back-verified current-timeline switch, shared with the
 # compound server rather than reimplemented here. Re-exported via __all__ below
@@ -38,7 +39,7 @@ from src.core.timeline_lookup import _set_current_timeline, _set_start_timecode
 # this module with the offline suite staying 100% green. One definition now,
 # re-exported via __all__ so every granular star-import binds the same object.
 # tests/core/test_bridge_helper_identity.py asserts that identity holds.
-from src.core.envelope import _api_constant, _has_method
+from src.core.envelope import _api_constant, _has_method, _ser
 # #138/#139: the confirm-token gate and the AI-ops ledger are shared with the
 # compound server rather than reimplemented here. Imported into common so a star
 # import gives every granular module the same guard objects (see guards.py).
@@ -351,6 +352,12 @@ def get_resolve():
     resolve = None
     if _try_connect():
         return resolve
+    # Suppressed inside an MCP resource handler (a passive host poll must not
+    # trigger a 60s launch, #143 finding 6) and by DAVINCI_MCP_NO_AUTOLAUNCH.
+    # Shared with the compound server so both surfaces honour the same rule.
+    if autolaunch_suppressed():
+        logger.info("Resolve not running; auto-launch suppressed")
+        return None
     logger.info("Resolve not running, attempting to launch automatically...")
     _launch_resolve()
     return resolve

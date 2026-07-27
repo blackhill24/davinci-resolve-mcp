@@ -10,10 +10,10 @@ import logging
 import os
 import platform
 import re
-import stat
 import subprocess
-import tempfile
 from typing import Any, Dict, FrozenSet, List, Optional, Tuple
+
+from src.core.private_tmp import private_dir, write_private_text
 
 logger = logging.getLogger(__name__)
 
@@ -403,24 +403,13 @@ def resolve_spawn_env(
     # /tmp, where the predictable name could be pre-created), and refuse to
     # follow a symlink at the final open.
     if conf_dir is None:
-        conf_dir = os.path.join(tempfile.gettempdir(), f"drm-resolve-{os.getuid()}")
-        try:
-            os.makedirs(conf_dir, mode=0o700, exist_ok=True)
-            st = os.lstat(conf_dir)
-            if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid():
-                return env
-        except OSError:
+        # Shared with the page lock and the transport state file; see
+        # src/core/private_tmp.py for why bare /tmp is not an option.
+        conf_dir = private_dir()
+        if conf_dir is None:
             return env
     conf_path = os.path.join(conf_dir, f"drm-resolve-alsa-{os.getuid()}.conf")
-    try:
-        fd = os.open(
-            conf_path,
-            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
-            0o600,
-        )
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(conf)
-    except OSError:
+    if not write_private_text(conf_path, conf):
         return env
     env["ALSA_CONFIG_PATH"] = conf_path
     if contested:

@@ -168,5 +168,124 @@ class ControlPanelProbe(unittest.TestCase):
         self.assertEqual(result, {"is_dashboard": False, "version": None})
 
 
+class ControlPanelPidIdentity(unittest.TestCase):
+    """#143 finding 2: a live PID is not proof of identity.
+
+    Nothing in ``src/dashboard/`` removes the pidfile, so any crash, ``kill -9``
+    or reboot strands it. After a reboot PIDs restart low and get reused, so the
+    recorded PID is very likely alive and owned by something unrelated — and the
+    close path SIGTERMed it on the strength of ``os.kill(pid, 0)`` alone.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.pidfile = os.path.join(self.tmp.name, "control_panel.pid")
+        p = mock.patch.object(server, "_control_panel_pidfile", return_value=self.pidfile)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def _write_state(self, pid: int) -> None:
+        with open(self.pidfile, "w", encoding="utf-8") as fh:
+            json.dump({
+                "pid": pid, "port": 8765, "host": "127.0.0.1",
+                "url": "http://127.0.0.1:8765",
+            }, fh)
+
+    # ---- the identity predicate itself ----------------------------------
+
+    def test_cmdline_marker_confirms_identity(self) -> None:
+        with mock.patch.object(server, "_control_panel_pid_alive", return_value=True), \
+             mock.patch.object(server, "_process_cmdline",
+                               return_value="/usr/bin/python3 -m src.dashboard.main --port 8765"):
+            ok, note = server._control_panel_pid_is_ours(4242, {"port": 8765})
+        self.assertTrue(ok)
+        self.assertIn("4242", note)
+
+    def test_recycled_pid_running_something_else_is_refused(self) -> None:
+        with mock.patch.object(server, "_control_panel_pid_alive", return_value=True), \
+             mock.patch.object(server, "_process_cmdline", return_value="/usr/bin/sshd -D"):
+            ok, note = server._control_panel_pid_is_ours(4242, {"port": 8765})
+        self.assertFalse(ok)
+        self.assertIn("unrelated process", note)
+
+    def test_falls_back_to_port_ownership_when_cmdline_unreadable(self) -> None:
+        with mock.patch.object(server, "_control_panel_pid_alive", return_value=True), \
+             mock.patch.object(server, "_process_cmdline", return_value=""), \
+             mock.patch.object(server, "_port_owner_pid", return_value=4242):
+            ok, _note = server._control_panel_pid_is_ours(4242, {"port": 8765})
+        self.assertTrue(ok)
+
+        with mock.patch.object(server, "_control_panel_pid_alive", return_value=True), \
+             mock.patch.object(server, "_process_cmdline", return_value=""), \
+             mock.patch.object(server, "_port_owner_pid", return_value=999):
+            ok, note = server._control_panel_pid_is_ours(4242, {"port": 8765})
+        self.assertFalse(ok)
+        self.assertIn("stale", note)
+
+    def test_unidentifiable_pid_is_refused_not_assumed(self) -> None:
+        # No cmdline, no port evidence: "cannot tell" must never mean "kill it".
+        with mock.patch.object(server, "_control_panel_pid_alive", return_value=True), \
+             mock.patch.object(server, "_process_cmdline", return_value=""), \
+             mock.patch.object(server, "_port_owner_pid", return_value=None):
+            ok, note = server._control_panel_pid_is_ours(4242, {"port": 8765})
+        self.assertFalse(ok)
+        self.assertIn("could not confirm", note)
+
+    # ---- the paths that used to signal on liveness alone ------------------
+
+    def test_close_does_not_sigterm_a_recycled_pid(self) -> None:
+        self._write_state(4242)
+        with mock.patch.object(server, "_control_panel_pid_alive", return_value=True), \
+             mock.patch.object(server, "_process_cmdline", return_value="/usr/bin/sshd -D"), \
+             mock.patch.object(server.os, "kill") as killer:
+            result = server._close_control_panel()
+        killer.assert_not_called()
+        self.assertTrue(result["success"])
+        self.assertFalse(result["was_running"])
+        self.assertIn("unrelated process", result["identity_check"])
+        # The stale pidfile is cleaned up so the next call starts fresh.
+        self.assertFalse(os.path.isfile(self.pidfile))
+
+    def test_close_still_terminates_the_real_panel(self) -> None:
+        self._write_state(4242)
+        with mock.patch.object(server, "_control_panel_pid_alive", side_effect=[True, False]), \
+             mock.patch.object(server, "_process_cmdline",
+                               return_value="python3 -m src.dashboard.main"), \
+             mock.patch.object(server.os, "kill") as killer:
+            result = server._close_control_panel()
+        killer.assert_called_once_with(4242, 15)
+        self.assertTrue(result["was_running"])
+        self.assertEqual(result["pid"], 4242)
+
+    def test_status_reports_a_recycled_pid_as_not_running(self) -> None:
+        self._write_state(4242)
+        with mock.patch.object(server, "_control_panel_pid_alive", return_value=True), \
+             mock.patch.object(server, "_process_cmdline", return_value="/usr/bin/sshd -D"):
+            status = server._control_panel_status()
+        self.assertFalse(status["running"])
+        self.assertIsNone(status["pid"])
+
+    def test_force_restart_does_not_sigterm_an_unconfirmed_tracked_pid(self) -> None:
+        # Port held by an untracked dashboard; the pidfile points at a recycled
+        # PID. Only the port owner may be signalled.
+        self._write_state(4242)
+        # First lookup finds the squatter; every lookup after the SIGTERM sees
+        # the port freed.
+        owners = iter([7777])
+        with mock.patch.object(server, "_port_owner_pid",
+                               side_effect=lambda *_a, **_k: next(owners, None)), \
+             mock.patch.object(server, "_control_panel_probe",
+                               return_value={"is_dashboard": False, "version": None}), \
+             mock.patch.object(server, "_control_panel_pid_alive", return_value=True), \
+             mock.patch.object(server, "_process_cmdline", return_value="/usr/bin/sshd -D"), \
+             mock.patch.object(server.os, "kill") as killer, \
+             mock.patch.object(server, "_pick_dashboard_python",
+                               side_effect=AssertionError("must not reach spawn")):
+            with self.assertRaises(AssertionError):
+                server._open_control_panel({"force_restart": True})
+        self.assertEqual([c.args for c in killer.call_args_list], [(7777, 15)])
+
+
 if __name__ == "__main__":
     unittest.main()

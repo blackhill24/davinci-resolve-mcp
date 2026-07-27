@@ -73,15 +73,17 @@ except Exception as exc:
 
 argv = [{binary!r}] + sys.argv[1:]
 
-# No raw-hw config means Resolve shares the card through PipeWire as usual, so
-# there is nothing to restore afterwards: exec and get out of the process tree.
-if not env.get("ALSA_CONFIG_PATH") or restore_audio_server is None:
+# Nothing to restore unless this launch actually takes a device the session
+# audio server was using: either there is no raw-hw config at all, or selection
+# found a free device and PipeWire keeps everything it had. Exec and get out of
+# the process tree.
+if not env.get("RESOLVE_MCP_AUDIO_CONTESTED") or restore_audio_server is None:
     os.execve({binary!r}, argv, env)
 
-# With the raw-hw config Resolve owns the card exclusively. PipeWire loses it,
-# parks the node in a terminal "error" state, and never retries — so the desktop
-# stays silent even after Resolve quits. Stay alive as a thin parent purely to
-# restart the session audio manager once the card is free again.
+# Contested: Resolve takes a device PipeWire was on. PipeWire loses it, parks
+# the node in a terminal "error" state, and never retries — so the desktop stays
+# silent even after Resolve quits. Stay alive as a thin parent purely to restart
+# the session audio manager once the card is free again.
 proc = subprocess.Popen(argv, env=env)
 
 

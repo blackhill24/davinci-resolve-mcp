@@ -39,16 +39,27 @@ writeback/persistence policy) plus the MCP self-update policy — see
 | `set_high_priority` / `disable_background_tasks_for_current_session` | Process-priority and background-task tuning for the current Resolve session. |
 | `install_launch_shim` / `uninstall_launch_shim` / `launch_shim_status` | Linux only. Install a user-scoped shim (`~/.local/bin/resolve` + a user-level `.desktop` override) so the Fairlight raw-hw ALSA config applies however Resolve is started, not only when this connector spawns it — without it, a desktop-launcher or terminal start wedges renders mid-run. Idempotent; refuses to overwrite files it did not write. `launch` reports a `launch_shim` key when an installed shim has been shadowed on `PATH`. |
 
-**Linux audio, while Resolve runs.** The raw-hw ALSA config opens the card
-*exclusively*, so PipeWire loses it for as long as Resolve is up — that part is
-unavoidable if Fairlight is to initialize at all. What is not unavoidable is
-what happens next: PipeWire parks the node in a terminal `error` state and never
-retries, so the desktop stays silent even after Resolve exits ("the sound card
-disappeared until I reboot", #129). Every launch path this connector owns —
-`spawn_resolve()` and the launch shim — now restarts the session manager
-(wireplumber) once Resolve releases the card. Set `RESOLVE_MCP_NO_AUDIO_RESTORE`
-to opt out; to recover by hand, quit Resolve and run
-`systemctl --user restart wireplumber`.
+**Linux audio, while Resolve runs.** The raw-hw ALSA config opens its devices
+*exclusively* — unavoidable if Fairlight is to initialize at all — so which
+devices get chosen decides whether the rest of the desktop keeps working.
+Selection asks the session audio server (`pactl list sinks/sources`) which
+`(card, device)` pairs it actually has live nodes on and ranks those last, so
+Resolve takes a free device and everything else keeps playing (#131). This
+cannot be inferred from `/proc/asound` alone: an idle PipeWire node is
+*suspended*, and a suspended substream's status reads `closed`, i.e. free.
+Granularity is per-device, not per-card — ALSA exclusivity is per-PCM-device,
+so a card can host the desktop's output and Resolve's capture at once.
+
+When nothing is free, the launch is *contested*: Resolve takes a device the
+audio server was on, PipeWire parks the node in a terminal `error` state and
+never retries, and the desktop stays silent even after Resolve exits ("the
+sound card disappeared until I reboot", #129). Only then do the launch paths
+(`spawn_resolve()` and the launch shim, flagged via
+`RESOLVE_MCP_AUDIO_CONTESTED`) restart the session manager once Resolve
+releases the device; an uncontested launch leaves the audio stack alone. A
+contested pick is logged at WARNING with the devices involved. Set
+`RESOLVE_MCP_NO_AUDIO_RESTORE` to opt out of the restart; to recover by hand,
+quit Resolve and run `systemctl --user restart wireplumber`.
 
 ### `timeline_versioning` — snapshot / rollback safety net
 

@@ -22,7 +22,7 @@ import threading
 import time
 from typing import Callable, Dict, Optional
 
-from src.core.proc import resolve_spawn_env, restore_audio_server
+from src.core.proc import AUDIO_CONTESTED_ENV, resolve_spawn_env, restore_audio_server
 
 logger = logging.getLogger("resolve-mcp.launch")
 
@@ -76,7 +76,10 @@ def spawn_resolve(log: Optional[logging.Logger] = None) -> bool:
             env=env,
             start_new_session=True,
         )
-        if env.get("ALSA_CONFIG_PATH"):
+        # Only when the pick was contested: an uncontested launch never takes a
+        # device PipeWire was using, so there is nothing to recover and a
+        # restart would just glitch audio for no reason (#131).
+        if env.get(AUDIO_CONTESTED_ENV):
             _watch_for_audio_release(proc, log)
     return True
 

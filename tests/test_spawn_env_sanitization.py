@@ -9,6 +9,7 @@ Every launch site must go through proc.sanitized_spawn_env().
 """
 import inspect
 import os
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -76,7 +77,7 @@ class ResolveSpawnEnvTest(unittest.TestCase):
                 (0, 3, "playback", "closed"),
                 (1, 2, "capture", "closed"),
             ])
-            env = resolve_spawn_env({}, proc_asound=root, conf_dir=root)
+            env = resolve_spawn_env({}, proc_asound=root, conf_dir=root, owned_devices=frozenset())
             conf_path = env.get("ALSA_CONFIG_PATH")
             self.assertTrue(conf_path and os.path.exists(conf_path))
             with open(conf_path, encoding="utf-8") as fh:
@@ -108,7 +109,7 @@ class ResolveSpawnEnvTest(unittest.TestCase):
                 (0, 3, "playback", "closed"),
                 (1, 2, "capture", "closed"),
             ])
-            env = resolve_spawn_env({}, proc_asound=root, conf_dir=root)
+            env = resolve_spawn_env({}, proc_asound=root, conf_dir=root, owned_devices=frozenset())
             with open(env["ALSA_CONFIG_PATH"], encoding="utf-8") as fh:
                 conf = fh.read()
             self.assertIn("ctl.hw {", conf)
@@ -121,11 +122,11 @@ class ResolveSpawnEnvTest(unittest.TestCase):
                 (0, 0, "playback", "state: RUNNING"),
                 (0, 0, "capture", "closed"),
             ])
-            env = resolve_spawn_env({"PATH": "/usr/bin"}, proc_asound=root, conf_dir=root)
+            env = resolve_spawn_env({"PATH": "/usr/bin"}, proc_asound=root, conf_dir=root, owned_devices=frozenset())
             self.assertNotIn("ALSA_CONFIG_PATH", env)
 
     def test_missing_proc_asound_is_harmless(self):
-        env = resolve_spawn_env({"PATH": "/usr/bin"}, proc_asound="/nonexistent-asound")
+        env = resolve_spawn_env({"PATH": "/usr/bin"}, proc_asound="/nonexistent-asound", owned_devices=frozenset())
         self.assertEqual(env["PATH"], "/usr/bin")
         self.assertNotIn("ALSA_CONFIG_PATH", env)
 
@@ -141,7 +142,7 @@ class ResolveSpawnEnvTest(unittest.TestCase):
             self.assertEqual(env["ALSA_CONFIG_PATH"], "/etc/mine.conf")
 
     def test_still_sanitizes_preload(self):
-        env = resolve_spawn_env({"LD_PRELOAD": NXEGL}, proc_asound="/nonexistent-asound")
+        env = resolve_spawn_env({"LD_PRELOAD": NXEGL}, proc_asound="/nonexistent-asound", owned_devices=frozenset())
         self.assertNotIn("LD_PRELOAD", env)
 
 
@@ -169,7 +170,7 @@ class AlsaDeviceRankingTest(unittest.TestCase):
                 fh.write(f"monitor_present\t\t{present}\neld_valid\t\t{present}\n")
 
     def _conf(self, root):
-        env = resolve_spawn_env({}, proc_asound=root, conf_dir=root)
+        env = resolve_spawn_env({}, proc_asound=root, conf_dir=root, owned_devices=frozenset())
         path = env.get("ALSA_CONFIG_PATH")
         self.assertTrue(path and os.path.exists(path))
         with open(path, encoding="utf-8") as fh:
@@ -222,8 +223,211 @@ class AlsaDeviceRankingTest(unittest.TestCase):
             self.assertIn("card 0; device 3", conf)
 
 
+class AudioCoexistenceTest(unittest.TestCase):
+    """Resolve must not take the card the rest of the desktop is using (#131).
+
+    The devices in the generated conf are opened *exclusively*. Before this,
+    selection preferred ``analog`` — which is precisely the card the session
+    audio server almost always lives on — and inferred "free" from a status
+    file that reads ``closed`` for a merely-suspended PipeWire node. So the
+    desktop's own output looked available, got taken, and every other
+    application went silent for as long as Resolve ran.
+    """
+
+    def _fake_asound(self, root, devices):
+        """devices: (card, dev, name, direction, status)."""
+        lines = []
+        for card, dev, name, direction, status in devices:
+            lines.append(f"{card:02d}-{dev:02d}: {name} : {name} : {direction} 1\n")
+            sub = os.path.join(root, f"card{card}", f"pcm{dev}{direction[0]}", "sub0")
+            os.makedirs(sub, exist_ok=True)
+            with open(os.path.join(sub, "status"), "w", encoding="utf-8") as fh:
+                fh.write(status)
+        with open(os.path.join(root, "pcm"), "w", encoding="utf-8") as fh:
+            fh.writelines(lines)
+        # An ELD marking the HDMI pin connected, so it is a real candidate.
+        path = os.path.join(root, "card0", "eld#0.0")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("monitor_present\t\t1\neld_valid\t\t1\n")
+
+    # This machine's actual layout: card 0 is HDMI-only (no capture), card 1 is
+    # the analog card the desktop lives on and the only source of capture.
+    _REAL_LAYOUT = [
+        (0, 3, "HDMI 0", "playback", "closed"),
+        (1, 0, "ALC897 Analog", "playback", "closed"),
+        (1, 0, "ALC897 Analog", "capture", "closed"),
+        (1, 2, "ALC897 Alt Analog", "capture", "closed"),
+    ]
+
+    def _conf(self, root, owned):
+        env = resolve_spawn_env({}, proc_asound=root, conf_dir=root, owned_devices=owned)
+        with open(env["ALSA_CONFIG_PATH"], encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_avoids_the_card_the_audio_server_is_using(self):
+        """The whole point: playback moves off the desktop's card.
+
+        Card 1 carries the better-ranked device by every pre-#131 measure — it
+        is analog, and it is the lower card number. It must still lose, because
+        taking it silences the desktop.
+        """
+        with tempfile.TemporaryDirectory() as root:
+            self._fake_asound(root, self._REAL_LAYOUT)
+            conf = self._conf(root, frozenset({(1, 0)}))
+            self.assertIn("playback.pcm { type plug; slave.pcm { type hw; card 0; device 3 }", conf)
+
+    def test_capture_falls_back_to_a_free_device_on_a_used_card(self):
+        """Exclusivity is per-PCM-device, not per-card.
+
+        There is no capture device outside card 1 on this hardware, so the
+        capture side has to stay there — but it can use the *alt* device while
+        the audio server keeps device 0. Verified live: ``arecord -D hw:1,2``
+        succeeds with PipeWire holding ``pcm0p`` RUNNING.
+        """
+        with tempfile.TemporaryDirectory() as root:
+            self._fake_asound(root, [
+                (0, 3, "HDMI 0", "playback", "closed"),
+                (1, 0, "ALC897 Analog", "capture", "state: RUNNING"),
+                (1, 2, "ALC897 Alt Analog", "capture", "closed"),
+            ])
+            conf = self._conf(root, frozenset({(1, 0)}))
+            self.assertIn("capture.pcm { type plug; slave.pcm { type hw; card 1; device 2 }", conf)
+
+    def test_free_card_ranking_still_applies_within_the_group(self):
+        """Coexistence outranks quality, but only across groups.
+
+        Among cards the audio server is *not* using, the old ranking is intact
+        — analog still beats HDMI. Regression guard for #99's determinism work.
+        """
+        with tempfile.TemporaryDirectory() as root:
+            self._fake_asound(root, [
+                (0, 3, "HDMI 0", "playback", "closed"),
+                (1, 0, "ALC897 Analog", "playback", "closed"),
+                (1, 0, "ALC897 Analog", "capture", "closed"),
+            ])
+            conf = self._conf(root, frozenset())
+            self.assertIn("playback.pcm { type plug; slave.pcm { type hw; card 1; device 0 }", conf)
+
+    def test_contested_card_is_still_used_when_nothing_else_is_free(self):
+        """Tier 3 — degraded, but Resolve must still get working audio.
+
+        Refusing to launch, or handing back no config, would resurrect #28
+        (Fairlight retry-loops, renders stall at 0%). #129's restore is what
+        makes this survivable: the card comes back when Resolve exits.
+        """
+        with tempfile.TemporaryDirectory() as root:
+            self._fake_asound(root, [
+                (1, 0, "ALC897 Analog", "playback", "closed"),
+                (1, 0, "ALC897 Analog", "capture", "closed"),
+            ])
+            conf = self._conf(root, frozenset({(1, 0)}))
+            self.assertIn("card 1; device 0", conf)
+
+    def test_unknown_ownership_does_not_read_as_everything_free(self):
+        """No pactl, no server, a timeout — the answer is unknown.
+
+        Unknown must degrade to the pre-#131 ranking, not to "nothing is in
+        use", which would confidently grab the desktop's card on exactly the
+        machines we cannot inspect.
+        """
+        with tempfile.TemporaryDirectory() as root:
+            self._fake_asound(root, self._REAL_LAYOUT)
+            with mock.patch.object(proc, "_audio_server_devices", return_value=None):
+                conf = self._conf(root, None)
+            self.assertIn("playback.pcm { type plug; slave.pcm { type hw; card 1; device 0 }", conf)
+
+    def test_ownership_is_probed_when_not_supplied(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._fake_asound(root, self._REAL_LAYOUT)
+            with mock.patch.object(
+                proc, "_audio_server_devices", return_value=frozenset({(1, 0)})
+            ) as probe:
+                conf = self._conf(root, None)
+            self.assertTrue(probe.called)
+            self.assertIn("card 0; device 3", conf)
+
+
+class AudioServerDevicesTest(unittest.TestCase):
+    """``_audio_server_devices`` asks the audio server, not the kernel (#131)."""
+
+    _SINKS = """
+Sink #51
+\tName: alsa_output.pci-0000_2d_00.4.analog-stereo
+\t\talsa.card = "1"
+\t\talsa.card_name = "HD-Audio Generic"
+\t\talsa.device = "0"
+"""
+    _SOURCES = """
+Source #52
+\tName: alsa_input.pci-0000_2d_00.4.analog-stereo
+\t\talsa.card = "1"
+\t\talsa.device = "0"
+"""
+
+    def _run(self, sinks=None, sources=None, returncode=0):
+        outputs = {"sinks": sinks or "", "sources": sources or ""}
+
+        def fake_run(cmd, **kwargs):
+            return mock.Mock(returncode=returncode, stdout=outputs[cmd[2]])
+
+        return mock.patch.object(proc.subprocess, "run", side_effect=fake_run)
+
+    def test_collects_card_device_pairs_from_sinks_and_sources(self):
+        with self._run(self._SINKS, self._SOURCES):
+            self.assertEqual(proc._audio_server_devices(), frozenset({(1, 0)}))
+
+    def test_device_with_no_sink_or_source_is_not_owned(self):
+        """The HDMI card has a profile object but no live node.
+
+        ``pactl list cards`` reports every ALSA card the server can see,
+        including profile-off ones — reading that instead would mark card 0
+        owned and leave nothing free, defeating the fix on this exact machine.
+        """
+        with self._run(self._SINKS, self._SOURCES):
+            self.assertNotIn(0, proc._audio_server_devices())
+
+    def test_missing_pactl_is_unknown_not_empty(self):
+        with mock.patch.object(proc.subprocess, "run", side_effect=FileNotFoundError):
+            self.assertIsNone(proc._audio_server_devices())
+
+    def test_pactl_failure_is_unknown(self):
+        with self._run(returncode=1):
+            self.assertIsNone(proc._audio_server_devices())
+
+    def test_timeout_is_unknown(self):
+        with mock.patch.object(
+            proc.subprocess, "run", side_effect=subprocess.TimeoutExpired("pactl", 5)
+        ):
+            self.assertIsNone(proc._audio_server_devices())
+
+    def test_no_stdin_and_bounded(self):
+        seen = {}
+
+        def fake_run(cmd, **kwargs):
+            seen.update(kwargs)
+            return mock.Mock(returncode=0, stdout="")
+
+        with mock.patch.object(proc.subprocess, "run", side_effect=fake_run):
+            proc._audio_server_devices()
+        self.assertEqual(seen.get("stdin"), subprocess.DEVNULL)
+        self.assertTrue(seen.get("timeout"))
+
+
 class LaunchSitesUseSanitizedEnvTest(unittest.TestCase):
     """Every Linux Resolve spawn passes a sanitized env and detaches the session."""
+
+    def setUp(self):
+        """Stub the audio-server probe for every launch test (#131).
+
+        These tests are about the env a spawn receives, not about device
+        selection. They patch ``subprocess.Popen`` — which patches the *module*
+        — so the real ``pactl`` probe inside ``resolve_spawn_env()`` would run
+        through that mock and try to unpack a Mock as ``(stdout, stderr)``.
+        """
+        probe = mock.patch.object(proc, "_audio_server_devices", return_value=frozenset())
+        probe.start()
+        self.addCleanup(probe.stop)
 
     def _assert_popen_sanitized(self, popen):
         self.assertTrue(popen.called)
@@ -439,14 +643,27 @@ class AudioReleaseWatcherTest(unittest.TestCase):
             self.assertTrue(resolve_launch.spawn_resolve())
         return popen, watch
 
-    def test_watcher_armed_when_a_raw_hw_conf_was_handed_out(self):
-        popen, watch = self._spawn({"ALSA_CONFIG_PATH": "/tmp/x.conf"})
+    def test_watcher_armed_when_the_pick_was_contested(self):
+        popen, watch = self._spawn(
+            {"ALSA_CONFIG_PATH": "/tmp/x.conf", proc.AUDIO_CONTESTED_ENV: "1"}
+        )
         watch.assert_called_once()
         self.assertIs(watch.call_args.args[0], popen.return_value)
 
     def test_no_watcher_without_a_raw_hw_conf(self):
         """No conf means Resolve shares the card via PipeWire — nothing to restore."""
         _popen, watch = self._spawn({"HOME": "/home/x"})
+        self.assertFalse(watch.called)
+
+    def test_no_watcher_when_the_pick_was_uncontested(self):
+        """A conf alone is not a reason to restart the session manager (#131).
+
+        Selection now prefers devices the audio server is not using, so the
+        common case hands out a conf while PipeWire keeps everything it had.
+        Restarting wireplumber then would glitch audio this launch never
+        disturbed.
+        """
+        _popen, watch = self._spawn({"ALSA_CONFIG_PATH": "/tmp/x.conf"})
         self.assertFalse(watch.called)
 
     def test_watcher_restores_after_the_process_exits(self):
@@ -474,10 +691,16 @@ class LaunchShimAudioReleaseTest(unittest.TestCase):
         self.assertIn("restore_audio_server", shim)
         self.assertIn("proc.wait()", shim)
 
-    def test_shim_still_execs_when_no_conf_was_produced(self):
-        """Without a raw-hw conf there is nothing to clean up, so don't linger
-        as a parent process for the whole of Resolve's lifetime."""
-        self.assertIn('if not env.get("ALSA_CONFIG_PATH")', launch_shim._SHIM_TEMPLATE)
+    def test_shim_still_execs_when_the_pick_was_uncontested(self):
+        """Nothing was taken from PipeWire, so nothing needs restoring — don't
+        linger as a parent process for the whole of Resolve's lifetime.
+
+        Keyed on the contested marker rather than the conf: since #131 the
+        common case produces a conf *and* leaves the desktop's audio alone.
+        """
+        self.assertIn(
+            f'if not env.get("{proc.AUDIO_CONTESTED_ENV}")', launch_shim._SHIM_TEMPLATE
+        )
         self.assertIn("os.execve", launch_shim._SHIM_TEMPLATE)
 
     def test_shim_template_is_valid_python(self):

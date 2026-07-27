@@ -13,7 +13,7 @@ import subprocess
 import unittest
 from unittest import mock
 
-from src.core import app_control
+from src.core import app_control, proc
 
 
 class ResolveProcessRunning(unittest.TestCase):
@@ -107,9 +107,14 @@ class RestartWaitsForExit(unittest.TestCase):
         self.assertFalse(popen.called, msg="must not spawn a second instance")
 
     def test_relaunches_once_the_old_process_is_gone(self) -> None:
+        # The audio-server probe is stubbed because patching Popen patches the
+        # subprocess *module*: the real `pactl` probe inside resolve_spawn_env()
+        # would otherwise run through that mock. This test is about restart
+        # sequencing, not device selection (#131).
         with mock.patch.object(app_control.platform, "system", return_value="Linux"), \
              mock.patch.object(app_control, "quit_resolve_app", return_value=True), \
              mock.patch.object(app_control, "resolve_process_running", side_effect=[True, False]), \
+             mock.patch.object(proc, "_audio_server_devices", return_value=frozenset()), \
              mock.patch.object(app_control.time, "sleep"), \
              mock.patch.object(app_control.subprocess, "Popen") as popen:
             self.assertTrue(

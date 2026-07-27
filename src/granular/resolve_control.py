@@ -27,13 +27,14 @@ def switch_page(page: str) -> str:
     """Switch to a specific page in DaVinci Resolve.
     
     Args:
-        page: The page to switch to. Options: 'media', 'cut', 'edit', 'fusion', 'color', 'fairlight', 'deliver'
+        page: The page to switch to. Options: 'media', 'photo', 'cut', 'edit', 'fusion', 'color', 'fairlight', 'deliver'
+              ('photo' only exists on builds that ship the Photo page; elsewhere OpenPage returns False)
     """
     resolve = get_resolve()
     if resolve is None:
         return "Error: Not connected to DaVinci Resolve"
     
-    valid_pages = ['media', 'cut', 'edit', 'fusion', 'color', 'fairlight', 'deliver']
+    valid_pages = ['media', 'photo', 'cut', 'edit', 'fusion', 'color', 'fairlight', 'deliver']
     page = page.lower()
     
     if page not in valid_pages:

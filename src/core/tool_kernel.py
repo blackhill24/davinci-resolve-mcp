@@ -505,6 +505,9 @@ _TOKEN_GATED_DESTRUCTIVE_ACTIONS = frozenset({
     ("folder", "remove_motion_blur"),
     ("media_pool_item", "remove_motion_blur"),
     ("project_settings", "generate_speech"),
+    # Not media-creating, but it destroys analysis data that only a re-run of
+    # analyze_for_intellisearch (GPU time over the whole media pool) restores.
+    ("project_settings", "reset_intellisearch_analysis"),
     # Permanent project deletion (#110 finding 2): token required whenever a
     # real (non-_mcp_) project is targeted via allow_non_mcp_name=True.
     ("project_manager", "delete"),
@@ -1633,7 +1636,7 @@ def _media_analysis_effective_preferences() -> Dict[str, Any]:
     effective["sampling_frame_ceiling"] = ceiling
     effective["default_post_operation_page"] = _normalize_setup_choice(
         effective.get("default_post_operation_page"),
-        ["stay_put", "media", "cut", "edit", "fusion", "color", "fairlight", "deliver"],
+        ["stay_put", "media", "photo", "cut", "edit", "fusion", "color", "fairlight", "deliver"],
         aliases={"media_pool": "media", "none": "stay_put"},
     ) or "stay_put"
     effective["marker_custom_data"] = _normalize_setup_choice(effective.get("marker_custom_data"), ["namespaced", "minimal"]) or "namespaced"

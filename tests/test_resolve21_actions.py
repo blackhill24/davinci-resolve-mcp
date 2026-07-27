@@ -158,6 +158,10 @@ class Project21:
         self.calls.append((settings, timecode))
         return Clip21(name="speech.wav", cid="vo-1")
 
+    def ResetIntellisearchAnalysis(self):
+        self.calls.append(("ResetIntellisearchAnalysis",))
+        return True
+
     def SetSetting(self, *args):
         self.calls.append(("SetSetting", args))
         self._settings[args[0]] = args[1]
@@ -392,6 +396,37 @@ class Resolve21GenerateSpeechTest(unittest.TestCase):
         self.assertFalse(out["success"])
         self.assertTrue(out["unavailable"])
         self.assertIn("Speech Generator Extra", out["error"])
+
+
+class Resolve21ResetIntellisearchTest(unittest.TestCase):
+    def setUp(self):
+        _core_tool_kernel._CONFIRM_TOKENS.clear()
+        self.proj = Project21()
+        self._orig_check = _dom_project_lifecycle._check
+        _dom_project_lifecycle._check = lambda: (None, self.proj, None)
+        self._tmp = tempfile.TemporaryDirectory()
+        self._orig_root = _core_tool_kernel._ai_ledger_root
+        _core_tool_kernel._ai_ledger_root = lambda: self._tmp.name
+
+    def tearDown(self):
+        _dom_project_lifecycle._check = self._orig_check
+        _core_tool_kernel._ai_ledger_root = self._orig_root
+        self._tmp.cleanup()
+
+    def test_confirm_gated_then_runs(self):
+        pending = compound.project_settings("reset_intellisearch_analysis", {})
+        self.assertEqual(pending.get("status"), "confirmation_required")
+        self.assertEqual(self.proj.calls, [])
+        out = compound.project_settings(
+            "reset_intellisearch_analysis", {"confirm_token": pending["confirm_token"]})
+        self.assertTrue(out["success"])
+        self.assertEqual(self.proj.calls, [("ResetIntellisearchAnalysis",)])
+
+    def test_legacy_project_guarded(self):
+        _dom_project_lifecycle._check = lambda: (None, LegacyProject(), None)
+        out = compound.project_settings("reset_intellisearch_analysis", {})
+        self.assertIn("error", out)
+        self.assertIn("21.0", str(out))
 
 
 class Resolve21CapabilityDetectionTest(unittest.TestCase):

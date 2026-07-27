@@ -36,6 +36,7 @@ OP_META: Dict[str, Dict[str, Optional[str]]] = {
     "clear_audio_classification": {"op_class": OP_CLASS_ANALYSIS, "extra_required": None},
     "analyze_for_intellisearch": {"op_class": OP_CLASS_ANALYSIS, "extra_required": "AI IntelliSearch"},
     "analyze_for_slate": {"op_class": OP_CLASS_ANALYSIS, "extra_required": "AI Slate ID"},
+    "reset_intellisearch_analysis": {"op_class": OP_CLASS_ANALYSIS, "extra_required": None},
     "remove_motion_blur": {"op_class": OP_CLASS_RENDER, "extra_required": None},
     "generate_speech": {"op_class": OP_CLASS_RENDER, "extra_required": "AI Speech Generator"},
 }

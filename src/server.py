@@ -2157,7 +2157,7 @@ def _setup_media_analysis_defaults() -> Dict[str, Any]:
             "report_format": ["compact", "full", "machine_readable"],
             "source_trust": ["auto", "filename", "low", "medium", "high"],
             "default_depth": ["quick", "standard", "deep"],
-            "default_post_operation_page": ["stay_put", "media", "cut", "edit", "fusion", "color", "fairlight", "deliver"],
+            "default_post_operation_page": ["stay_put", "media", "photo", "cut", "edit", "fusion", "color", "fairlight", "deliver"],
             "sampling_mode_default": ["ask", "fixed", "per_minute", "adaptive_capped", "adaptive"],
         },
         "sampling_mode_labels": dict(_media_analysis_module.SAMPLING_MODE_LABELS),
@@ -2473,7 +2473,7 @@ def _setup_set_media_analysis_defaults(media_defaults: Dict[str, Any], dry_run: 
         elif key == "default_post_operation_page":
             normalized = _normalize_setup_choice(
                 raw_value,
-                ["stay_put", "media", "cut", "edit", "fusion", "color", "fairlight", "deliver"],
+                ["stay_put", "media", "photo", "cut", "edit", "fusion", "color", "fairlight", "deliver"],
                 aliases={"media_pool": "media", "none": "stay_put"},
             )
             if normalized is None:
@@ -2749,7 +2749,7 @@ def setup(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any
                 "media_analysis.preferred_generated_media_folder": {"values": "absolute or expandable path", "storage": _media_analysis_preferences_path()},
                 "media_analysis.inventory_limit": {"description": "Maximum clips indexed during the Media Pool inventory walk.", "values": "integer 1..10000 (default 500)", "storage": _media_analysis_preferences_path()},
                 "media_analysis.inventory_exclude_bins": {"description": "Comma-separated folder names to skip entirely during the inventory walk. Empty indexes every folder.", "values": "comma-separated folder names (default none)", "storage": _media_analysis_preferences_path()},
-                "media_analysis.default_post_operation_page": {"values": ["stay_put", "media", "cut", "edit", "fusion", "color", "fairlight", "deliver"], "storage": _media_analysis_preferences_path()},
+                "media_analysis.default_post_operation_page": {"values": ["stay_put", "media", "photo", "cut", "edit", "fusion", "color", "fairlight", "deliver"], "storage": _media_analysis_preferences_path()},
                 "media_analysis.marker_custom_data": {"values": ["namespaced", "minimal"], "storage": _media_analysis_preferences_path()},
                 "media_analysis.metadata_writeback_default": {"values": [True, False], "storage": _media_analysis_preferences_path()},
                 "media_analysis.ask_before_metadata_publish": {"values": [True, False], "storage": _media_analysis_preferences_path()},
@@ -2891,7 +2891,7 @@ def resolve_control(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
       list_jobs() -> {jobs}  — compact status of every known background job
         (no connection needed).
       get_page() -> {page}
-      open_page(page) -> {success}  — page: edit, cut, color, fusion, fairlight, deliver
+      open_page(page) -> {success}  — page: media, photo, edit, cut, color, fusion, fairlight, deliver ("photo" needs a build that has the Photo page)
       get_keyframe_mode() -> {mode}
       set_keyframe_mode(mode) -> {success}
       quit() -> {success}
@@ -3022,7 +3022,9 @@ def resolve_control(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         return {"page": r.GetCurrentPage()}
     elif action == "open_page":
         err, clean = _validate_params(p, {
-            "page": {"enum": ["media", "cut", "edit", "color", "fusion", "fairlight", "deliver"],
+            # "photo" is documented from the 26 May 2026 API build onwards; on
+            # builds without a Photo page OpenPage simply returns False.
+            "page": {"enum": ["media", "photo", "cut", "edit", "color", "fusion", "fairlight", "deliver"],
                      "required": True},
         })
         if err:

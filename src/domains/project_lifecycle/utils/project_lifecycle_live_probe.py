@@ -255,7 +255,9 @@ def run_probe(server, output_dir: Path, keep_open: bool = False) -> Dict[str, An
         _record_tool_result(recorder, "folders", "folder_goto_parent", server.project_manager_folders("goto_parent"))
         _record_tool_result(recorder, "folders", "folder_delete", server.project_manager_folders("delete", {"name": folder_name}))
 
-        for page in ["media", "cut", "edit", "fusion", "color", "fairlight", "deliver"]:
+        # "photo" is documented from the 26 May 2026 API build on; builds without
+        # a Photo page just return False here, which expected_status=None allows.
+        for page in ["media", "photo", "cut", "edit", "fusion", "color", "fairlight", "deliver"]:
             _record_tool_result(
                 recorder,
                 "app_state",

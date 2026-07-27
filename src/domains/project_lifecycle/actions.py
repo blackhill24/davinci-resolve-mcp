@@ -1214,6 +1214,7 @@ def project_settings(action: str, params: Optional[Dict[str, Any]] = None) -> Di
       delete_color_group(name) -> {success}
       apply_fairlight_preset(preset_name) -> {success}
       generate_speech(speech_generation_settings, timecode?) -> {success, new, new_id}  — Resolve 21+, AI Speech Generator; creates new audio media (confirm-gated)
+      reset_intellisearch_analysis() -> {success}  — Resolve 21+; clears the project's IntelliSearch analysis data (confirm-gated, re-analysis is the only way back)
       set_super_scale(mode, sharpness?, noise_reduction?) -> {success, verified, mode, enhanced}  — Resolve 21+; mode 0=Auto,1=none,2/3/4=2x/3x/4x. sharpness+noise_reduction (both required together, [0.0,1.0]) select '2x Enhanced' at mode=2
     """
     p = params or {}
@@ -1327,6 +1328,28 @@ def project_settings(action: str, params: Optional[Dict[str, Any]] = None) -> Di
                              "generation failure."}
         return {"success": True, "new": new_item.GetName(), "new_id": new_item.GetUniqueId(),
                 "output_path": _rec.output_path, "output_bytes": _rec.output_bytes}
+    elif action == "reset_intellisearch_analysis":
+        missing = _requires_method(proj, "ResetIntellisearchAnalysis", "21.0")
+        if missing:
+            return missing
+        if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+            return _issue_confirm_token(
+                action="project_settings.reset_intellisearch_analysis",
+                params=p,
+                preview={
+                    "operation": "project_settings.reset_intellisearch_analysis",
+                    "warning": "Clears ALL IntelliSearch analysis data for this project. "
+                               "Searchability only comes back by re-running "
+                               "analyze_for_intellisearch over the media, which costs GPU time.",
+                },
+            )
+        blocked = _consume_confirm_token(action="project_settings.reset_intellisearch_analysis", params=p)
+        if blocked:
+            return blocked
+        with _ai_ledger_timed("reset_intellisearch_analysis") as _rec:
+            ok = bool(proj.ResetIntellisearchAnalysis())
+            _rec.success = ok
+        return {"success": ok}
     elif action == "set_super_scale":
         missing = _requires_method(proj, "SetSetting", "21.0")
         if missing:
@@ -1355,7 +1378,7 @@ def project_settings(action: str, params: Optional[Dict[str, Any]] = None) -> Di
         )
         return {"success": res["success_raw"], "verified": res["verified"], "mode": mode,
                 "enhanced": sharpness is not None, "observed": res["observed"]}
-    return _unknown(action, ["get_name","set_name","get_setting","set_setting","get_unique_id","get_presets","set_preset","refresh_luts","get_gallery","export_frame_as_still","project_summary","load_burnin_preset","insert_audio","get_color_groups","add_color_group","delete_color_group","apply_fairlight_preset","generate_speech","set_super_scale"])
+    return _unknown(action, ["get_name","set_name","get_setting","set_setting","get_unique_id","get_presets","set_preset","refresh_luts","get_gallery","export_frame_as_still","project_summary","load_burnin_preset","insert_audio","get_color_groups","add_color_group","delete_color_group","apply_fairlight_preset","generate_speech","reset_intellisearch_analysis","set_super_scale"])
 
 
 _CLOUD_SYNC_MODES = {

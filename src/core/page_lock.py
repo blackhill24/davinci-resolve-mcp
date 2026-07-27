@@ -78,7 +78,7 @@ def _acquire_file_lock(timeout: float = None):
         timeout = PAGE_LOCK_TIMEOUT_SECONDS
     try:
         # a+ rather than w: opening must not truncate the PID a live holder wrote.
-        fh = open(_LOCKFILE, "a+")
+        fh = open(_LOCKFILE, "a+", encoding="utf-8")
     except OSError as exc:
         logger.debug("Page lock file %s unavailable (%s); continuing without it", _LOCKFILE, exc)
         return None

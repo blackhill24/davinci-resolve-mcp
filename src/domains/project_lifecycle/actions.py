@@ -769,6 +769,11 @@ def _make_spec_hook_runner(timeout: float = 120.0):
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
+                # Only the exit code is read, but text=True still decodes both pipes;
+                # name the encoding so a C locale cannot turn a hook's output into a
+                # UnicodeDecodeError that reads as "hook failed".
+                encoding="utf-8",
+                errors="replace",
             )
             return proc.returncode == 0
         except Exception as exc:

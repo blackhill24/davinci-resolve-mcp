@@ -643,14 +643,27 @@ class AudioReleaseWatcherTest(unittest.TestCase):
             self.assertTrue(resolve_launch.spawn_resolve())
         return popen, watch
 
-    def test_watcher_armed_when_a_raw_hw_conf_was_handed_out(self):
-        popen, watch = self._spawn({"ALSA_CONFIG_PATH": "/tmp/x.conf"})
+    def test_watcher_armed_when_the_pick_was_contested(self):
+        popen, watch = self._spawn(
+            {"ALSA_CONFIG_PATH": "/tmp/x.conf", proc.AUDIO_CONTESTED_ENV: "1"}
+        )
         watch.assert_called_once()
         self.assertIs(watch.call_args.args[0], popen.return_value)
 
     def test_no_watcher_without_a_raw_hw_conf(self):
         """No conf means Resolve shares the card via PipeWire — nothing to restore."""
         _popen, watch = self._spawn({"HOME": "/home/x"})
+        self.assertFalse(watch.called)
+
+    def test_no_watcher_when_the_pick_was_uncontested(self):
+        """A conf alone is not a reason to restart the session manager (#131).
+
+        Selection now prefers devices the audio server is not using, so the
+        common case hands out a conf while PipeWire keeps everything it had.
+        Restarting wireplumber then would glitch audio this launch never
+        disturbed.
+        """
+        _popen, watch = self._spawn({"ALSA_CONFIG_PATH": "/tmp/x.conf"})
         self.assertFalse(watch.called)
 
     def test_watcher_restores_after_the_process_exits(self):
@@ -678,10 +691,16 @@ class LaunchShimAudioReleaseTest(unittest.TestCase):
         self.assertIn("restore_audio_server", shim)
         self.assertIn("proc.wait()", shim)
 
-    def test_shim_still_execs_when_no_conf_was_produced(self):
-        """Without a raw-hw conf there is nothing to clean up, so don't linger
-        as a parent process for the whole of Resolve's lifetime."""
-        self.assertIn('if not env.get("ALSA_CONFIG_PATH")', launch_shim._SHIM_TEMPLATE)
+    def test_shim_still_execs_when_the_pick_was_uncontested(self):
+        """Nothing was taken from PipeWire, so nothing needs restoring — don't
+        linger as a parent process for the whole of Resolve's lifetime.
+
+        Keyed on the contested marker rather than the conf: since #131 the
+        common case produces a conf *and* leaves the desktop's audio alone.
+        """
+        self.assertIn(
+            f'if not env.get("{proc.AUDIO_CONTESTED_ENV}")', launch_shim._SHIM_TEMPLATE
+        )
         self.assertIn("os.execve", launch_shim._SHIM_TEMPLATE)
 
     def test_shim_template_is_valid_python(self):

@@ -155,6 +155,12 @@ def _hdmi_monitor_present(proc_asound: str, card: int, dev: int, hdmi_devs: List
 # How long to wait on the audio server's own CLI before giving up on it.
 _AUDIO_SERVER_QUERY_TIMEOUT_SECONDS = 5.0
 
+# Set in the spawn env when the chosen devices were ones the session audio
+# server was already using — i.e. the launch really will take audio away from
+# the rest of the desktop, and the post-exit restore in #129 is needed. An
+# uncontested launch leaves PipeWire untouched and needs no restart.
+AUDIO_CONTESTED_ENV = "RESOLVE_MCP_AUDIO_CONTESTED"
+
 
 def _audio_server_devices() -> Optional[FrozenSet[Tuple[int, int]]]:
     """The (card, device) pairs the session audio server has live nodes on.
@@ -257,7 +263,7 @@ def _rank(
 def _free_alsa_devices(
     proc_asound: str = "/proc/asound",
     owned_devices: Optional[FrozenSet[Tuple[int, int]]] = None,
-) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]], bool]:
     """Best free (card, device) pair for playback and capture, from /proc/asound.
 
     A substream is free when its status file reads "closed" (an open PCM shows
@@ -279,7 +285,7 @@ def _free_alsa_devices(
         with open(os.path.join(proc_asound, "pcm"), encoding="utf-8") as fh:
             lines: List[str] = fh.readlines()
     except OSError:
-        return None, None
+        return None, None, False
 
     # After the /proc read, not before: on a machine with no sound at all there
     # is nothing to rank, and no reason to spend a subprocess asking who owns
@@ -292,6 +298,10 @@ def _free_alsa_devices(
     # HDMI playback devices per card for the ELD mapping.
     candidates: Dict[str, List[Tuple[int, int, str]]] = {"playback": [], "capture": []}
     hdmi_devs: Dict[int, List[int]] = {}
+    # The free set is a snapshot of a moving target — a device busy for the one
+    # second we look is invisible to the ranking, and the resulting pick can
+    # look inexplicable afterwards. Log what was actually on the table (#131).
+    seen: List[str] = []
     for line in lines:
         m = re.match(r"(\d+)-(\d+):\s*([^:]*)", line)
         if not m:
@@ -311,6 +321,7 @@ def _free_alsa_devices(
             except OSError:
                 continue
             candidates[direction].append((card, dev, name))
+            seen.append(f"{direction} hw:{card},{dev} ({name})")
 
     def _pick(direction: str) -> Tuple[Optional[Tuple[int, int]], str]:
         best = None
@@ -328,6 +339,11 @@ def _free_alsa_devices(
 
     playback, p_name, p_owned = _pick("playback")
     capture, c_name, c_owned = _pick("capture")
+    logger.info(
+        "ALSA autodetect: free at probe time = [%s]; audio server holds %s",
+        ", ".join(seen) or "nothing",
+        "unknown" if unknown_owners else sorted(owned_devices),
+    )
     if playback is not None and capture is not None:
         logger.info(
             "ALSA autodetect: playback=hw:%d,%d (%s) capture=hw:%d,%d (%s)",
@@ -352,7 +368,7 @@ def _free_alsa_devices(
             "ALSA autodetect: no free duplex pair (playback=%s capture=%s); "
             "leaving env unchanged", playback, capture,
         )
-    return playback, capture
+    return playback, capture, bool(p_owned or c_owned)
 
 
 def resolve_spawn_env(
@@ -376,7 +392,7 @@ def resolve_spawn_env(
     env = sanitized_spawn_env(base_env)
     if env.get("ALSA_CONFIG_PATH"):
         return env
-    playback, capture = _free_alsa_devices(proc_asound, owned_devices)
+    playback, capture, contested = _free_alsa_devices(proc_asound, owned_devices)
     if playback is None or capture is None:
         return env
     conf = _ALSA_CONF_TEMPLATE.format(
@@ -407,6 +423,14 @@ def resolve_spawn_env(
     except OSError:
         return env
     env["ALSA_CONFIG_PATH"] = conf_path
+    if contested:
+        # Only a contested pick can strand PipeWire in the terminal `error`
+        # state, so only a contested pick needs the post-exit restart (#129).
+        # Marking it in the env rather than returning it keeps the signal
+        # travelling with the spawn — the launch shim is a separate process and
+        # reads exactly this. Restarting the session manager after an
+        # uncontested launch would glitch audio the launch never disturbed.
+        env[AUDIO_CONTESTED_ENV] = "1"
     return env
 
 

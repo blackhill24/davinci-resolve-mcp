@@ -57,14 +57,14 @@ def get_timeline_item_properties(timeline_item_id: str) -> Dict[str, Any]:
         properties = {
             "id": timeline_item_id,
             "name": timeline_item.GetName(),
-            "type": timeline_item.GetType(),
+            "type": timeline_item_kind(timeline_item),
             "start_frame": timeline_item.GetStart(),
             "end_frame": timeline_item.GetEnd(),
             "duration": timeline_item.GetDuration()
         }
         
         # Get additional properties if it's a video item
-        if timeline_item.GetType() == "Video":
+        if timeline_item_kind(timeline_item) == "Video":
             # Transform properties
             properties["transform"] = {
                 "position": {
@@ -117,7 +117,7 @@ def get_timeline_item_properties(timeline_item_id: str) -> Dict[str, Any]:
             }
         
         # Audio-specific properties
-        if timeline_item.GetType() == "Audio" or timeline_item.GetMediaType() == "Audio":
+        if timeline_item_kind(timeline_item) == "Audio":
             properties["audio"] = {
                 "volume": timeline_item.GetProperty("Volume"),
                 "pan": timeline_item.GetProperty("Pan"),
@@ -238,7 +238,7 @@ def set_timeline_item_transform(timeline_item_id: str,
         if not timeline_item:
             return f"Error: Video timeline item with ID '{timeline_item_id}' not found"
         
-        if timeline_item.GetType() != "Video":
+        if timeline_item_kind(timeline_item) != "Video":
             return f"Error: Timeline item with ID '{timeline_item_id}' is not a video item"
         
         # Set the property
@@ -298,7 +298,7 @@ def set_timeline_item_crop(timeline_item_id: str,
         if not timeline_item:
             return f"Error: Video timeline item with ID '{timeline_item_id}' not found"
         
-        if timeline_item.GetType() != "Video":
+        if timeline_item_kind(timeline_item) != "Video":
             return f"Error: Timeline item with ID '{timeline_item_id}' is not a video item"
         
         # Set the property
@@ -367,7 +367,7 @@ def set_timeline_item_composite(timeline_item_id: str,
         if not timeline_item:
             return f"Error: Video timeline item with ID '{timeline_item_id}' not found"
         
-        if timeline_item.GetType() != "Video":
+        if timeline_item_kind(timeline_item) != "Video":
             return f"Error: Timeline item with ID '{timeline_item_id}' is not a video item"
         
         success = True
@@ -528,7 +528,7 @@ def set_timeline_item_stabilization(timeline_item_id: str,
         if not timeline_item:
             return f"Error: Video timeline item with ID '{timeline_item_id}' not found"
         
-        if timeline_item.GetType() != "Video":
+        if timeline_item_kind(timeline_item) != "Video":
             return f"Error: Timeline item with ID '{timeline_item_id}' is not a video item"
         
         success = True
@@ -634,7 +634,7 @@ def set_timeline_item_audio(timeline_item_id: str,
             return f"Error: Timeline item with ID '{timeline_item_id}' not found"
         
         # Check if the item has audio capabilities
-        if not is_audio and timeline_item.GetMediaType() != "Audio":
+        if not is_audio and timeline_item_kind(timeline_item) != "Audio":
             return f"Error: Timeline item with ID '{timeline_item_id}' does not have audio properties"
         
         success = True
@@ -736,7 +736,7 @@ def get_timeline_item_keyframes(timeline_item_id: str, property_name: str) -> Di
         audio_properties = ['Volume', 'Pan']
         
         # Check if it's a video item
-        if timeline_item.GetType() == "Video":
+        if timeline_item_kind(timeline_item) == "Video":
             # Check each property to see if it has keyframes
             for prop in video_properties:
                 if timeline_item.GetKeyframeCount(prop) > 0:
@@ -757,7 +757,7 @@ def get_timeline_item_keyframes(timeline_item_id: str, property_name: str) -> Di
                         })
         
         # Check if it has audio properties (could be video with audio or audio-only)
-        if timeline_item.GetType() == "Audio" or timeline_item.GetMediaType() == "Audio":
+        if timeline_item_kind(timeline_item) == "Audio":
             # Check each audio property for keyframes
             for prop in audio_properties:
                 if timeline_item.GetKeyframeCount(prop) > 0:
@@ -876,7 +876,7 @@ def add_keyframe(timeline_item_id: str, property_name: str, frame: int, value: f
         if is_audio and property_name not in audio_properties:
             return f"Error: Property '{property_name}' is not available for audio items"
         
-        if not is_audio and property_name not in video_properties and timeline_item.GetType() != "Video":
+        if not is_audio and property_name not in video_properties and timeline_item_kind(timeline_item) != "Video":
             return f"Error: Property '{property_name}' is not available for this item type"
             
         # Validate frame is within the item's range
@@ -1267,7 +1267,7 @@ def enable_keyframes(timeline_item_id: str, keyframe_mode: str = "All") -> str:
         if not timeline_item:
             return f"Error: Video timeline item with ID '{timeline_item_id}' not found"
         
-        if timeline_item.GetType() != "Video":
+        if timeline_item_kind(timeline_item) != "Video":
             return f"Error: Timeline item with ID '{timeline_item_id}' is not a video item"
         
         # Set the keyframe mode

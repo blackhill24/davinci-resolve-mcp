@@ -1325,6 +1325,24 @@ def refresh_lut_list() -> Dict[str, Any]:
 
 
 @mcp.tool()
+def reset_intellisearch_analysis() -> Dict[str, Any]:
+    """Clear IntelliSearch analysis data for the project (Resolve 21+).
+
+    Destructive: the analysis has to be re-run (analyze_for_intellisearch) to
+    restore searchability. Needs no Extra of its own.
+    """
+    resolve = get_resolve()
+    if resolve is None:
+        return {"error": "Not connected to DaVinci Resolve"}
+    project = resolve.GetProjectManager().GetCurrentProject()
+    if not project:
+        return {"error": "No project currently open"}
+    if not _has_method(project, "ResetIntellisearchAnalysis"):
+        return {"error": "ResetIntellisearchAnalysis requires DaVinci Resolve 21+"}
+    return {"success": bool(project.ResetIntellisearchAnalysis())}
+
+
+@mcp.tool()
 def get_project_unique_id() -> Dict[str, Any]:
     """Get the unique ID of the current project."""
     resolve = get_resolve()

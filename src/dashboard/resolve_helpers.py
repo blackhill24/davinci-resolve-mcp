@@ -126,6 +126,7 @@ def _resolve_ai_features(resolve: Any) -> Dict[str, Any]:
         "analyze_for_intellisearch": has(folder, "AnalyzeForIntellisearch"),
         "analyze_for_slate": has(folder, "AnalyzeForSlate"),
         "remove_motion_blur": has(folder, "RemoveMotionBlur"),
+        "reset_intellisearch_analysis": has(project, "ResetIntellisearchAnalysis"),
     }
     return {
         "features": features,
@@ -197,6 +198,8 @@ def _run_resolve_ai_op(body: Dict[str, Any]) -> Dict[str, Any]:
         return _rc_tool("disable_background_tasks_for_current_session", {})
     if op == "generate_speech":
         return _ps_tool("generate_speech", params)
+    if op == "reset_intellisearch_analysis":
+        return _ps_tool("reset_intellisearch_analysis", params)
     if op not in _AI_CONSOLE_FOLDER_OPS:
         return {"success": False, "error": f"unknown op {op!r}"}
     if target == "clip":

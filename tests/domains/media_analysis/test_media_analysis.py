@@ -76,6 +76,7 @@ from src.domains.media_analysis.utils.vision_prompt import (
     build_host_chat_paths_payload,
 )
 from src.domains.media_analysis.utils.execute_engine import (
+    _session_scratch_cleanup_root,
     execute_plan,
     execute_plan_async,
     executing_clips,
@@ -3166,7 +3167,12 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
             self.skipTest("ffmpeg/ffprobe not installed")
         with tempfile.TemporaryDirectory() as tmp:
             source_dir = os.path.join(tmp, "source")
-            session_root = os.path.join(tmp, "session-analysis")
+            # The session scratch root must carry the prefix the engine mints
+            # (SESSION_SCRATCH_PREFIX) and be threaded in as
+            # _session_temp_base_root — that pair is the ONLY thing that makes a
+            # directory eligible for automatic rmtree. A plain analysis_root is
+            # the caller's own persistent root and is never removed (#143).
+            session_root = os.path.join(tmp, "davinci-resolve-mcp-analysis-session-pipeline")
             os.makedirs(source_dir)
             source = os.path.join(source_dir, "synthetic_session.mp4")
             self._write_synthetic_media(source)
@@ -3179,6 +3185,7 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
             }]
             params = {
                 "analysis_root": session_root,
+                "_session_temp_base_root": session_root,
                 "depth": "standard",
                 "dry_run": False,
                 "session_only": True,
@@ -3215,6 +3222,101 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
             self.assertEqual(manifest["project_summary"]["clip_reports"], 1)
             self.assertFalse(os.path.exists(plan["output_root"]["project_root"]))
             self.assertEqual(sorted(os.listdir(source_dir)), ["synthetic_session.mp4"])
+
+    def test_session_only_never_removes_a_persistent_analysis_root(self):
+        """#143 finding 1: session_only with no verified session scratch root
+        must leave the caller's analysis root — and everything already in it —
+        completely intact.
+
+        The old engine defaulted the rmtree target to ``output_root`` and used
+        the containment check only to narrow, so it could never refuse. A
+        ``media_analysis(action="publish_clip_metadata")`` DRY RUN (dry_run
+        defaults True -> session_only=True, and only the "plan" branch ever
+        injects _session_temp_base_root) therefore deleted the persistent
+        ~/Documents/davinci-resolve-mcp-analysis/<project> root: every clip
+        report, the registry, the SQLite index, _memory/ corrections and
+        batch-job state — silently, with ignore_errors=True, while reporting
+        artifacts_cleaned_up: True.
+        """
+        if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+            self.skipTest("ffmpeg/ffprobe not installed")
+        with tempfile.TemporaryDirectory() as tmp:
+            source_dir = os.path.join(tmp, "source")
+            # A user's persistent root: no session prefix, no scratch base.
+            persistent_root = os.path.join(tmp, "davinci-resolve-mcp-analysis")
+            os.makedirs(source_dir)
+            source = os.path.join(source_dir, "synthetic_persistent.mp4")
+            self._write_synthetic_media(source)
+
+            records = [{
+                "clip_id": "clip-persistent",
+                "clip_name": "synthetic_persistent.mp4",
+                "file_path": source,
+                "media_id": "media-persistent",
+            }]
+            params = {
+                "analysis_root": persistent_root,
+                "depth": "standard",
+                "dry_run": False,
+                "session_only": True,
+                "cleanup_frames": True,
+                "max_analysis_frames": 4,
+                "transcription": {"enabled": False},
+                "vision": {"enabled": True, "provider": "mock"},
+            }
+            caps = detect_capabilities(env={"DAVINCI_RESOLVE_MCP_VISION_PROVIDER": "mock"})
+            plan = build_plan(
+                project_name="Example Project",
+                project_id="project-persistent",
+                records=records,
+                target={"type": "file", "path": source},
+                params=params,
+                capabilities=caps,
+            )
+            project_root = plan["output_root"]["project_root"]
+            # Pre-existing data the old code destroyed.
+            os.makedirs(project_root, exist_ok=True)
+            keepsake = os.path.join(project_root, "_memory")
+            os.makedirs(keepsake, exist_ok=True)
+            with open(os.path.join(keepsake, "corrections.json"), "w", encoding="utf-8") as handle:
+                handle.write('{"kept": true}')
+
+            manifest = execute_plan(plan, params=params, capabilities=caps)
+
+            self.assertTrue(manifest["success"])
+            self.assertTrue(manifest["session_only"])
+            # Session reports are still inlined — only the deletion is refused.
+            self.assertEqual(len(manifest["reports"]), 1)
+            self.assertFalse(manifest["artifacts_cleaned_up"])
+            self.assertIsNone(manifest["artifact_cleanup_root"])
+            self.assertIn("session scratch root", manifest["artifact_cleanup_skipped_reason"])
+            self.assertTrue(os.path.isdir(project_root))
+            with open(os.path.join(keepsake, "corrections.json"), "r", encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), '{"kept": true}')
+
+    def test_session_scratch_cleanup_root_only_accepts_a_minted_scratch_dir(self):
+        """The eligibility rule itself, without the ffmpeg pipeline (#143)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = os.path.join(tmp, "davinci-resolve-mcp-analysis-session-abc123")
+            output_root = os.path.join(scratch, "Example_Project")
+            os.makedirs(output_root)
+            unrelated = os.path.join(tmp, "davinci-resolve-mcp-analysis")
+            os.makedirs(unrelated)
+
+            # The one eligible shape: minted prefix + output_root inside it.
+            self.assertEqual(
+                _session_scratch_cleanup_root(scratch, output_root),
+                os.path.realpath(scratch),
+            )
+            # No scratch base supplied -> never falls back to output_root.
+            self.assertIsNone(_session_scratch_cleanup_root(None, output_root))
+            self.assertIsNone(_session_scratch_cleanup_root("", output_root))
+            # A real directory that this process did not mint.
+            self.assertIsNone(_session_scratch_cleanup_root(unrelated, output_root))
+            # Right prefix, but this run wrote somewhere else entirely.
+            self.assertIsNone(_session_scratch_cleanup_root(scratch, unrelated))
+            # Non-string input must not crash or be trusted.
+            self.assertIsNone(_session_scratch_cleanup_root(["/tmp"], output_root))
 
     def test_execute_emits_pending_host_analysis_when_vision_requested(self):
         if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
@@ -3276,7 +3378,7 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
             self.skipTest("ffmpeg/ffprobe not installed")
         with tempfile.TemporaryDirectory() as tmp:
             source_dir = os.path.join(tmp, "source")
-            analysis_dir = os.path.join(tmp, "davinci-resolve-mcp-analysis")
+            analysis_dir = os.path.join(tmp, "davinci-resolve-mcp-analysis-session-custom-runner")
             os.makedirs(source_dir)
             source = os.path.join(source_dir, "synthetic_custom_runner.mp4")
             self._write_synthetic_media(source)
@@ -3289,6 +3391,7 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
             }]
             params = {
                 "analysis_root": analysis_dir,
+                "_session_temp_base_root": analysis_dir,
                 "depth": "standard",
                 "dry_run": False,
                 "session_only": True,

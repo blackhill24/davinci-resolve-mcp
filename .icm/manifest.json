@@ -2,12 +2,12 @@
   "version": 2,
   "layers": 3,
   "root_nav": "CLAUDE.md",
-  "synced": "2026-07-27",
+  "synced": "2026-07-28",
   "_root_structure": "4c31c2025e3cd06d",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "2bfb345e64546dd3",
+      "fingerprint": "ba81679e5e3cbf9a",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -33,10 +33,12 @@
         "src/core/object_inspection.py",
         "src/core/page_lock.py",
         "src/core/platform.py",
+        "src/core/private_tmp.py",
         "src/core/proc.py",
         "src/core/readback.py",
         "src/core/resolve_ai_governance.py",
         "src/core/resolve_ai_ledger.py",
+        "src/core/resolve_autolaunch.py",
         "src/core/resolve_busy.py",
         "src/core/resolve_connection.py",
         "src/core/resolve_launch.py",
@@ -615,7 +617,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "29e6cf048d0d5cb0",
+      "fingerprint": "bb261d73321ead50",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -688,7 +690,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "5dc9370f21cf91b3",
+      "fingerprint": "678adfc8eda15f36",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -723,6 +725,7 @@
         "tests/core/test_object_inspection.py",
         "tests/core/test_page_lock.py",
         "tests/core/test_platform_guards.py",
+        "tests/core/test_private_tmp.py",
         "tests/core/test_probe_result_recorder.py",
         "tests/core/test_readback.py",
         "tests/core/test_resolve_ai_governance.py",
@@ -730,6 +733,7 @@
         "tests/core/test_resolve_busy.py",
         "tests/core/test_resolve_connection.py",
         "tests/core/test_resolve_process_query.py",
+        "tests/core/test_resource_dispatch.py",
         "tests/core/test_set_current_timeline.py",
         "tests/core/test_set_start_timecode.py",
         "tests/core/test_structural_diff.py",
@@ -890,6 +894,7 @@
         "tests/domains/timeline_edit/test_cut_executor.py",
         "tests/domains/timeline_edit/test_extract_source_frame_ranges.py",
         "tests/domains/timeline_edit/test_get_items_selector.py",
+        "tests/domains/timeline_edit/test_scratch_dir_cleanup.py",
         "tests/domains/timeline_edit/test_set_current_selector.py",
         "tests/domains/timeline_edit/test_timeline_edit_capability_gates.py",
         "tests/domains/timeline_edit/test_timeline_editorial_helpers.py",
@@ -926,6 +931,7 @@
         "tests/test_granular_disconnected_smoke.py",
         "tests/test_granular_guard_drift.py",
         "tests/test_granular_guards.py",
+        "tests/test_granular_wrong_shape_tools.py",
         "tests/test_hand_rolled_double_audit.py",
         "tests/test_import.py",
         "tests/test_keyframe_delete_readback.py",
@@ -948,6 +954,7 @@
         "tests/test_text_encoding_guard.py",
         "tests/test_threaded_tool_dispatch.py",
         "tests/test_tier3_readback_guards.py",
+        "tests/test_tool_param_nullability.py",
         "tests/test_tool_registration.py",
         "tests/test_update_history.py",
         "tests/test_v232_helpers.py",
@@ -959,7 +966,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "2052d78e291fdc59",
+      "fingerprint": "5c0b0605b7e94cec",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

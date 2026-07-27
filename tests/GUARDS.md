@@ -21,8 +21,8 @@ question is always *if this were broken, would anything fail?*
 
 ## Meta-tests — the guards on the guards
 
-`scripts/mutation_gate.py` (11 mutations, run on every publish) re-introduces the exact
-defect each guard was written to catch and fails if the suite stays green. Four of its
+`scripts/mutation_gate.py` (12 mutations, run on every publish) re-introduces the exact
+defect each guard was written to catch and fails if the suite stays green. Five of its
 mutations blind a guard's own scanner (`*_scan_blind`) — because a guard whose glob silently
 matches nothing reads as safety while providing none (#110: two drift guards had
 `ImportError`'d out of every CI run unnoticed). Any new scanning guard asserts on its own
@@ -36,6 +36,7 @@ scan result (`assertGreater(len(files), N)`) and earns a mutation here.
 | `test_vacuous_assertion_audit.py` | the three shapes swept in #121 §3 — assert-on-a-self-configured-mock, error-envelope-passes-for-the-wrong-reason, swallowed exception |
 | `test_env_leak_guard.py` | the `conftest.py` env guard silently ceasing to detect leaks |
 | `test_locale_guard.py` | a `scriptapp()` call site with no `locale_guard.restore()` within three lines |
+| `test_text_encoding_guard.py` | a `subprocess(text=True)` / `open()` / `read_text()` under `src/` that names no `encoding=`, so its decoding follows the process locale — ASCII under a C locale (#124). Keys on a literal `text=True`, never on a `text=` kwarg. `_ALLOWLIST` is empty by design |
 | `test_*_drift.py` set | action list, agent rules, destructive registry, discarded mutator returns |
 
 ## Assert on the reason, not the shape

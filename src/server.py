@@ -289,6 +289,10 @@ from src.core.timeline_lookup import (
     _track_items_sorted,
     _track_selector,
 )
+from src.core.params import (
+    missing_param_envelope as _missing_param_envelope,
+    tool_params as _tool_params,
+)
 
 paths = get_resolve_paths()
 RESOLVE_API_PATH = paths["api_path"]
@@ -2710,6 +2714,7 @@ def _setup_clear_defaults(keys: Any, dry_run: bool) -> Dict[str, Any]:
 
 
 @mcp.tool()
+@_missing_param_envelope
 def setup(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Configure MCP conversational defaults and setup preferences.
 
@@ -2723,7 +2728,7 @@ def setup(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any
       media_analysis.*: analysis, metadata, marker, reporting, and workflow defaults
       updates.*: MCP update policy, interval, and snooze defaults
     """
-    p = params or {}
+    p = _tool_params(params)
     if action in {"schema", "capabilities", "options"}:
         return {
             "actions": ["schema", "get_defaults", "set_defaults", "clear_defaults"],
@@ -2863,6 +2868,7 @@ def setup(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any
 
 
 @mcp.tool()
+@_missing_param_envelope
 def resolve_control(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """App-level DaVinci Resolve operations.
 
@@ -2917,7 +2923,7 @@ def resolve_control(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
       restore_state(state_token) -> {success, restored: {...}}
         — Returns Resolve to a previously-saved state.
     """
-    p = params or {}
+    p = _tool_params(params)
 
     # api_truth is a static knowledge lookup — no Resolve connection needed.
     if action == "api_truth":
@@ -3905,6 +3911,7 @@ def _close_control_panel() -> Dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
+@_missing_param_envelope
 def timeline_versioning(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Timeline version-on-mutate, archive, rollback, and brain-edit history (C6).
 
@@ -3952,7 +3959,7 @@ def timeline_versioning(action: str, params: Optional[Dict[str, Any]] = None) ->
     if ctx is None:
         return _err("No current project / can't resolve project root")
     resolve_h, project_h, project_root, project_name = ctx
-    p = params or {}
+    p = _tool_params(params)
 
     if action == "begin_run":
         return _analysis_runs.begin_run(

@@ -36,9 +36,15 @@ class DestructiveDecoratorCoverage(unittest.TestCase):
         missing: list[str] = []
         for tool_name in sorted(DESTRUCTIVE_ACTIONS_BY_TOOL):
             # Look for either order — @mcp.tool() before @_destructive_op or vice
-            # versa — followed by the def line.
+            # versa — followed by the def line. Further decorators may sit
+            # BETWEEN @_destructive_op and the def (e.g.
+            # @_missing_param_envelope, which must be innermost so it returns
+            # its envelope as an ordinary value the hook then sees). What
+            # matters is that the decorator is applied to this function, not
+            # that it is textually adjacent.
             pattern = re.compile(
                 rf"@_destructive_op\(\"{re.escape(tool_name)}\"\)\s*\n"
+                rf"(?:\s*@[\w.]+(?:\([^\n]*\))?\s*\n)*"
                 rf"(?:async\s+)?def\s+{re.escape(tool_name)}\s*\(",
                 re.MULTILINE,
             )

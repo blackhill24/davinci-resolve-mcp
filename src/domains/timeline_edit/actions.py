@@ -260,6 +260,10 @@ from src.core.live_connection import (
 from src.core.tool_kernel import (
     _TIMELINE_ACTIONS,
 )
+from src.core.params import (
+    missing_param_envelope as _missing_param_envelope,
+    tool_params as _tool_params,
+)
 
 def _normalize_record_frame(
     ci: Dict[str, Any],
@@ -3597,6 +3601,7 @@ def _safe_place_overlay(tl, p):
 
 @mcp.tool()
 @_destructive_op("timeline")
+@_missing_param_envelope
 def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Timeline operations: tracks, clips, import/export, generators, titles.
 
@@ -3839,7 +3844,7 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
     from src.domains.auto_edit.actions import _apply_cuts_skip_reason
     from src.domains.audio_fairlight.actions import _audio_capabilities, _audio_mapping_report, _audio_mix_capability_report, _audio_track_probe, _fairlight_boundary_report, _probe_audio_item, _safe_auto_sync_audio, _safe_set_audio_properties, _subtitle_generation_probe, _timeline_set_clip_pan_impl, _timeline_set_clip_volume_impl, _timeline_transcript, _transcription_capabilities, _voice_isolation_capabilities
     from src.domains.timeline_conform_interchange.actions import _build_relink_plan, _compare_timelines, _conform_boundary_report, _conform_capabilities, _detect_gaps_overlaps_from_snapshot, _detect_missing_media, _export_timeline_checked, _import_from_drp, _import_timeline_checked, _probe_interchange_roundtrip, _source_ranges_from_snapshot, _timeline_conform_snapshot, _timeline_export_spec
-    p = params or {}
+    p = _tool_params(params)
     # action_help is pull-on-demand metadata; no Resolve connection needed.
     if action == "action_help":
         return _action_help("timeline", p)
@@ -4271,7 +4276,7 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
             result["ignored_state_keys"] = ignored_state
         return result
     elif action == "extract_source_frame_ranges":
-        p = params or {}
+        p = _tool_params(params)
         handles = int(p.get("handles", 24))
         gap_max = int(p.get("gap_max", 30))
         audio_ext = tuple(
@@ -4454,6 +4459,7 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
 
 @mcp.tool()
 @_destructive_op("timeline_ai")
+@_missing_param_envelope
 def timeline_ai(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """AI and analysis operations on the current timeline.
 
@@ -4467,7 +4473,7 @@ def timeline_ai(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
       grab_all_stills(source?) -> {count}
     """
     from src.domains.audio_fairlight.actions import _safe_create_subtitles
-    p = params or {}
+    p = _tool_params(params)
     _, tl, err = _get_tl()
     if err:
         return err
@@ -4504,6 +4510,7 @@ def timeline_ai(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
 
 @mcp.tool()
 @_destructive_op("timeline_item")
+@_missing_param_envelope
 def timeline_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Properties, transforms, speed, keyframes, and metadata for a timeline item.
     Identify by track_type, track_index, item_index (item_index is 0-BASED: 0 = first clip; track_index is 1-based).
@@ -4559,7 +4566,7 @@ def timeline_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[
 
     Default: track_type="video", track_index=1, item_index=0
     """
-    p = params or {}
+    p = _tool_params(params)
     tl, item, err = _get_item(p)
     if err:
         return err
@@ -4737,6 +4744,7 @@ def timeline_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[
 
 @mcp.tool()
 @_destructive_op("timeline_item_takes")
+@_missing_param_envelope
 def timeline_item_takes(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Take management on timeline items. Identify by track_type, track_index, item_index (item_index is 0-BASED: 0 = first clip; track_index is 1-based).
 
@@ -4751,7 +4759,7 @@ def timeline_item_takes(action: str, params: Optional[Dict[str, Any]] = None) ->
 
     Default: track_type="video", track_index=1, item_index=0
     """
-    p = params or {}
+    p = _tool_params(params)
     _, item, err = _get_item(p)
     if err:
         return err

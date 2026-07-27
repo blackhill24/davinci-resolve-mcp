@@ -253,6 +253,10 @@ from src.core.live_connection import (
     get_resolve,
     _destructive_versioning_provider,
 )
+from src.core.params import (
+    missing_param_envelope as _missing_param_envelope,
+    tool_params as _tool_params,
+)
 
 def _resolve_safe_dir(path):
     """Redirect sandbox/temp paths that Resolve can't access to ~/Desktop/resolve-stills.
@@ -338,6 +342,7 @@ def _validate_glsl_minimal(source: str) -> Dict[str, Any]:
     return {"valid": True, "errors": None, "checker": "minimal"}
 
 @mcp.tool()
+@_missing_param_envelope
 def fuse_plugin(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Author and install Fusion Fuse plugins (.fuse files).
 
@@ -368,7 +373,7 @@ def fuse_plugin(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
           docs/authoring/fuse-dctl-authoring.md for the per-kind option spec.
       list_templates() -> {kinds}
     """
-    p = params or {}
+    p = _tool_params(params)
 
     if action == "path":
         return {"fuses_dir": _fuses_dir()}
@@ -563,6 +568,7 @@ def _validate_dctl_source(source: str) -> Dict[str, Any]:
             "checker": "minimal"}
 
 @mcp.tool()
+@_missing_param_envelope
 def dctl(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Author and install DCTL files (Color page custom shaders + ACES transforms).
 
@@ -599,7 +605,7 @@ def dctl(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]
           pass that as the `category` argument to install().
       list_templates() -> {kinds, kind_categories}
     """
-    p = params or {}
+    p = _tool_params(params)
 
     def _category(default: str = "lut") -> Tuple[Optional[Dict[str, Any]], str]:
         cat = p.get("category", default)
@@ -1456,6 +1462,7 @@ def _extension_boundary_report(p: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 @mcp.tool()
+@_missing_param_envelope
 def script_plugin(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Author and install Resolve-page Lua/Python scripts (Workspace → Scripts menu).
 
@@ -1511,7 +1518,7 @@ def script_plugin(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[
       refresh_or_restart_required(extension_type, category?) -> {refresh_luts, restart_required}
       extension_boundary_report(include_template_matrix?) -> {capabilities, template_matrix, dry_run_probes}
     """
-    p = params or {}
+    p = _tool_params(params)
 
     if action == "extension_capabilities":
         return _extension_capabilities()

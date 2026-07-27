@@ -254,8 +254,13 @@ from src.core.live_connection import (
     get_resolve,
     _destructive_versioning_provider,
 )
+from src.core.params import (
+    missing_param_envelope as _missing_param_envelope,
+    tool_params as _tool_params,
+)
 
 @mcp.tool()
+@_missing_param_envelope
 def render_presets(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Import/export render and burn-in presets.
 
@@ -265,7 +270,7 @@ def render_presets(action: str, params: Optional[Dict[str, Any]] = None) -> Dict
       import_burnin(path) -> {success}
       export_burnin(name, path) -> {success}
     """
-    p = params or {}
+    p = _tool_params(params)
     r = get_resolve()
     if r is None:
         return _err("Could not connect to DaVinci Resolve. It was not running and auto-launch failed. Check that Resolve Studio is installed.")
@@ -740,6 +745,7 @@ def _build_proxies(proj, p):
             pass
 
 @mcp.tool()
+@_missing_param_envelope
 def render(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Render pipeline: jobs, presets, formats, codecs, and rendering.
 
@@ -782,7 +788,7 @@ def render(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, An
           target clips as individual clips into proxy_dir with ExportAudio=False, then
           LinkProxyMedia each and verifies via the 'Proxy Media Path' readback.
     """
-    p = params or {}
+    p = _tool_params(params)
     _, proj, err = _check()
     if err:
         return err

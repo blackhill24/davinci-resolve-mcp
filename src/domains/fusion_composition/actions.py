@@ -253,6 +253,10 @@ from src.core.live_connection import (
     get_resolve,
     _destructive_versioning_provider,
 )
+from src.core.params import (
+    missing_param_envelope as _missing_param_envelope,
+    tool_params as _tool_params,
+)
 
 def _has_fusion_timeline_scope(p: Dict[str, Any]) -> bool:
     return bool(p.get("clip_id") or p.get("timeline_item_id") or "timeline_item" in p)
@@ -344,6 +348,7 @@ def _resolve_fusion_comp(p: Dict[str, Any], require_timeline_scope: bool = False
 
 @mcp.tool()
 @_destructive_op("timeline_item_fusion")
+@_missing_param_envelope
 def timeline_item_fusion(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Fusion composition operations on timeline items. Identify by track_type, track_index, item_index (item_index is 0-BASED: 0 = first clip; track_index is 1-based).
 
@@ -363,7 +368,7 @@ def timeline_item_fusion(action: str, params: Optional[Dict[str, Any]] = None) -
 
     Default: track_type="video", track_index=1, item_index=0
     """
-    p = params or {}
+    p = _tool_params(params)
     _, item, err = _get_item(p)
     if err:
         return err
@@ -1191,6 +1196,7 @@ def _fusion_get_text_plus(comp, p: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 @mcp.tool()
+@_missing_param_envelope
 def fusion_comp(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Fusion composition node graph operations.
 
@@ -1261,7 +1267,7 @@ def fusion_comp(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
       ColorCorrector, RectangleMask, EllipseMask, Tracker, MediaIn, MediaOut,
       Loader, Saver, Glow, FilmGrain, CornerPositioner, DeltaKeyer, UltraKeyer
     """
-    p = params or {}
+    p = _tool_params(params)
 
     if action == "bulk_set_inputs":
         return _fusion_comp_bulk_set_inputs(p)

@@ -255,6 +255,10 @@ from src.core.live_connection import (
     get_resolve,
     _destructive_versioning_provider,
 )
+from src.core.params import (
+    missing_param_envelope as _missing_param_envelope,
+    tool_params as _tool_params,
+)
 
 def _copy_grades(source_item, duplicate_item):
     try:
@@ -1203,6 +1207,7 @@ def _grade_evidence_base(proj, item, p: Dict[str, Any]) -> Dict[str, Any]:
 
 @mcp.tool()
 @_destructive_op("timeline_item_color")
+@_missing_param_envelope
 def timeline_item_color(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Color grading, versions, LUTs, cache, and AI tools on timeline items. Identify by track_type, track_index, item_index (item_index is 0-BASED: 0 = first clip; track_index is 1-based).
 
@@ -1292,7 +1297,7 @@ def timeline_item_color(action: str, params: Optional[Dict[str, Any]] = None) ->
     For long-form per-action guidance and a worked example, call:
       timeline_item_color(action="action_help", params={"name": "<action>"})
     """
-    p = params or {}
+    p = _tool_params(params)
     if action == "action_help":
         return _action_help("timeline_item_color", p)
     _, item, err = _get_item(p)
@@ -1399,6 +1404,7 @@ def timeline_item_color(action: str, params: Optional[Dict[str, Any]] = None) ->
     return _unknown(action, ["set_cdl","copy_grades","add_version","get_current_version","get_version_names","load_version","rename_version","delete_version","get_node_graph","get_color_group","assign_color_group","remove_from_color_group","export_lut","get_color_cache","set_color_cache","get_fusion_cache","set_fusion_cache","reset_all_node_colors","stabilize","smart_reframe","create_magic_mask","regenerate_magic_mask","action_help",*_COLOR_GRADE_KERNEL_ACTIONS])
 
 @mcp.tool()
+@_missing_param_envelope
 def gallery(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Gallery album management.
 
@@ -1414,7 +1420,7 @@ def gallery(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, A
 
     album_index is 0-based into the still albums list.
     """
-    p = params or {}
+    p = _tool_params(params)
     _, proj, err = _check()
     if err:
         return err
@@ -1459,6 +1465,7 @@ def gallery(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, A
     return _unknown(action, ["get_album_name","set_album_name","get_current_album","set_current_album","get_still_albums","get_power_grade_albums","create_still_album","create_power_grade_album"])
 
 @mcp.tool()
+@_missing_param_envelope
 def gallery_stills(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Manage stills in gallery albums (best results on Color page).
 
@@ -1480,7 +1487,7 @@ def gallery_stills(action: str, params: Optional[Dict[str, Any]] = None) -> Dict
     cleanup (default true) deletes exported files from disk after inlining.
     """
     from src.domains.extension_authoring.actions import _resolve_safe_dir
-    p = params or {}
+    p = _tool_params(params)
     _, proj, err = _check()
     if err:
         return err
@@ -1620,6 +1627,7 @@ def gallery_stills(action: str, params: Optional[Dict[str, Any]] = None) -> Dict
 
 @mcp.tool()
 @_destructive_op("graph")
+@_missing_param_envelope
 def graph(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Node graph operations (color grading nodes). Source can be timeline, timeline item, or color group.
 
@@ -1658,7 +1666,7 @@ def graph(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any
     For long-form per-action guidance and a worked example, call:
       graph(action="action_help", params={"name": "<action>"})
     """
-    p = params or {}
+    p = _tool_params(params)
     if action == "action_help":
         return _action_help("graph", p)
     source = p.get("source", "timeline")
@@ -1756,6 +1764,7 @@ def graph(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any
     return _unknown(action, ["get_num_nodes","get_lut","set_lut","get_node_cache","set_node_cache","get_node_label","get_tools_in_node","set_node_enabled","apply_grade_from_drx","apply_arri_cdl_lut","reset_all_grades","action_help"])
 
 @mcp.tool()
+@_missing_param_envelope
 def color_group(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Manage color groups and their node graphs.
 
@@ -1767,7 +1776,7 @@ def color_group(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
       get_pre_clip_graph(group_name) -> {available, num_nodes}
       get_post_clip_graph(group_name) -> {available, num_nodes}
     """
-    p = params or {}
+    p = _tool_params(params)
     _, proj, err = _check()
     if err:
         return err

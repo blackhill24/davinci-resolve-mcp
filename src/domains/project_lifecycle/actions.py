@@ -253,6 +253,10 @@ from src.core.live_connection import (
     get_resolve,
     _destructive_versioning_provider,
 )
+from src.core.params import (
+    missing_param_envelope as _missing_param_envelope,
+    tool_params as _tool_params,
+)
 
 def _normalize_cloud_settings(settings, resolve_obj=None):
     """Translate human-readable cloud-project settings (e.g.
@@ -262,6 +266,7 @@ def _normalize_cloud_settings(settings, resolve_obj=None):
     return _resolve_enum_settings(resolve_obj, dict(settings or {}), _CLOUD_SETTINGS_FIELD_SPECS)
 
 @mcp.tool()
+@_missing_param_envelope
 def layout_presets(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Manage DaVinci Resolve UI layout presets.
 
@@ -273,7 +278,7 @@ def layout_presets(action: str, params: Optional[Dict[str, Any]] = None) -> Dict
       import_preset(path, name?) -> {success}
       delete(name) -> {success}
     """
-    p = params or {}
+    p = _tool_params(params)
     r = get_resolve()
     if r is None:
         return _err("Could not connect to DaVinci Resolve. It was not running and auto-launch failed. Check that Resolve Studio is installed.")
@@ -894,6 +899,7 @@ def _project_lint_live(r, pm) -> Dict[str, Any]:
     return _ok(**_project_lint.lint_report(state))
 
 @mcp.tool()
+@_missing_param_envelope
 def project_manager(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Manage DaVinci Resolve projects.
 
@@ -937,7 +943,7 @@ def project_manager(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         settings are applied in dependency order; markers only added if absent. Hooks run only
         when run_hooks=true (executes shell from the spec — opt-in).
     """
-    p = params or {}
+    p = _tool_params(params)
     r = get_resolve()
     if r is None:
         return _err("Could not connect to DaVinci Resolve. It was not running and auto-launch failed. Check that Resolve Studio is installed.")
@@ -1055,6 +1061,7 @@ def project_manager(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
     return _unknown(action, ["list","get_current","create","load","save","close","delete","import_project","export_project","archive","restore","lint","diff_to_spec","plan_spec","apply_spec", *_PROJECT_KERNEL_ACTIONS])
 
 @mcp.tool()
+@_missing_param_envelope
 def project_manager_folders(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Navigate and manage project folders in the Project Manager.
 
@@ -1067,7 +1074,7 @@ def project_manager_folders(action: str, params: Optional[Dict[str, Any]] = None
       goto_root() -> {success}
       goto_parent() -> {success}
     """
-    p = params or {}
+    p = _tool_params(params)
     r = get_resolve()
     if r is None:
         return _err("Could not connect to DaVinci Resolve. It was not running and auto-launch failed. Check that Resolve Studio is installed.")
@@ -1117,6 +1124,7 @@ def _verify_cloud_import_restore(pm, mutate, project_name: Optional[str], label:
     )
 
 @mcp.tool()
+@_missing_param_envelope
 def project_manager_cloud(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Cloud project operations (requires DaVinci Resolve cloud infrastructure).
 
@@ -1126,7 +1134,7 @@ def project_manager_cloud(action: str, params: Optional[Dict[str, Any]] = None) 
       import_project(path, settings) -> {success, verified}  — verified is readback-based
       restore(folder_path, settings) -> {success, verified}  — verified is readback-based
     """
-    p = params or {}
+    p = _tool_params(params)
     r = get_resolve()
     if r is None:
         return _err("Could not connect to DaVinci Resolve. It was not running and auto-launch failed. Check that Resolve Studio is installed.")
@@ -1165,6 +1173,7 @@ def project_manager_cloud(action: str, params: Optional[Dict[str, Any]] = None) 
     return _unknown(action, ["create","load","import_project","restore"])
 
 @mcp.tool()
+@_missing_param_envelope
 def project_manager_database(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Manage DaVinci Resolve project databases.
 
@@ -1173,7 +1182,7 @@ def project_manager_database(action: str, params: Optional[Dict[str, Any]] = Non
       list() -> {databases}
       set_current(db_info) -> {success}  — db_info: {DbType, DbName}
     """
-    p = params or {}
+    p = _tool_params(params)
     r = get_resolve()
     if r is None:
         return _err("Could not connect to DaVinci Resolve. It was not running and auto-launch failed. Check that Resolve Studio is installed.")
@@ -1191,6 +1200,7 @@ def project_manager_database(action: str, params: Optional[Dict[str, Any]] = Non
     return _unknown(action, ["get_current","list","set_current"])
 
 @mcp.tool()
+@_missing_param_envelope
 def project_settings(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Project metadata, settings, and color groups.
 
@@ -1217,7 +1227,7 @@ def project_settings(action: str, params: Optional[Dict[str, Any]] = None) -> Di
       reset_intellisearch_analysis() -> {success}  — Resolve 21+; clears the project's IntelliSearch analysis data (confirm-gated, re-analysis is the only way back)
       set_super_scale(mode, sharpness?, noise_reduction?) -> {success, verified, mode, enhanced}  — Resolve 21+; mode 0=Auto,1=none,2/3/4=2x/3x/4x. sharpness+noise_reduction (both required together, [0.0,1.0]) select '2x Enhanced' at mode=2
     """
-    p = params or {}
+    p = _tool_params(params)
     _, proj, err = _check()
     if err:
         return err

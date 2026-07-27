@@ -255,6 +255,10 @@ from src.core.live_connection import (
     get_resolve,
     _destructive_versioning_provider,
 )
+from src.core.params import (
+    missing_param_envelope as _missing_param_envelope,
+    tool_params as _tool_params,
+)
 
 def _apply_cuts_skip_reason(cut):
     """Why a CutList entry is not applicable by apply_cuts, or None if it is."""
@@ -447,6 +451,7 @@ def _edit_engine_linked_audio_tracks(
 
 @mcp.tool()
 @_destructive_op("edit_engine")
+@_missing_param_envelope
 def edit_engine(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Evidence-driven edit loops (Phase E): selects assembly, tighten, swap.
 
@@ -482,7 +487,7 @@ def edit_engine(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
     """
     from src.domains.timeline_edit.actions import _build_append_clip_info_dict, _timeline_create_variant_from_ranges, _timeline_lift_range_impl
     from src.domains.media_pool_ingest.actions import _compact_structural_diff
-    p = params or {}
+    p = _tool_params(params)
 
     def _project_context(*, need_resolve: bool) -> Tuple[Optional[Any], Optional[Any], Optional[str], Optional[Dict[str, Any]]]:
         # An explicit analysis_root always wins — the evidence DB the caller
@@ -1088,6 +1093,7 @@ def _is_montage_plan(plan: Dict[str, Any]) -> bool:
 
 @mcp.tool()
 @_destructive_op("auto_edit")
+@_missing_param_envelope
 async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Autonomous brief-to-rendered-video pipeline (Phase 1: talking head).
 
@@ -1141,7 +1147,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
     from src.domains.render_deliver.actions import _prepare_render_job, _render_cut_summary_for
     from src.domains.audio_fairlight.actions import _safe_create_subtitles
     from src.domains.media_analysis.actions import media_analysis
-    p = params or {}
+    p = _tool_params(params)
 
     def _plan_id_param() -> str:
         return str(p.get("plan_id") or p.get("planId") or "")

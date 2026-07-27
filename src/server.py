@@ -1095,6 +1095,7 @@ if _py_ver >= (3, 13):
 # get_resolve().
 from src.core.live_connection import (  # noqa: E402
     get_resolve,
+    passive_resolve_probe,
     _destructive_versioning_provider,
     _bridge_lock,
 )
@@ -4692,6 +4693,78 @@ def _install_threaded_tool_dispatch(fastmcp) -> int:
     return wrapped
 
 
+def _install_threaded_resource_dispatch(fastmcp) -> int:
+    """Same offload + ``_bridge_lock`` treatment for MCP **resource** handlers.
+
+    ``_install_threaded_tool_dispatch`` walks ``_tool_manager._tools`` only.
+    Resources live on a different manager, so they got neither the worker-thread
+    offload nor the bridge mutex: ``FunctionResource.read()`` calls ``self.fn()``
+    inline on the single asyncio thread (#143 finding 6). Two consequences,
+    both of them worse for resources than for tools because hosts read resources
+    *passively*, without a user turn:
+
+    - a resource that touches Resolve froze the whole server — stdio read loop
+      included — for as long as the call took, stalling unrelated in-flight
+      tool calls;
+    - with no ``_bridge_lock`` a resource could enter the non-reentrant Resolve
+      bridge while a tool body was already inside it, which per
+      ``src/core/resolve_busy.py`` "simply hangs with no feedback".
+
+    Templates are wrapped too: ``ResourceTemplate.create_resource`` calls
+    ``self.fn(**params)`` the same inline way, hence the ``**kwargs`` signature.
+
+    Couples to mcp SDK private attrs (ResourceManager._resources / ._templates,
+    FunctionResource.fn; verified on mcp 1.27). Best-effort, exactly like the
+    tool installer: an unexpected shape leaves the handler as-is.
+    """
+    import functools
+    import inspect as _inspect
+
+    import anyio
+
+    manager = getattr(fastmcp, "_resource_manager", None)
+    if manager is None:
+        return 0
+
+    def _offloaded(fn):
+        @functools.wraps(fn)
+        async def run_off_thread(**kwargs):
+            def call():
+                # passive_resolve_probe is entered INSIDE the worker thread —
+                # the flag is thread-local, and this is the thread the handler
+                # actually runs on. It stops a host's passive resource poll from
+                # auto-launching Resolve and blocking ~60s on a probe the user
+                # never initiated.
+                with _bridge_lock, passive_resolve_probe():
+                    return fn(**kwargs)
+            return await anyio.to_thread.run_sync(call)
+        run_off_thread._drm_offloaded = True
+        return run_off_thread
+
+    targets = []
+    for holder in (getattr(manager, "_resources", None), getattr(manager, "_templates", None)):
+        if isinstance(holder, dict):
+            targets.extend(holder.values())
+
+    wrapped = 0
+    for target in targets:
+        fn = getattr(target, "fn", None)
+        if fn is None or not callable(fn):
+            continue
+        if _inspect.iscoroutinefunction(fn) or getattr(fn, "_drm_offloaded", False):
+            continue
+        try:
+            target.fn = _offloaded(fn)
+        except Exception as exc:  # unexpected SDK shape — keep the original
+            logger.warning(
+                f"threaded resource dispatch skipped for {getattr(target, 'name', '?')}: {exc}"
+            )
+            continue
+        wrapped += 1
+    logger.info(f"Threaded resource dispatch installed for {wrapped} resources")
+    return wrapped
+
+
 def _log_preload_audit() -> None:
     """Warn prominently if THIS process inherited a known-crashy LD_PRELOAD.
 
@@ -5290,6 +5363,7 @@ if __name__ == "__main__":
     _log_preload_audit()
     start_background_update_check(VERSION, project_dir, logger, env=_setup_update_env())
     _install_threaded_tool_dispatch(mcp)
+    _install_threaded_resource_dispatch(mcp)
 
     # Support --full flag to run the 341-tool granular server instead
     if "--full" in sys.argv:
@@ -5298,6 +5372,7 @@ if __name__ == "__main__":
         from src.granular import mcp as granular_mcp
 
         _install_threaded_tool_dispatch(granular_mcp)
+        _install_threaded_resource_dispatch(granular_mcp)
         run_fastmcp_stdio(granular_mcp)
         sys.exit(0)
 

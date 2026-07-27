@@ -24,6 +24,7 @@ from src.core.app_control import (
     restart_resolve_app,
 )
 from src.core.resolve_launch import launch_resolve
+from src.core.resolve_autolaunch import autolaunch_suppressed, passive_resolve_probe  # noqa: F401 - passive_resolve_probe re-exported via __all__
 from src.core import locale_guard as _locale_guard
 # #113 Tier 1: read-back-verified current-timeline switch, shared with the
 # compound server rather than reimplemented here. Re-exported via __all__ below
@@ -351,6 +352,12 @@ def get_resolve():
     resolve = None
     if _try_connect():
         return resolve
+    # Suppressed inside an MCP resource handler (a passive host poll must not
+    # trigger a 60s launch, #143 finding 6) and by DAVINCI_MCP_NO_AUTOLAUNCH.
+    # Shared with the compound server so both surfaces honour the same rule.
+    if autolaunch_suppressed():
+        logger.info("Resolve not running; auto-launch suppressed")
+        return None
     logger.info("Resolve not running, attempting to launch automatically...")
     _launch_resolve()
     return resolve

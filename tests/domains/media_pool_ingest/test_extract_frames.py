@@ -2,6 +2,8 @@
 import os
 import tempfile
 import unittest
+
+from tests._error_envelope_helpers import assert_error_mentions
 from unittest import mock
 
 import src.server as s
@@ -26,7 +28,7 @@ def _call(clip, params):
 class ExtractFramesGuardTest(unittest.TestCase):
     def test_no_source_file(self):
         out = _call(FakeClip("/no/such/file.mov"), {"clip_id": "x", "timestamps": [1.0]})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'no readable source file')
 
     def test_no_timestamps(self):
         fd, real = tempfile.mkstemp(suffix=".mov")

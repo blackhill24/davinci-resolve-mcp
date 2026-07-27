@@ -1,6 +1,8 @@
 """Tests for deep-QC P1 1b: required-param validation returns structured errors
 instead of crashing with KeyError on omitted params."""
 import unittest
+
+from tests._error_envelope_helpers import assert_error_mentions
 from unittest import mock
 
 import src.server as s
@@ -27,9 +29,13 @@ class TimelineParamValidationTest(unittest.TestCase):
     def test_add_track_missing_track_type_errors(self):
         fake_proj = mock.Mock()
         fake_proj.GetCurrentTimeline.return_value = mock.Mock()
-        with mock.patch.object(s, "_check", return_value=(mock.Mock(), fake_proj, None)):
+        # Patch the module that actually owns the dispatch. Patching
+        # src.server._check does nothing here since the #52 restructure, so this
+        # test was reaching the developer's RUNNING Resolve and passing on
+        # whatever error came back (#121 task 3, shape 2).
+        with mock.patch.object(_dom_timeline_edit, "_check", return_value=(mock.Mock(), fake_proj, None)):
             out = s.timeline("add_track", {})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'track_type', 'required')
 
 
 class ProjectManagerParamValidationTest(unittest.TestCase):
@@ -41,17 +47,17 @@ class ProjectManagerParamValidationTest(unittest.TestCase):
     def test_create_missing_name_errors(self):
         with mock.patch.object(s, "get_resolve", return_value=self._fake_resolve()):
             out = s.project_manager("create", {})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'create requires name')
 
     def test_export_project_missing_path_errors(self):
         with mock.patch.object(s, "get_resolve", return_value=self._fake_resolve()):
             out = s.project_manager("export_project", {"name": "X"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'path', 'required')
 
     def test_archive_missing_both_errors(self):
         with mock.patch.object(s, "get_resolve", return_value=self._fake_resolve()):
             out = s.project_manager("archive", {})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'name', 'required')
 
 
 if __name__ == "__main__":

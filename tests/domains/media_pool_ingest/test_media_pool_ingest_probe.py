@@ -1,4 +1,6 @@
 import unittest
+
+from tests._error_envelope_helpers import assert_error_mentions
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -222,7 +224,7 @@ class MediaPoolIngestProbeTest(unittest.TestCase):
     def test_probe_ingest_items_requires_source(self):
         result = _media_pool_probe_ingest_items(MediaPoolStub(), {})
 
-        self.assertIn("error", result)
+        assert_error_mentions(self, result, 'clip_ids')
 
     def test_safe_import_sequence_validates_existing_frames(self):
         mp = MediaPoolStub()

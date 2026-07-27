@@ -107,6 +107,19 @@ from src.domains.media_analysis.utils.media_analysis_jobs import (
 )
 
 
+def _prefs_env(tmp_dir, filename="prefs.json", **extra):
+    """Point the media-analysis prefs file into ``tmp_dir`` for one block.
+
+    ``mock.patch.dict`` rather than a hand-rolled save/restore (#121 task 4): the
+    manual pattern restores correctly only if every early return and every
+    exception path reaches its ``finally``, and the ``conftest.py`` env-leak
+    guard has no way to tell a leak from a legitimate write.
+    """
+    env = {"DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS": os.path.join(tmp_dir, filename)}
+    env.update(extra)
+    return unittest.mock.patch.dict(os.environ, env)
+
+
 class ClipStub:
     def __init__(self, name, clip_id, file_path, media_id=None, third_party=None, metadata=None):
         self.name = name
@@ -762,28 +775,20 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
                 self.assertIsNone(_which_tool("faketool-missing"))
 
     def test_request_capabilities_report_host_chat_paths_vision(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            previous = os.environ.get("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS")
-            os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"] = os.path.join(tmp, "prefs.json")
-            try:
-                report = _media_analysis_capabilities_for_request(None)
-                self.assertTrue(report["vision"]["enabled_by_default"])
-                self.assertTrue(report["vision"]["available"])
-                self.assertEqual(report["vision"]["provider"], HOST_CHAT_PATHS_PROVIDER)
-                self.assertEqual(report["vision"]["availability"], "ready")
-                self.assertEqual(
-                    report["vision"]["host_chat_paths"]["commit_action"],
-                    {"tool": "media_analysis", "action": "commit_vision"},
-                )
-                self.assertEqual(
-                    report["vision"]["host_chat_paths"]["schema_reference"],
-                    VISION_SCHEMA_REFERENCE,
-                )
-            finally:
-                if previous is None:
-                    os.environ.pop("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS", None)
-                else:
-                    os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"] = previous
+        with tempfile.TemporaryDirectory() as tmp, _prefs_env(tmp):
+            report = _media_analysis_capabilities_for_request(None)
+            self.assertTrue(report["vision"]["enabled_by_default"])
+            self.assertTrue(report["vision"]["available"])
+            self.assertEqual(report["vision"]["provider"], HOST_CHAT_PATHS_PROVIDER)
+            self.assertEqual(report["vision"]["availability"], "ready")
+            self.assertEqual(
+                report["vision"]["host_chat_paths"]["commit_action"],
+                {"tool": "media_analysis", "action": "commit_vision"},
+            )
+            self.assertEqual(
+                report["vision"]["host_chat_paths"]["schema_reference"],
+                VISION_SCHEMA_REFERENCE,
+            )
 
     def test_host_chat_paths_payload_emits_frame_paths_and_commit_action(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1652,16 +1657,9 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
     def test_publish_metadata_marker_candidates_built_but_writeback_gated_off_in_v2(self):
         prefs_tmp = tempfile.TemporaryDirectory()
         self.addCleanup(prefs_tmp.cleanup)
-        previous_prefs = os.environ.get("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS")
-        os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"] = os.path.join(prefs_tmp.name, "prefs.json")
-
-        def restore_prefs_env():
-            if previous_prefs is None:
-                os.environ.pop("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS", None)
-            else:
-                os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"] = previous_prefs
-
-        self.addCleanup(restore_prefs_env)
+        prefs_env = _prefs_env(prefs_tmp.name)
+        prefs_env.start()
+        self.addCleanup(prefs_env.stop)
 
         report = {
             "clip": {"clip_id": "clip-123"},
@@ -1752,18 +1750,10 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
         self.assertTrue(applied["success"])
         self.assertEqual(len(clip.GetMarkers()), 5)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            previous = os.environ.get("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS")
-            os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"] = os.path.join(tmp, "prefs.json")
-            try:
-                self.assertTrue(_media_analysis_publish_confirmed({"write_markers": True, "dry_run": False}))
-                setup("set_defaults", {"ask_before_metadata_publish": True})
-                self.assertFalse(_media_analysis_publish_confirmed({"write_markers": True, "dry_run": False}))
-            finally:
-                if previous is None:
-                    os.environ.pop("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS", None)
-                else:
-                    os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"] = previous
+        with tempfile.TemporaryDirectory() as tmp, _prefs_env(tmp):
+            self.assertTrue(_media_analysis_publish_confirmed({"write_markers": True, "dry_run": False}))
+            setup("set_defaults", {"ask_before_metadata_publish": True})
+            self.assertFalse(_media_analysis_publish_confirmed({"write_markers": True, "dry_run": False}))
 
     def test_sync_event_marker_write_requires_visual_slate_confirmation(self):
         clip = MarkerClipStub("clip-123")
@@ -1817,9 +1807,7 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
         forward-compat when the gate is reopened.
         """
         with tempfile.TemporaryDirectory() as tmp:
-            previous = os.environ.get("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS")
-            os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"] = os.path.join(tmp, "prefs.json")
-            try:
+            with _prefs_env(tmp):
                 defaulted = _media_analysis_timed_marker_decision({})
                 self.assertFalse(defaulted["enabled"])
                 self.assertFalse(defaulted["prompt_required"])
@@ -1845,19 +1833,14 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
                 default_no = _media_analysis_timed_marker_decision({"timed_markers": "default_no"})
                 self.assertFalse(default_no["enabled"])
                 self.assertEqual(default_no["saved_default"], "no")
-            finally:
-                if previous is None:
-                    os.environ.pop("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS", None)
-                else:
-                    os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"] = previous
 
     def test_setup_tool_sets_conversation_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
-            previous_analysis = os.environ.get("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS")
-            previous_updates = os.environ.get(update_check.ENV_STATE_PATH)
-            os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"] = os.path.join(tmp, "analysis-prefs.json")
-            os.environ[update_check.ENV_STATE_PATH] = os.path.join(tmp, "update-state.json")
-            try:
+            with _prefs_env(
+                tmp,
+                "analysis-prefs.json",
+                **{update_check.ENV_STATE_PATH: os.path.join(tmp, "update-state.json")},
+            ):
                 configured = setup("set_defaults", {
                     "defaults": {
                         "media_analysis": {
@@ -1935,21 +1918,10 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
 
                 unknown = setup("set_defaults", {"defaults": {"not_a_real_default": True}})
                 self.assertIn("error", unknown)
-            finally:
-                if previous_analysis is None:
-                    os.environ.pop("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS", None)
-                else:
-                    os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"] = previous_analysis
-                if previous_updates is None:
-                    os.environ.pop(update_check.ENV_STATE_PATH, None)
-                else:
-                    os.environ[update_check.ENV_STATE_PATH] = previous_updates
 
     def test_media_analysis_defaults_turn_on_host_chat_paths_vision(self):
         with tempfile.TemporaryDirectory() as tmp:
-            previous = os.environ.get("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS")
-            os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"] = os.path.join(tmp, "prefs.json")
-            try:
+            with _prefs_env(tmp):
                 applied = _media_analysis_apply_setup_defaults("analyze_clip", {})
                 self.assertEqual(applied["vision"], {"enabled": True, "provider": HOST_CHAT_PATHS_PROVIDER})
                 self.assertEqual(applied["transcription"], {"enabled": True, "allow_model_download": True})
@@ -1959,7 +1931,7 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
                 self.assertEqual(applied["_setup_defaults_applied"]["transcription_default"], "yes")
                 self.assertTrue(applied["_setup_defaults_applied"]["metadata_writeback_default"])
 
-                with open(os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"], "w", encoding="utf-8") as handle:
+                with open(os.path.join(tmp, "prefs.json"), "w", encoding="utf-8") as handle:
                     json.dump({"transcription_default": "bogus"}, handle)
                 self.assertEqual(_media_analysis_effective_preferences()["transcription_default"], "yes")
 
@@ -2001,11 +1973,6 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
                     "Roll Card #",
                 ])
                 self.assertEqual(publish_defaults["slate_detection"]["enabled"], True)
-            finally:
-                if previous is None:
-                    os.environ.pop("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS", None)
-                else:
-                    os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"] = previous
 
     def test_unlimited_timed_marker_limit_keeps_all_candidates(self):
         report = {

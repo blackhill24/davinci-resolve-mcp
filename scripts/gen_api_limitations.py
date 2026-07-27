@@ -125,7 +125,7 @@ def render() -> str:
 def main(argv: list[str]) -> int:
     content = render()
     if "--check" in argv:
-        current = DOC_PATH.read_text() if DOC_PATH.exists() else ""
+        current = DOC_PATH.read_text(encoding="utf-8") if DOC_PATH.exists() else ""
         if current != content:
             print(
                 f"STALE: {DOC_PATH.relative_to(REPO_ROOT)} is out of date.\n"

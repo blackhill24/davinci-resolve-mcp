@@ -5,6 +5,8 @@ version-archived by the hook). These tests mock the live connection so they stay
 offline.
 """
 import unittest
+
+from tests._error_envelope_helpers import assert_error_mentions
 from unittest import mock
 
 import src.server as s
@@ -57,7 +59,7 @@ class ApplyCutsDryRunTest(unittest.TestCase):
 
     def test_requires_cuts_list(self):
         out = self._call({})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'apply_cuts requires')
 
     def test_empty_cuts(self):
         out = self._call({"cuts": []})

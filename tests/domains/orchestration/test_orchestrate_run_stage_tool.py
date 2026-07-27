@@ -17,6 +17,8 @@ import os
 import shutil
 import tempfile
 import unittest
+
+from tests._error_envelope_helpers import assert_error_mentions
 from unittest import mock
 
 import src.server as s
@@ -77,17 +79,17 @@ class OrchestrateRunStageBase(unittest.TestCase):
 class RunStageRefusalTests(OrchestrateRunStageBase):
     def test_unknown_job(self):
         out = self._run_stage({"job_id": "nonexistent", "stage": "ingest"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'job not found', 'nonexistent')
 
     def test_non_cursor_stage_refused(self):
         job_id = self._start_job()
         out = self._run_stage({"job_id": job_id, "stage": "grade"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'grade', 'cursor')
 
     def test_unsupported_stage_refused(self):
         job_id = self._start_job(stages=["intake", "fusion"])
         out = self._run_stage({"job_id": job_id, "stage": "fusion"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'run_stage', 'fusion')
 
 
 class RunStageIngestTests(OrchestrateRunStageBase):
@@ -95,7 +97,7 @@ class RunStageIngestTests(OrchestrateRunStageBase):
         job_id = self._start_job()
         self.proj.GetMediaPool.return_value = None
         out = self._run_stage({"job_id": job_id, "stage": "ingest"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'No media pool')
         job = orchestrate.load_job(self.root, job_id)
         self.assertEqual(job["stages"]["ingest"]["status"], "failed")
 
@@ -115,7 +117,7 @@ class RunStageIngestTests(OrchestrateRunStageBase):
         with mock.patch.object(_dom_media_pool_ingest, "_ensure_folder_path", return_value=(mock.MagicMock(), None)), \
              mock.patch.object(_dom_media_pool_ingest, "_safe_import_media", return_value={"error": {"message": "boom"}}):
             out = self._run_stage({"job_id": job_id, "stage": "ingest"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'boom')
         job = orchestrate.load_job(self.root, job_id)
         self.assertEqual(job["stages"]["ingest"]["status"], "failed")
 
@@ -243,7 +245,7 @@ class RunStageConformTests(OrchestrateRunStageBase):
         missing = {"missing_count": 0}
         with mock.patch.object(_dom_timeline_edit, "timeline", side_effect=[gaps, missing]):
             out = self._run_stage({"job_id": job_id, "stage": "conform"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'gap', 'accept_gaps')
         job = orchestrate.load_job(self.root, job_id)
         self.assertEqual(job["stages"]["conform"]["status"], "failed")
 
@@ -533,7 +535,7 @@ class RollbackStageTests(OrchestrateRunStageBase):
     def test_no_snapshot_refuses(self):
         job_id = self._start_job()
         out = self._call("rollback_stage", {"job_id": job_id, "stage": "grade"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'grade', 'no recorded snapshot')
 
     def test_timeline_duplicate_restore(self):
         job_id = self._start_job()
@@ -606,7 +608,7 @@ class FinishJobToolTests(OrchestrateRunStageBase):
     def test_refuses_when_incomplete(self):
         job_id = self._start_job()
         out = self._call("finish_job", {"job_id": job_id})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'not finishable')
 
     def test_finishes_and_verifies_output(self):
         job_id = self._start_job()

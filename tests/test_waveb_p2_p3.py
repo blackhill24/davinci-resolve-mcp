@@ -1,10 +1,13 @@
 """Tests for the final batch: Wave B (EX11 track-index), P2 read-back
 (delete_timelines count), P3 (raw set_cdl validation)."""
 import unittest
+
+from tests._error_envelope_helpers import assert_error_mentions
 from unittest import mock
 
 import src.server as s
 import src.domains.media_pool_ingest.actions as _dom_media_pool_ingest
+import src.domains.color_grade.actions as _dom_color_grade
 
 
 class AudioTrackProbeEX11Test(unittest.TestCase):
@@ -55,10 +58,12 @@ class RawSetCdlValidationTest(unittest.TestCase):
     def test_malformed_cdl_rejected(self):
         fake_item = mock.Mock()
         # _validate_cdl_payload should reject a non-dict / malformed cdl.
-        with mock.patch.object(s, "_check", return_value=(mock.Mock(), mock.Mock(), None)), \
-             mock.patch.object(s, "_get_item", return_value=(mock.Mock(), fake_item, None)):
+        # Same as above: the dispatch lives in the color_grade domain module, so
+        # patching src.server was a no-op and this reached a live Resolve.
+        with mock.patch.object(_dom_color_grade, "_check", return_value=(mock.Mock(), mock.Mock(), None)), \
+             mock.patch.object(_dom_color_grade, "_get_item", return_value=(mock.Mock(), fake_item, None)):
             out = s.timeline_item_color("set_cdl", {"cdl": "not-a-cdl"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'cdl must be an object')
         fake_item.SetCDL.assert_not_called()
 
 

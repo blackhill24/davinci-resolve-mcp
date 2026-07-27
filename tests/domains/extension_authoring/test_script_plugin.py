@@ -27,6 +27,7 @@ if PROJECT_ROOT not in sys.path:
 
 from src.domains.extension_authoring.utils import script_templates  # noqa: E402
 from src.server import script_plugin  # noqa: E402
+from tests._error_envelope_helpers import assert_error_mentions  # noqa: E402
 
 
 def _luac_path():
@@ -264,15 +265,15 @@ class TestScriptPluginAction(unittest.TestCase):
 
     def test_path_invalid_category(self):
         r = script_plugin('path', {'category': 'Nope'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'category', 'Nope')
 
     def test_path_missing_category(self):
         r = script_plugin('path')
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'category')
 
     def test_template_unknown_kind(self):
         r = script_plugin('template', {'kind': 'nope', 'name': 'X'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'kind', 'nope')
 
     def test_template_each_kind_each_language(self):
         for kind in ('scaffold', 'media_rules'):
@@ -289,31 +290,31 @@ class TestScriptPluginAction(unittest.TestCase):
     def test_template_invalid_language(self):
         r = script_plugin('template', {'kind': 'scaffold', 'name': 'X',
                                         'options': {'language': 'ruby'}})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'language', 'ruby')
 
     def test_install_invalid_name(self):
         r = script_plugin('install', {'name': '../bad', 'source': 'x',
                                        'category': 'Edit'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'name', '../bad')
 
     def test_install_empty_source(self):
         r = script_plugin('install', {'name': 'X', 'source': '',
                                        'category': 'Edit'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'source')
 
     def test_install_invalid_category(self):
         r = script_plugin('install', {'name': 'X', 'source': 'x',
                                        'category': 'Nope'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'category', 'Nope')
 
     def test_install_invalid_language(self):
         r = script_plugin('install', {'name': 'X', 'source': 'x',
                                        'category': 'Edit', 'language': 'ruby'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'language', 'ruby')
 
     def test_install_missing_category(self):
         r = script_plugin('install', {'name': 'X', 'source': 'x'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'category')
 
     def test_validate_python_good(self):
         r = script_plugin('validate', {'source': 'def f(): return 1',
@@ -348,7 +349,7 @@ class TestScriptPluginAction(unittest.TestCase):
 
     def test_validate_invalid_language(self):
         r = script_plugin('validate', {'source': 'x', 'language': 'ruby'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'language', 'ruby')
 
 
 # ─── Filesystem round-trip ───────────────────────────────────────────────────
@@ -403,7 +404,7 @@ class TestRoundtripFilesystem(unittest.TestCase):
             'name': 'RtLua', 'source': gen['source'],
             'category': 'Edit', 'language': 'lua',
         })
-        self.assertIn('error', r2)
+        assert_error_mentions(self, r2, 'overwrite')
 
         rm = script_plugin('remove', {'name': 'RtLua', 'category': 'Edit',
                                        'language': 'lua'})
@@ -597,25 +598,25 @@ class TestScriptExecution(unittest.TestCase):
         r = script_plugin('execute', {
             'name': 'DoesNotExist', 'category': 'Utility', 'language': 'py',
         })
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'DoesNotExist')
 
     def test_execute_invalid_name(self):
         r = script_plugin('execute', {
             'name': '../bad', 'category': 'Utility', 'language': 'py',
         })
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'name', '../bad')
 
     def test_execute_invalid_category(self):
         r = script_plugin('execute', {
             'name': 'X', 'category': 'Nope', 'language': 'py',
         })
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'category', 'Nope')
 
     def test_execute_invalid_language(self):
         r = script_plugin('execute', {
             'name': 'X', 'category': 'Utility', 'language': 'ruby',
         })
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'language', 'ruby')
 
     def test_execute_args_must_be_list(self):
         self._install_script(
@@ -625,7 +626,7 @@ class TestScriptExecution(unittest.TestCase):
             'name': 'ArgsCheckTest', 'category': 'Utility', 'language': 'py',
             'args': 'not-a-list',
         })
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'args')
 
     # ── execute Lua (mocked) ────────────────────────────────────────────────
 
@@ -694,15 +695,15 @@ class TestScriptExecution(unittest.TestCase):
 
     def test_run_inline_empty_source_errors(self):
         r = script_plugin('run_inline', {'source': '', 'language': 'py'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'source')
         r = script_plugin('run_inline', {'source': '   ', 'language': 'lua'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'source')
 
     def test_run_inline_invalid_language(self):
         r = script_plugin('run_inline', {
             'source': 'x = 1', 'language': 'ruby',
         })
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'language', 'ruby')
 
     # ── run_inline Lua (mocked) ────────────────────────────────────────────
 
@@ -744,7 +745,7 @@ class TestScriptExecution(unittest.TestCase):
         r = script_plugin('run_inline', {
             'source': 'return 1', 'language': 'lua',
         })
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, "isn't running")
 
 
 if __name__ == '__main__':

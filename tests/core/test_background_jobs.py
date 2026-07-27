@@ -4,6 +4,8 @@ import threading
 import time
 import unittest
 
+from tests._error_envelope_helpers import assert_error_mentions
+
 import src.server as s
 from src.core import background_jobs
 
@@ -132,7 +134,7 @@ class ResolveControlPollingTest(unittest.TestCase):
 
     def test_job_status_missing_id_errors(self):
         out = s.resolve_control("job_status", {})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'job_status requires job_id')
 
     def test_list_jobs_action_returns_jobs(self):
         job_id = background_jobs.start_job("test.control_list", lambda: None)

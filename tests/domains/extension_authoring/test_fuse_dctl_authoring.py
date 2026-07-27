@@ -28,6 +28,7 @@ if PROJECT_ROOT not in sys.path:
 
 from src.domains.extension_authoring.utils import fuse_templates, dctl_templates  # noqa: E402
 from src.server import fuse_plugin, dctl  # noqa: E402
+from tests._error_envelope_helpers import assert_error_mentions  # noqa: E402
 import src.domains.extension_authoring.actions as _dom_extension_authoring  # noqa: E402
 
 
@@ -332,7 +333,7 @@ class TestFusePluginAction(unittest.TestCase):
 
     def test_template_unknown_kind_errors(self):
         r = fuse_plugin('template', {'kind': 'nope', 'name': 'X'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'kind', 'nope')
 
     def test_template_returns_source_for_every_kind(self):
         for kind in fuse_templates.TEMPLATES:
@@ -344,25 +345,25 @@ class TestFusePluginAction(unittest.TestCase):
     def test_install_rejects_invalid_name(self):
         # leading digit
         r = fuse_plugin('install', {'name': '1bad', 'source': '-- x'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'name', '1bad')
         # path traversal
         r = fuse_plugin('install', {'name': '../bad', 'source': '-- x'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'name', '../bad')
         # empty
         r = fuse_plugin('install', {'name': '', 'source': '-- x'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'name')
 
     def test_install_rejects_empty_source(self):
         r = fuse_plugin('install', {'name': 'GoodName', 'source': ''})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'source')
         r = fuse_plugin('install', {'name': 'GoodName', 'source': '   '})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'source')
         r = fuse_plugin('install', {'name': 'GoodName'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'source')
 
     def test_remove_rejects_invalid_name(self):
         r = fuse_plugin('remove', {'name': '../bad'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'name', '../bad')
 
     def test_validate_lua_good(self):
         r = fuse_plugin('validate', {'source': 'function f() return 1 end'})
@@ -414,7 +415,7 @@ class TestDctlAction(unittest.TestCase):
 
     def test_path_invalid_category(self):
         r = dctl('path', {'category': 'nope'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'category', 'nope')
 
     def test_list_templates_returns_8(self):
         r = dctl('list_templates')
@@ -442,25 +443,25 @@ class TestDctlAction(unittest.TestCase):
 
     def test_install_rejects_invalid_name(self):
         r = dctl('install', {'name': '../bad', 'source': '__DEVICE__ x'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'name', '../bad')
 
     def test_install_rejects_invalid_ext(self):
         r = dctl('install', {'name': 'X', 'source': '__DEVICE__ x', 'ext': '.txt'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'ext')
 
     def test_subdir_traversal_rejected(self):
         r = dctl('path', {'subdir': '../../etc'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'subdir')
 
     def test_subdir_hidden_rejected(self):
         r = dctl('path', {'subdir': '.hidden'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'subdir')
 
     def test_subdir_backslash_normalized(self):
         # On POSIX, backslashes in a subdir path should be treated as separators
         # so attackers can't bypass traversal checks via Windows-style paths.
         r = dctl('path', {'subdir': 'a\\..\\b'})
-        self.assertIn('error', r)
+        assert_error_mentions(self, r, 'subdir')
 
     def test_validate_good_dctl(self):
         src = dctl('template', {'kind': 'transform', 'name': 'X'})['source']
@@ -543,7 +544,7 @@ class TestRoundtripFilesystem(unittest.TestCase):
 
         # overwrite=false without flag must error
         r2 = fuse_plugin('install', {'name': 'RtFuse', 'source': gen['source']})
-        self.assertIn('error', r2)
+        assert_error_mentions(self, r2, 'overwrite')
 
         rm = fuse_plugin('remove', {'name': 'RtFuse'})
         self.assertTrue(rm.get('success'))

@@ -11,6 +11,8 @@ import shutil
 import tempfile
 import unittest
 
+from tests._error_envelope_helpers import assert_error_mentions
+
 import src.server as s
 
 
@@ -43,7 +45,7 @@ class OrchestrateToolTests(unittest.TestCase):
         out = run(s.orchestrate("start_job", {
             "files": [self.media], "analysis_root": "/nonexistent/does-not-exist",
         }))
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'analysis_root', 'not a directory')
 
     def test_start_job_success(self):
         out = run(s.orchestrate("start_job", {
@@ -57,7 +59,7 @@ class OrchestrateToolTests(unittest.TestCase):
         out = run(s.orchestrate("start_job", {
             "files": ["/tmp/definitely-not-here.mov"], "analysis_root": self.root,
         }))
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'file not found')
 
     def test_job_status_round_trip(self):
         created = run(s.orchestrate("start_job", {
@@ -73,7 +75,7 @@ class OrchestrateToolTests(unittest.TestCase):
         out = run(s.orchestrate("job_status", {
             "job_id": "nonexistent", "analysis_root": self.root,
         }))
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'job not found', 'nonexistent')
 
     def test_list_jobs_via_analysis_root(self):
         run(s.orchestrate("start_job", {"files": [self.media], "analysis_root": self.root}))
@@ -83,7 +85,7 @@ class OrchestrateToolTests(unittest.TestCase):
 
     def test_unknown_action(self):
         out = run(s.orchestrate("explode", {"analysis_root": self.root}))
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'Unknown action', 'explode')
 
 
 class OrchestrateOfflineOpToolTests(unittest.TestCase):
@@ -120,7 +122,7 @@ class OrchestrateOfflineOpToolTests(unittest.TestCase):
             "job_id": self.job_id, "analysis_root": self.root,
             "tool": "deliverable", "op_action": "deliverable_qc", "args": {},
         }))
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'does not require Resolve closed')
 
     def test_resolve_offline_op_resumes_stage(self):
         run(s.orchestrate("request_offline_op", {
@@ -140,7 +142,7 @@ class OrchestrateOfflineOpToolTests(unittest.TestCase):
             "job_id": self.job_id, "analysis_root": self.root,
             "result": {"success": True},
         }))
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'no pending offline op')
 
 
 if __name__ == "__main__":

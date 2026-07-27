@@ -7,6 +7,8 @@ a partial delete/move that still reported success. Now `_resolve_folder_ids`
 walks the whole tree and any unmatched id is an error BEFORE mutation.
 """
 import unittest
+
+from tests._error_envelope_helpers import assert_error_mentions
 from unittest import mock
 
 import src.server as s
@@ -105,7 +107,7 @@ class MediaPoolFolderActionsTest(unittest.TestCase):
         root, *_ = _tree()
         mp, out = self._run(
             "move_folders", {"folder_ids": ["ghost"], "target_path": "Master/B"}, root)
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'not found', 'ghost')
         mp.MoveFolders.assert_not_called()
 
     def test_unknown_action_lists_rename_folder(self):

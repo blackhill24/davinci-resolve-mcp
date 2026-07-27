@@ -13,6 +13,7 @@ import asyncio
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from src.domains.media_analysis.utils import clip_identity_registry as _cir
 from src.domains.media_analysis.utils import caps_gating as _cg
@@ -201,14 +202,15 @@ class _PrefsIsolated(unittest.TestCase):
 
     def setUp(self):
         self._tmp = tempfile.mkdtemp(prefix="sampling_prefs_")
-        self._prev = os.environ.get("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS")
-        os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"] = os.path.join(self._tmp, "prefs.json")
+        self.prefs_path = os.path.join(self._tmp, "prefs.json")
+        self._env = mock.patch.dict(
+            os.environ,
+            {"DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS": self.prefs_path},
+        )
+        self._env.start()
+        self.addCleanup(self._env.stop)
 
     def tearDown(self):
-        if self._prev is None:
-            os.environ.pop("DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS", None)
-        else:
-            os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"] = self._prev
         import shutil
         shutil.rmtree(self._tmp, ignore_errors=True)
 
@@ -225,7 +227,7 @@ class SamplingModeDecision(_PrefsIsolated):
         self.assertEqual(d["mode"], "per_minute")
         self.assertEqual(d["source"], "explicit")
         # Nothing written to disk.
-        self.assertFalse(os.path.exists(os.environ["DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"]))
+        self.assertFalse(os.path.exists(self.prefs_path))
 
     def test_save_default_persists_and_silences_prompt(self):
         d = srv._media_analysis_sampling_mode_decision(

@@ -14,6 +14,7 @@ Two jobs:
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import sys
 
@@ -28,6 +29,100 @@ from tests.bridge_double import (  # noqa: E402
     ResolveBridgeDouble,
     make_resolve,
 )
+
+
+# Not leaks:
+#   PYTEST_CURRENT_TEST — pytest rewrites it around every phase of every test.
+#   RESOLVE_SCRIPT_API / RESOLVE_SCRIPT_LIB — src/resolve_mcp_server.py sets these
+#     at import time; they are how the DaVinciResolveScript module is located at
+#     all. Whichever test imports the entry point first "leaks" them, and the
+#     value is the same one every subsequent import would compute.
+_ENV_LEAK_EXEMPT = frozenset({
+    "PYTEST_CURRENT_TEST",
+    "RESOLVE_SCRIPT_API",
+    "RESOLVE_SCRIPT_LIB",
+})
+
+
+@pytest.fixture(autouse=True)
+def _no_env_leak():
+    """Fail the test that leaves ``os.environ`` modified (#121 task 4).
+
+    Deliberately a *failure*, not a silent restore. Silent restoration keeps the
+    suite passing while the leak is still there, so the next test to depend on
+    the leaked value stays order-dependent and nothing points at the culprit.
+    Failing names the exact test that leaked, on the run that introduced it.
+
+    Tests that need a different environment set it with
+    ``mock.patch.dict(os.environ, ...)`` / ``monkeypatch.setenv``, both of which
+    unwind before this fixture's teardown runs.
+    """
+    def snapshot():
+        return {k: v for k, v in os.environ.items() if k not in _ENV_LEAK_EXEMPT}
+
+    before = snapshot()
+    yield
+    after = snapshot()
+    if after == before:
+        return
+    added = {k: after[k] for k in after.keys() - before.keys()}
+    removed = sorted(before.keys() - after.keys())
+    changed = sorted(k for k in before.keys() & after.keys() if before[k] != after[k])
+    raise AssertionError(
+        "test leaked os.environ changes into the rest of the run "
+        f"(added={added}, removed={removed}, changed={changed}); "
+        "use mock.patch.dict(os.environ, ...) or monkeypatch.setenv instead"
+    )
+
+
+def _reset_module_globals():
+    """Clear the process-global caches/registries in ``src/`` (#121 task 4).
+
+    These are the module-level mutables a test can write to and a later test can
+    then read. Before this fixture, individual files cleared some of them in
+    their own ``setUp`` (``_CONFIRM_TOKENS`` in four files, the dashboard caches
+    in one) — which meant the cleanup ran only where somebody had remembered it,
+    and a *new* test that minted a confirm token silently handed it to whatever
+    ran next.
+
+    Imports are lazy and failures are swallowed on purpose: conftest must not
+    make an unrelated import error look like a collection failure of every test.
+    """
+    try:
+        from src.core import tool_kernel
+
+        tool_kernel._CONFIRM_TOKENS.clear()
+    except Exception:
+        pass
+    try:
+        from src.core import failure_tracker
+
+        failure_tracker._FAILURES.clear()
+    except Exception:
+        pass
+    try:
+        from src.dashboard import media_inventory
+
+        media_inventory._PATH_EXISTS_CACHE.clear()
+        media_inventory._INVENTORY_CACHE.clear()
+    except Exception:
+        pass
+    try:
+        # Cached sqlite handles keyed by db path; connect() reopens on demand, so
+        # closing them between tests is safe and stops a temp-dir DB from being
+        # reused after its directory is gone.
+        from src.core import timeline_brain_db
+
+        timeline_brain_db.close_all()
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _reset_process_state():
+    _reset_module_globals()
+    yield
+    _reset_module_globals()
 
 
 @pytest.fixture

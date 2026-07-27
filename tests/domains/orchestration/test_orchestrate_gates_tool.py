@@ -14,6 +14,8 @@ import shutil
 import tempfile
 import unittest
 
+from tests._error_envelope_helpers import assert_error_mentions
+
 import src.server as s
 from src.domains.auto_edit.utils import auto_edit
 from src.domains.orchestration.utils import orchestrate
@@ -84,7 +86,7 @@ class CheckResumeToolTests(OrchestrateGatesToolBase):
         out = run(s.orchestrate("check_resume", {
             "job_id": "nonexistent", "analysis_root": self.root, "current_fingerprint": _fp(),
         }))
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'job not found', 'nonexistent')
 
 
 class ForceReplanToolTests(OrchestrateGatesToolBase):
@@ -102,7 +104,7 @@ class ForceReplanToolTests(OrchestrateGatesToolBase):
         out = run(s.orchestrate("force_replan_stage", {
             "job_id": job_id, "stage": "ingest", "analysis_root": self.root,
         }))
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'ingest', 'not done')
 
 
 class ApproveGateToolTests(OrchestrateGatesToolBase):
@@ -119,14 +121,14 @@ class ApproveGateToolTests(OrchestrateGatesToolBase):
         out = run(s.orchestrate("approve_gate", {
             "job_id": job_id, "gate": "G99", "analysis_root": self.root, "current_fingerprint": fp,
         }))
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'unknown gate', 'G99')
 
     def test_gate_refuses_when_stage_not_done(self):
         job_id = self._start_job()
         out = run(s.orchestrate("approve_gate", {
             "job_id": job_id, "gate": "G3", "analysis_root": self.root, "current_fingerprint": _fp(),
         }))
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'G3', 'precondition')
 
     def test_g3_standard_mode_token_round_trip(self):
         job_id, fp = self._deliver_ready_job()
@@ -157,7 +159,7 @@ class ApproveGateToolTests(OrchestrateGatesToolBase):
             "job_id": job_id, "gate": "G3", "analysis_root": self.root,
             "current_fingerprint": _fp(items=999999),
         }))
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'drift detected')
 
     def test_g2_requires_vision_assessment_and_frame(self):
         job_id = self._start_job()
@@ -166,7 +168,7 @@ class ApproveGateToolTests(OrchestrateGatesToolBase):
         missing = run(s.orchestrate("approve_gate", {
             "job_id": job_id, "gate": "G2", "analysis_root": self.root, "current_fingerprint": fp,
         }))
-        self.assertIn("error", missing)
+        assert_error_mentions(self, missing, 'G2 requires')
         first = run(s.orchestrate("approve_gate", {
             "job_id": job_id, "gate": "G2", "analysis_root": self.root, "current_fingerprint": fp,
             "vision_assessment": "warm, even skin tones", "preview_frame_path": "/tmp/frame.png",
@@ -201,14 +203,14 @@ class PlanStageToolTests(OrchestrateGatesToolBase):
         out = run(s.orchestrate("plan_stage", {
             "job_id": job_id, "stage": "grade", "analysis_root": self.root,
         }))
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'plan_stage', 'grade')
 
     def test_non_talking_head_genre_refuses_with_byo_message(self):
         job_id = self._start_job(genre="documentary")
         out = run(s.orchestrate("plan_stage", {
             "job_id": job_id, "analysis_root": self.root,
         }))
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'documentary')
         self.assertIn("bring-your-own-timeline", out["error"]["message"])
 
     def test_already_planned_returns_summary(self):
@@ -229,7 +231,7 @@ class ReviseStageToolTests(OrchestrateGatesToolBase):
         out = run(s.orchestrate("revise_stage", {
             "job_id": job_id, "analysis_root": self.root, "notes": "drop segment 1",
         }))
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'no plan yet')
 
     def test_revision_updates_plan_id_and_voids_gate(self):
         job_id = self._start_job()

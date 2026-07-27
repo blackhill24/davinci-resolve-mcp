@@ -9,6 +9,7 @@ import threading
 from typing import Any, Dict, Optional, Tuple
 
 from src.core.platform import setup_environment
+from src.core import locale_guard as _locale_guard
 
 
 def _safe_call(obj: Any, method_name: str, *args: Any) -> Tuple[Any, Optional[str]]:
@@ -70,6 +71,7 @@ def _connect_resolve_read_only() -> Tuple[Any, Optional[str]]:
             return None, f"Resolve scripting API unavailable: {exc}"
         try:
             resolve = dvr_script.scriptapp("Resolve")
+            _locale_guard.restore()  # scriptapp() resets the C locale
         except Exception as exc:
             return None, f"Resolve connection failed: {exc}"
         if resolve is None:

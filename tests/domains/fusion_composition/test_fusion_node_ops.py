@@ -4,6 +4,8 @@ Covers get_position / set_position / copy_tool / auto_arrange and the position
 normalizer, using a fake comp so no live Resolve is needed.
 """
 import unittest
+
+from tests._error_envelope_helpers import assert_error_mentions
 from unittest import mock
 
 import src.server as s
@@ -127,7 +129,7 @@ class GetPositionTest(unittest.TestCase):
 
     def test_missing_tool(self):
         out = _dispatch(FakeComp(), "get_position", {"tool_name": "nope"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'nope', 'not found')
 
 
 class SetPositionTest(unittest.TestCase):
@@ -144,7 +146,7 @@ class SetPositionTest(unittest.TestCase):
         comp = FakeComp()
         comp.add("T1")
         out = _dispatch(comp, "set_position", {"tool_name": "T1", "x": 1})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'requires x and y')
 
 
 class CopyToolTest(unittest.TestCase):
@@ -171,7 +173,7 @@ class CopyToolTest(unittest.TestCase):
 
     def test_missing_source(self):
         out = _dispatch(FakeComp(), "copy_tool", {"tool_name": "nope"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'nope', 'not found')
 
 
 class AutoArrangeTest(unittest.TestCase):
@@ -197,7 +199,7 @@ class AutoArrangeTest(unittest.TestCase):
 
     def test_empty(self):
         out = _dispatch(FakeComp(), "auto_arrange", {})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'No tools to arrange')
 
 
 class FrameRangeTest(unittest.TestCase):

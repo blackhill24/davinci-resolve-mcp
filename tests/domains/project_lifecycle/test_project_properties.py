@@ -5,6 +5,8 @@ strings for numeric settings, mirroring how Resolve's API actually behaves.
 """
 import unittest
 
+from tests._error_envelope_helpers import assert_error_mentions
+
 from src.domains.project_lifecycle.utils.project_properties import (
     get_all_project_properties,
     get_project_property,
@@ -54,7 +56,7 @@ class GetPropertyTest(unittest.TestCase):
 
     def test_none_project_errors(self):
         out = get_project_property(None, "timelineFrameRate")
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'Invalid project object')
 
 
 class SetPropertyTest(unittest.TestCase):

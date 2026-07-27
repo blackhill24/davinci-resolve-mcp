@@ -6,6 +6,8 @@
 A fake comp/tool is used so no live Resolve is needed.
 """
 import unittest
+
+from tests._error_envelope_helpers import assert_error_mentions
 from unittest import mock
 
 import src.server as s
@@ -118,7 +120,7 @@ class AddFusionMaskTest(unittest.TestCase):
 
     def test_invalid_mask_type(self):
         out = _dispatch(FakeComp(), "add_fusion_mask", {"mask_type": "Triangle"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'mask_type', 'Rectangle')
 
     def test_center_list_form(self):
         comp = FakeComp()
@@ -189,17 +191,17 @@ class TextPlusTest(unittest.TestCase):
         comp = FakeComp()
         comp.add("Title", regid="TextPlus")
         out = _dispatch(comp, "set_text_plus", {})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'set_text_plus requires')
 
     def test_no_text_tool_found(self):
         comp = FakeComp()
         comp.add("Background1", regid="Background")
         out = _dispatch(comp, "set_text_plus", {"text": "x"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'No Text+ tool found')
 
     def test_get_text_missing_named_tool(self):
         out = _dispatch(FakeComp(), "get_text_plus", {"tool_name": "nope"})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'nope', 'not found')
 
 
 if __name__ == "__main__":

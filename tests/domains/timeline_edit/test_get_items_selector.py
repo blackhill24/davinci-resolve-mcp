@@ -1,6 +1,8 @@
 """get_items / get_items_in_track validate their track selector (no KeyError)
 and accept the 1-based index as either index or track_index."""
 import unittest
+
+from tests._error_envelope_helpers import assert_error_mentions
 from unittest import mock
 
 import src.server as s
@@ -43,7 +45,7 @@ class GetItemsSelectorTest(unittest.TestCase):
 
     def test_get_items_rejects_unknown_track_type(self):
         out, _ = _dispatch("get_items", {"track_type": "bogus", "index": 1})
-        self.assertIn("error", out)
+        assert_error_mentions(self, out, 'track_type', 'video, audio, subtitle')
 
     def test_get_items_in_track_accepts_index_alias(self):
         out, tl = _dispatch("get_items_in_track", {"track_type": "audio", "index": 1})

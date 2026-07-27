@@ -6,6 +6,7 @@ DaVinci Resolve Connection Utilities
 import os
 import logging
 from .platform import get_platform, get_resolve_paths, setup_environment
+from . import locale_guard as _locale_guard
 
 logger = logging.getLogger("davinci-resolve-mcp.connection")
 
@@ -17,6 +18,7 @@ def initialize_resolve():
         
         # Get the resolve object
         resolve = dvr_script.scriptapp("Resolve")
+        _locale_guard.restore()  # scriptapp() resets the C locale
         
         if resolve is None:
             logger.error("Failed to get Resolve object. Is DaVinci Resolve running?")

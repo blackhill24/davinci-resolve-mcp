@@ -13,7 +13,7 @@ import re
 import stat
 import subprocess
 import tempfile
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -152,14 +152,92 @@ def _hdmi_monitor_present(proc_asound: str, card: int, dev: int, hdmi_devs: List
     return False
 
 
-def _rank(name: str, monitor_present: bool, card: int, dev: int) -> Tuple[int, int, int]:
+# How long to wait on the audio server's own CLI before giving up on it.
+_AUDIO_SERVER_QUERY_TIMEOUT_SECONDS = 5.0
+
+
+def _audio_server_devices() -> Optional[FrozenSet[Tuple[int, int]]]:
+    """The (card, device) pairs the session audio server has live nodes on.
+
+    This is the question ``/proc/asound`` cannot answer. A PipeWire node that is
+    merely *idle* is suspended, and a suspended substream's status file reads
+    ``closed`` — indistinguishable from genuinely free. So the desktop's own
+    output looks available, gets taken exclusively, and every other application
+    on the machine goes silent (#131).
+
+    ``pactl`` knows, because it asks the server rather than the kernel: every
+    sink/source it lists carries the ``alsa.card`` and ``alsa.device`` of the
+    PCM behind it. Two deliberate choices:
+
+    * *sinks and sources*, not ``pactl list cards`` — the server keeps a card
+      object for every ALSA card it can see, including ones whose profile is
+      off and which it is therefore not using at all. On this machine that
+      distinction is the whole fix: cards is {0, 1}, sinks/sources is card 1
+      only, and card 0 is exactly the free output Resolve should take.
+    * *(card, device)*, not card alone — ALSA exclusivity is per-PCM-device.
+      Verified live: ``arecord -D hw:1,2`` succeeds while PipeWire holds
+      ``hw:1,0`` RUNNING. Demoting whole cards would give up the alt capture
+      device on this machine for nothing.
+
+    Returns ``None``, not an empty set, when the answer is unknown (no
+    ``pactl``, no server, a timeout). Unknown must not read as "nothing is in
+    use" — the caller keeps its old behaviour instead of confidently grabbing
+    the desktop's device.
+    """
+    devices: set = set()
+    for kind in ("sinks", "sources"):
+        try:
+            done = subprocess.run(
+                ["pactl", "list", kind],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=_AUDIO_SERVER_QUERY_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            # Deliberately broad. This probe only *improves* device ranking; a
+            # launch must never fail because the audio server's CLI misbehaved.
+            # Anything unexpected degrades to "ownership unknown", which is the
+            # pre-#131 behaviour, rather than propagating into spawn_resolve().
+            logger.debug("audio-server probe: pactl list %s failed", kind, exc_info=True)
+            return None
+        if done.returncode != 0:
+            return None
+        # Properties are grouped per sink/source, so card and device must be
+        # paired within one block — scanning the whole output for each key
+        # independently would cross-product them on a multi-card machine.
+        for block in re.split(r"^(?=\S)", done.stdout, flags=re.MULTILINE):
+            card = re.search(r'^\s*alsa\.card\s*=\s*"(\d+)"', block, re.MULTILINE)
+            dev = re.search(r'^\s*alsa\.device\s*=\s*"(\d+)"', block, re.MULTILINE)
+            if card and dev:
+                devices.add((int(card.group(1)), int(dev.group(1))))
+    return frozenset(devices)
+
+
+def _rank(
+    name: str,
+    monitor_present: bool,
+    card: int,
+    dev: int,
+    owned: bool = False,
+) -> Tuple[int, int, int, int]:
     """Sort key ranking an ALSA output/input by likelihood of a real sink.
 
-    Analog first (almost always a real device), then a *connected* HDMI pin,
-    then anything unclassified, then digital/SPDIF, then a dead HDMI pin last.
-    Ties break on (card, device) so the choice is deterministic across launches
-    — the take-first-free bug this replaces picked whatever PCM PipeWire left
-    open, so the pair changed run to run (#99).
+    The leading term is coexistence: a PCM device the session audio server is
+    *not* using outranks every device it is, however good the latter looks
+    otherwise. Taking a device the desktop is on means opening it exclusively
+    and silencing every other application until Resolve exits, so a
+    merely-adequate free device beats a perfect contested one (#131). Without
+    this term the ranking below actively picks the worst option — ``analog`` is
+    tier 0, and the desktop's output is almost always the analog one.
+
+    Within a group: analog first (almost always a real device), then a
+    *connected* HDMI pin, then anything unclassified, then digital/SPDIF, then
+    a dead HDMI pin last. Ties break on (card, device) so the choice is
+    deterministic across launches — the take-first-free bug this replaces
+    picked whatever PCM PipeWire left open, so the pair changed run to run
+    (#99).
     """
     name_l = name.lower()
     is_hdmi = "hdmi" in name_l
@@ -173,10 +251,13 @@ def _rank(name: str, monitor_present: bool, card: int, dev: int) -> Tuple[int, i
         tier = 3
     else:
         tier = 2
-    return (tier, card, dev)
+    return (1 if owned else 0, tier, card, dev)
 
 
-def _free_alsa_devices(proc_asound: str = "/proc/asound") -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+def _free_alsa_devices(
+    proc_asound: str = "/proc/asound",
+    owned_devices: Optional[FrozenSet[Tuple[int, int]]] = None,
+) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
     """Best free (card, device) pair for playback and capture, from /proc/asound.
 
     A substream is free when its status file reads "closed" (an open PCM shows
@@ -186,12 +267,26 @@ def _free_alsa_devices(proc_asound: str = "/proc/asound") -> Tuple[Optional[Tupl
     outputs (#99) — every free candidate is ranked (see :func:`_rank`) and the
     best is chosen; the selection is logged so a bad pick is diagnosable after
     the fact.
+
+    ``owned_devices`` are the ``(card, device)`` pairs the session audio server
+    is actually using; they are ranked last so Resolve coexists with the rest of
+    the desktop instead of taking its output hostage (#131). Pass an explicit
+    frozenset to keep the choice hermetic; ``None`` means "ask the audio
+    server", and if it cannot be asked the ranking degrades to the pre-#131
+    behaviour.
     """
     try:
         with open(os.path.join(proc_asound, "pcm"), encoding="utf-8") as fh:
             lines: List[str] = fh.readlines()
     except OSError:
         return None, None
+
+    # After the /proc read, not before: on a machine with no sound at all there
+    # is nothing to rank, and no reason to spend a subprocess asking who owns
+    # what.
+    if owned_devices is None:
+        owned_devices = _audio_server_devices()
+    unknown_owners = owned_devices is None
 
     # (card, dev, name, direction) for every free substream, plus the set of
     # HDMI playback devices per card for the ELD mapping.
@@ -220,22 +315,38 @@ def _free_alsa_devices(proc_asound: str = "/proc/asound") -> Tuple[Optional[Tupl
     def _pick(direction: str) -> Tuple[Optional[Tuple[int, int]], str]:
         best = None
         best_name = ""
-        best_key: Optional[Tuple[int, int, int]] = None
+        best_owned = False
+        best_key: Optional[Tuple[int, int, int, int]] = None
         for card, dev, name in candidates[direction]:
             monitor = _hdmi_monitor_present(proc_asound, card, dev, hdmi_devs.get(card, [])) \
                 if "hdmi" in name.lower() else False
-            key = _rank(name, monitor, card, dev)
+            owned = not unknown_owners and (card, dev) in owned_devices
+            key = _rank(name, monitor, card, dev, owned)
             if best_key is None or key < best_key:
-                best_key, best, best_name = key, (card, dev), name
-        return (best, best_name)
+                best_key, best, best_name, best_owned = key, (card, dev), name, owned
+        return (best, best_name, best_owned)
 
-    playback, p_name = _pick("playback")
-    capture, c_name = _pick("capture")
+    playback, p_name, p_owned = _pick("playback")
+    capture, c_name, c_owned = _pick("capture")
     if playback is not None and capture is not None:
         logger.info(
             "ALSA autodetect: playback=hw:%d,%d (%s) capture=hw:%d,%d (%s)",
             playback[0], playback[1], p_name, capture[0], capture[1], c_name,
         )
+        # Tier 3: nothing was free, so Resolve takes a card the desktop is on
+        # and everything else goes quiet until it exits (#129's restore hands
+        # the card back then). Worth a loud line — this is the degraded path,
+        # and it is the one users report as "my sound card disappeared".
+        if p_owned or c_owned:
+            logger.warning(
+                "ALSA autodetect: no free duplex pair outside the cards the session "
+                "audio server is using (%s); Resolve will open %s exclusively and "
+                "other applications lose audio until it exits. Load snd-aloop, or "
+                "free a second card, to let them coexist (#131).",
+                "unknown" if unknown_owners else sorted(owned_devices),
+                "playback" if p_owned and not c_owned else
+                "capture" if c_owned and not p_owned else "playback and capture",
+            )
     else:
         logger.info(
             "ALSA autodetect: no free duplex pair (playback=%s capture=%s); "
@@ -248,6 +359,7 @@ def resolve_spawn_env(
     base_env: Optional[Dict[str, str]] = None,
     proc_asound: str = "/proc/asound",
     conf_dir: Optional[str] = None,
+    owned_devices: Optional[FrozenSet[Tuple[int, int]]] = None,
 ) -> Dict[str, str]:
     """Environment for launching DaVinci Resolve itself.
 
@@ -256,11 +368,15 @@ def resolve_spawn_env(
     the engine retry-loops against PipeWire/Pulse and renders never start).
     A pre-set ALSA_CONFIG_PATH is respected; if no free hw playback+capture
     pair exists the env is returned unchanged (video-only renders still work).
+
+    The chosen devices are opened *exclusively*, so selection prefers cards the
+    session audio server is not using — see :func:`_free_alsa_devices` and
+    ``owned_devices``, which is passed straight through.
     """
     env = sanitized_spawn_env(base_env)
     if env.get("ALSA_CONFIG_PATH"):
         return env
-    playback, capture = _free_alsa_devices(proc_asound)
+    playback, capture = _free_alsa_devices(proc_asound, owned_devices)
     if playback is None or capture is None:
         return env
     conf = _ALSA_CONF_TEMPLATE.format(

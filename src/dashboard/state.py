@@ -240,8 +240,8 @@ def _launch_claude_code_terminal() -> Dict[str, Any]:
         check = subprocess.run(
             ["osascript", "-e", 'application "iTerm" is running'],
             capture_output=True, text=True, timeout=8,
-            # Never rely on the process locale for the encoding: it may be C in a
-            # service/cron start. Output is compared to "true", so replace is safe.
+            # Never rely on the process locale for the encoding: a native library can
+            # reset it to C mid-flight. Output is compared to "true", so replace is safe.
             encoding="utf-8", errors="replace",
         )
         iterm_running = (check.stdout or "").strip().lower() == "true"

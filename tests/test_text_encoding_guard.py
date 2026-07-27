@@ -2,12 +2,17 @@
 
 `open()`, `pathlib.read_text()/write_text()` and `subprocess(text=True)` all resolve
 their default encoding from the process's C locale, at call time. That locale is not
-ours to trust: `fusionscript.scriptapp("Resolve")` used to reset it to POSIX (#121,
-fixed at the trigger by `src/core/locale_guard.restore()`), and a systemd unit with no
-`LANG`, a cron job, or a minimal container starts in it anyway. Under that locale every
-unencoded text-mode call decodes as ASCII and raises `UnicodeDecodeError` on the first
-byte over 0x7F — an accented clip path, a non-7-bit subtitle, a project name typed in a
-language other than English.
+ours to trust: `fusionscript.scriptapp("Resolve")` used to reset it to POSIX under a
+running interpreter (#121, fixed at the trigger by `src/core/locale_guard.restore()`),
+and any other native library can do the same. Once that happens every unencoded
+text-mode call decodes as ASCII and raises `UnicodeDecodeError` on the first byte over
+0x7F — an accented clip path, a non-7-bit subtitle, a project name typed in a language
+other than English.
+
+A *mid-process* reset is what makes it reachable. Starting without a `LANG` does not:
+CPython turns UTF-8 mode on when the startup locale is C/POSIX, so a service, cron job
+or minimal container keeps utf-8 throughout (#127). Naming the encoding removes the
+dependency either way, which is why this guard is not scoped to the one live trigger.
 
 `test_locale_guard.py` guards the trigger we know about. This one removes the
 dependency: it fails when a *new* encoding-less text-mode site appears under `src/`
@@ -140,9 +145,9 @@ class NoLocaleDependentTextIOTest(unittest.TestCase):
         ]
         self.assertEqual(
             [], offenders,
-            "These sites take their text encoding from the process locale, which is "
-            "ASCII under a C locale (a service/cron start, or a native library that "
-            "resets it). Pass encoding=\"utf-8\" — plus errors=\"replace\" when the "
+            "These sites take their text encoding from the process locale, which goes "
+            "ASCII the moment a native library resets it mid-process (Resolve's "
+            "scriptapp() did). Pass encoding=\"utf-8\" — plus errors=\"replace\" when the "
             "output is only logged or pattern-matched, never parsed. If a site really "
             f"wants the locale's encoding, add it to _ALLOWLIST with a reason: {offenders}",
         )

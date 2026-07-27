@@ -22,6 +22,16 @@ ASCII — and then raises `UnicodeDecodeError` on the first non-ASCII byte:
   * a subtitle or SRT file with anything outside 7-bit ASCII,
   * a project or timeline name typed in any non-English language.
 
+The reset has to happen *mid-process* to bite, and that is exactly the shape of
+this one. CPython decides UTF-8 mode once, from the locale the interpreter
+started in: a process that starts in C/POSIX gets UTF-8 mode, and then reports
+utf-8 from `getpreferredencoding()` whatever the live locale says. A process
+that starts in a UTF-8 locale — every real launch of this server — does not, so
+its encoding tracks the live locale and a later reset genuinely switches it to
+ASCII. So the live trigger is a native library resetting the locale under a
+running interpreter, not an environment that merely starts without a `LANG`
+(#127).
+
 The offline test suite cannot see any of this, because it never connects to
 Resolve and therefore never leaves UTF-8. That is exactly the blind spot #119
 and #121 are about, which is why the fix lives next to a regression test rather

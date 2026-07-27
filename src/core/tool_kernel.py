@@ -756,9 +756,9 @@ def _activate_resolve_window() -> Dict[str, Any]:
 
     Best-effort; returns {activated: bool, platform, error?}. Never raises.
 
-    Every subprocess here names its encoding: the process locale may be C (Resolve's
-    scriptapp() used to reset it, and a service/cron environment can start that way),
-    which would otherwise decode this output as ASCII. errors="replace" because the
+    Every subprocess here names its encoding: a native library can reset the process
+    locale to C mid-flight (Resolve's scriptapp() used to), which would otherwise
+    decode this output as ASCII. errors="replace" because the
     output is a diagnostic string — a stray byte must not raise in place of the report.
     """
     try:

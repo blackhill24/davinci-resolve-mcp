@@ -35,8 +35,8 @@ def _run_app_command(
             check=False,
             capture_output=True,
             text=True,
-            # The process locale may be C (a service/cron start, or a native library
-            # that reset it), which would decode this output as ASCII. Only ever
+            # A native library can reset the process locale to C mid-flight (Resolve's
+            # scriptapp() did), which would decode this output as ASCII. Only ever
             # logged, so replace undecodable bytes rather than raise.
             encoding="utf-8",
             errors="replace",

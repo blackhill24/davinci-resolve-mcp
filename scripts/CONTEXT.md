@@ -13,6 +13,7 @@ Installer and maintenance scripts: audits, generators, probes. The generators ow
 | Regenerate agent-rule mirrors (AGENTS/.cursor/…) | `agent-rules/generate.mjs`, `agent-rules/README.md` | `../.cursorrules` etc. (outputs) | — |
 | Regenerate API limitations doc | `gen_api_limitations.py` | — | `src/core/api_truth.py` (source) |
 | Audit API parity / read-write symmetry | `audit_api_parity.py`, `audit_readwrite_symmetry.py` | — | `docs/reference/` |
+| Check/raise a per-module coverage floor | `coverage_floor.py`, `../.coveragerc` | — | ratchets a NAMED module list, never a repo average |
 | Diagnose environment | `doctor.py` | — | — |
 | Measure bridge cost | `measure_bridge_cost.py` | — | — |
 

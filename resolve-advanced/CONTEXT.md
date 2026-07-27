@@ -22,6 +22,8 @@ DB/XML edits with **no Resolve running**. Also usable as a library (`server/lib.
 - `server/lib.mjs` / `server/libs.mjs` — public library surface (see README "As a library").
 - `vendor/` — bundled codecs by domain (`drx-codec`, `drp-format`, `fusion-codec`, …);
   large, low-churn — read only the one domain a task touches.
+- `scripts/mutation-gate.mjs` (`npm run mutation-gate`) — re-introduces byte-order/dropped-field/
+  truncation defects into the `.drp/.drt/.drx` codecs and fails if the suite stays green (#121).
 - `scripts/preflight-native.mjs` — `pretest` gate; turns better-sqlite3/sharp ABI drift into
   one `npm rebuild` message instead of dozens of ERR_DLOPEN_FAILED test failures (#104).
 

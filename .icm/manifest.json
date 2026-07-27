@@ -2,12 +2,12 @@
   "version": 2,
   "layers": 3,
   "root_nav": "CLAUDE.md",
-  "synced": "2026-07-26",
-  "_root_structure": "4c31c2025e3cd06d",
+  "synced": "2026-07-27",
+  "_root_structure": "70f46f0b14b23ff4",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "b4b076cd9fbd9c6c",
+      "fingerprint": "542288420bd82be2",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -27,6 +27,7 @@
         "src/core/failure_tracker.py",
         "src/core/launch_shim.py",
         "src/core/live_connection.py",
+        "src/core/locale_guard.py",
         "src/core/mcp_stdio.py",
         "src/core/mcp_transport.py",
         "src/core/object_inspection.py",
@@ -175,7 +176,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "704255ed21089d9a",
+      "fingerprint": "5d908a0c6856eeb9",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -184,6 +185,7 @@
         "resolve-advanced/scripts/advanced-bridge.mjs",
         "resolve-advanced/scripts/calib-harness.mjs",
         "resolve-advanced/scripts/drp-bridge.mjs",
+        "resolve-advanced/scripts/mutation-gate.mjs",
         "resolve-advanced/scripts/panel-bridge.mjs",
         "resolve-advanced/scripts/preflight-native.mjs",
         "resolve-advanced/server/aaf.mjs",
@@ -277,6 +279,7 @@
         "resolve-advanced/test/drx-structural-write-fidelity.test.mjs",
         "resolve-advanced/test/drx-ui-space-scaling.test.mjs",
         "resolve-advanced/test/drx-value-fidelity.test.mjs",
+        "resolve-advanced/test/duplicated-test-helpers.test.mjs",
         "resolve-advanced/test/e0-type-defaults.test.mjs",
         "resolve-advanced/test/editorial.test.mjs",
         "resolve-advanced/test/exposure-level.test.mjs",
@@ -684,8 +687,9 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "c27162a4b669c65e",
+      "fingerprint": "3e0b2ca809533649",
       "files": [
+        "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
         "tests/bridge_double.py",
         "tests/cloud-test-setup.md",
@@ -740,6 +744,7 @@
         "tests/dashboard/test_ai_console_dispatch.py",
         "tests/dashboard/test_dashboard_transport.py",
         "tests/dashboard/test_handler_helpers.py",
+        "tests/dashboard/test_handler_routing.py",
         "tests/dashboard/test_inventory_exclude_bins.py",
         "tests/dashboard/test_open_control_panel.py",
         "tests/dashboard/test_panel_docs_drift.py",
@@ -888,6 +893,7 @@
         "tests/domains/timeline_edit/test_timeline_editorial_helpers.py",
         "tests/domains/timeline_edit/test_timeline_export_enum.py",
         "tests/domains/timeline_edit/test_timeline_kernel_probe.py",
+        "tests/domains/timeline_edit/test_timeline_refusal_branches.py",
         "tests/domains/timeline_edit/test_timeline_title_text_utils.py",
         "tests/domains/timeline_edit/test_variant_item_placement.py",
         "tests/fixtures/analysis_sample/README.md",
@@ -913,6 +919,7 @@
         "tests/test_discarded_mutator_returns.py",
         "tests/test_doc_tool_counts.py",
         "tests/test_entrypoints_and_audits.py",
+        "tests/test_env_leak_guard.py",
         "tests/test_exhaustive_wave_a.py",
         "tests/test_granular_disconnected_smoke.py",
         "tests/test_hand_rolled_double_audit.py",
@@ -921,6 +928,7 @@
         "tests/test_launch_shim.py",
         "tests/test_live_harness_exit_codes.py",
         "tests/test_live_harness_naming.py",
+        "tests/test_locale_guard.py",
         "tests/test_mcp_prompts.py",
         "tests/test_mcp_resources.py",
         "tests/test_mutation_gate.py",
@@ -939,18 +947,20 @@
         "tests/test_update_history.py",
         "tests/test_v232_helpers.py",
         "tests/test_v233_helpers.py",
+        "tests/test_vacuous_assertion_audit.py",
         "tests/test_validation_guards.py",
         "tests/test_waveb_p2_p3.py"
       ]
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "3c0fb0182e1aaaf8",
+      "fingerprint": "b3d1041ed4267792",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",
         "scripts/audit_api_parity.py",
         "scripts/audit_readwrite_symmetry.py",
+        "scripts/coverage_floor.py",
         "scripts/doctor.py",
         "scripts/gen_api_limitations.py",
         "scripts/live_media_analysis_polish_probe.py",

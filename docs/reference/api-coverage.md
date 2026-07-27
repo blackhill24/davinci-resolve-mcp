@@ -6,14 +6,14 @@ Complete Resolve scripting API coverage, live-test status, and method-by-method 
 
 | Metric | Value |
 |--------|-------|
-| MCP Tools | **35** compound (default) / **343** granular |
-| Kernel Actions | **136** guarded MCP workflow actions across 9 compound tools |
-| API Methods Covered | **348/348** (100%) |
-| Methods Live Tested | **342/348** (98.3%) |
+| MCP Tools | **36** compound (default) / **342** granular |
+| Kernel Actions | **210** guarded MCP workflow actions across 14 compound tools |
+| API Methods Covered | **349/349** (100%) |
+| Methods Live Tested | **342/349** (98.0%) |
 | Live Test Pass Rate | **342/342** (100%) |
 | API Object Classes | 13 |
 | Tested Against | DaVinci Resolve 21.0.2.4 Studio (Linux) |
-| Compatibility Note | Resolve 21.0 Studio is the sole supported baseline — no backward compatibility. Pre-21 version guards have been removed. The recount (`scripts/audit_api_parity.py --count`) is the single source of truth for the 348-method surface; Stage 2 (#20) live-validated 11 of the 12 Resolve 21 delta methods — `Project.GenerateSpeech` remains 🔬 gated behind the AI Speech Generator Extra (not installed on the validation box; see api_truth). |
+| Compatibility Note | Resolve 21.0 Studio is the sole supported baseline — no backward compatibility. Pre-21 version guards have been removed. The recount (`scripts/audit_api_parity.py --count`) is the single source of truth for the 349-method surface; Stage 2 (#20) live-validated 11 of the 12 Resolve 21 delta methods — `Project.GenerateSpeech` remains 🔬 gated behind the AI Speech Generator Extra (not installed on the validation box; see api_truth). |
 
 ## API Coverage
 
@@ -93,9 +93,9 @@ The current live baseline is **DaVinci Resolve 21.0.2.4 Studio (Linux)** — the
 | Resolve 20 delta | 12/12 | 100% | Resolve 20.0-20.2.2 scripting additions live-tested on 20.3.2 |
 | Resolve 21.0 re-validation | 21 suites | 100% | Live suite re-run on 21.0.2.4 Studio (Linux) after pre-21 guard removal — no regressions |
 | Resolve 21 delta (Stage 2) | 11/11 | 100% | Session background-task control, audio classification ×2, Intellisearch, slate analysis ×2, motion deblur (Folder + MediaPoolItem), speaker-detection passthrough, Super Scale 2x Enhanced 4-arg form, QuickExport enable_upload — live-tested on 21.0.2.4; `GenerateSpeech` gated (see below) |
-| **Total** | **342/342** | **100%** | **98.3% of the 348-method surface tested live (`GenerateSpeech` gated behind an uninstalled AI Extra)** |
+| **Total** | **342/342** | **100%** | **98.0% of the 349-method surface tested live (`GenerateSpeech` gated behind an uninstalled AI Extra; `ResetIntellisearchAnalysis` existence-verified only — invoking it destroys analysis data)** |
 
-### Untested Methods (6 of 348)
+### Untested Methods (7 of 349)
 
 The 4 cloud methods and 1 Dolby Vision method below remain content/infrastructure-gated. `Project.GenerateSpeech` (Resolve 21 delta) returned no media item in live testing (Stage 2, #20) in well under a second — too fast to be an actual synthesis attempt, consistent with the AI Speech Generator Extra not being installed on the validation box; see `api_truth` for the full finding. All other Resolve 21 delta methods are live-tested (see Test Results above).
 
@@ -107,6 +107,7 @@ The 4 cloud methods and 1 Dolby Vision method below remain content/infrastructur
 | `PM.RestoreCloudProject` | Requires DaVinci Resolve cloud infrastructure | Yes |
 | `TL.AnalyzeDolbyVision` | Requires HDR/Dolby Vision content | Yes |
 | `Project.GenerateSpeech` | Requires the AI Speech Generator Extra (not installed on validation box) | Yes |
+| `Project.ResetIntellisearchAnalysis` | Present on 21.0.2.4 and exposed, but invoking it destroys the project's IntelliSearch analysis data — existence-verified only | No |
 
 ---
 

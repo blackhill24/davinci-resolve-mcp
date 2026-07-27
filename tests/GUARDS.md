@@ -21,7 +21,7 @@ question is always *if this were broken, would anything fail?*
 
 ## Meta-tests — the guards on the guards
 
-`scripts/mutation_gate.py` (12 mutations, run on every publish) re-introduces the exact
+`scripts/mutation_gate.py` (15 mutations, run on every publish) re-introduces the exact
 defect each guard was written to catch and fails if the suite stays green. Five of its
 mutations blind a guard's own scanner (`*_scan_blind`) — because a guard whose glob silently
 matches nothing reads as safety while providing none (#110: two drift guards had
@@ -37,6 +37,7 @@ scan result (`assertGreater(len(files), N)`) and earns a mutation here.
 | `test_env_leak_guard.py` | the `conftest.py` env guard silently ceasing to detect leaks |
 | `test_locale_guard.py` | a `scriptapp()` call site with no `locale_guard.restore()` within three lines |
 | `test_text_encoding_guard.py` | a `subprocess(text=True)` / `open()` / `read_text()` under `src/` that names no `encoding=`, so its decoding follows the process locale — ASCII once a native library resets that locale mid-process, as `scriptapp()` did (#124; a C/POSIX *startup* locale is harmless, it turns UTF-8 mode on — #127). Keys on a literal `text=True`, never on a `text=` kwarg. `_ALLOWLIST` is empty by design |
+| `test_granular_guard_drift.py` | a destructive or AI/render tool on the granular (`--full`) surface that skips the confirm-token gate or the AI-ops ledger — #138/#139, where the same Resolve call was guarded through the compound tool and unguarded through `--full`. Registries live in `src/granular/guards.py`; `test_granular_guards.py` is the behavioural half |
 | `test_*_drift.py` set | action list, agent rules, destructive registry, discarded mutator returns |
 
 ## Assert on the reason, not the shape

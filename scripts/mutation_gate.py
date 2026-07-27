@@ -193,6 +193,64 @@ MUTATIONS = {
     guard.SRC = pathlib.Path.cwd() / "no_such_src_directory"
 """,
     },
+    "granular_gate_open": {
+        "why": "The granular confirm gate always says 'proceed' — #138 itself: the "
+               "same destructive op guarded through the compound tool and unguarded "
+               "through `src/server.py --full`.",
+        "baseline": "0 failed before #138 — no granular module referenced the gate",
+        "min_failures": 5,
+        "patch": """
+    import src.granular.folder as _folder
+    import src.granular.graph as _graph
+    import src.granular.media_pool as _mp
+    import src.granular.media_pool_item as _mpi
+    import src.granular.project as _project
+    import src.granular.timeline as _timeline
+
+    # Each granular module star-imports the guard, so it holds its OWN binding —
+    # patching guards.confirm_gate alone would leave every call site untouched.
+    for _mod in (_folder, _graph, _mp, _mpi, _project, _timeline):
+        _mod.confirm_gate = lambda **kw: None
+""",
+    },
+    "granular_ledger_silent": {
+        "why": "The granular AI-ops ledger records nothing — #139: a --full session "
+               "leaves the ledger empty while it still reads as an authoritative "
+               "record of what AI work ran against the project.",
+        "baseline": "0 failed before #139 — no granular module referenced the ledger",
+        "min_failures": 3,
+        "patch": """
+    import contextlib
+    import src.granular.folder as _folder
+    import src.granular.media_pool_item as _mpi
+    import src.granular.project as _project
+
+    class _Rec:
+        success = False
+        output_path = None
+        output_bytes = None
+
+    @contextlib.contextmanager
+    def _noop(op, **kw):
+        yield _Rec()
+
+    for _mod in (_folder, _mpi, _project):
+        _mod.ledger_timed = _noop
+""",
+    },
+    "granular_guard_scan_blind": {
+        "why": "The granular guard-drift scanner finds no modules, so a new "
+               "destructive or AI granular tool landing ungated/unrecorded is no "
+               "longer reported — #138/#139 reintroduced with the guard still green.",
+        "baseline": "not previously measured — guard added by #138/#139",
+        "min_failures": 1,
+        "patch": """
+    import sys, pathlib
+    sys.path.insert(0, str(pathlib.Path.cwd() / "tests"))
+    import test_granular_guard_drift as guard
+    guard._granular_modules = lambda: iter(())
+""",
+    },
     "catastrophic_sink_scan_blind": {
         "why": "The catastrophic-sink scanner returns no call sites, so a new "
                "DeleteAllRenderJobs()/DeleteProject() anywhere in src/ is no longer "

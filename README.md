@@ -55,6 +55,11 @@ The command starts a localhost server and opens the control panel in your browse
 
 The compound server is recommended unless you specifically need the granular one-tool-per-method surface.
 
+Both surfaces carry the same safety layer: the destructive operations that require a two-call
+`confirm_token` require it on the granular server too, and every Resolve AI/render op is written to
+the AI-ops ledger from either surface. `--full` is a different *shape* of the same API, not an
+opt-out from the guardrails (issues #138, #139).
+
 ### Advanced server — beyond the scripting API (optional, Node)
 
 The same package ships a second, optional MCP server: **`davinci-resolve-advanced-mcp`** (bin

@@ -225,13 +225,16 @@ def graph_apply_arri_cdl_lut(item_index: int = 0, track_type: str = "video", tra
 
 
 @mcp.tool()
-def graph_reset_all_grades(item_index: int = 0, track_type: str = "video", track_index: int = 1) -> Dict[str, Any]:
+def graph_reset_all_grades(item_index: int = 0, track_type: str = "video", track_index: int = 1,
+                           confirm_token: Optional[str] = None) -> Dict[str, Any]:
     """Reset all grades on a timeline item's graph.
 
     Args:
         item_index: 0-based timeline item index. Default: 0.
         track_type: 'video' or 'audio'. Default: 'video'.
         track_index: 1-based track index. Default: 1.
+        confirm_token: Omit on the first call to receive a token plus a preview of
+            what is lost, then re-call with that token to proceed.
     """
     item, err = _get_timeline_item(track_type, track_index, item_index)
     if err:
@@ -239,6 +242,16 @@ def graph_reset_all_grades(item_index: int = 0, track_type: str = "video", track
     graph = item.GetNodeGraph()
     if not graph:
         return {"error": "No node graph available"}
+    gate = confirm_gate(
+        action="graph.reset_all_grades",
+        confirm_token=confirm_token,
+        params={"item_index": item_index, "track_type": track_type, "track_index": track_index},
+        preview=lambda: {"operation": "graph.reset_all_grades",
+                 "warning": "Wipes the entire grade on the source. Cannot be selectively undone.",
+                 "clip": item.GetName()},
+    )
+    if gate:
+        return gate
     result = graph.ResetAllGrades()
     return {"success": bool(result)}
 

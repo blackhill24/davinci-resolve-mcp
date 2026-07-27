@@ -1325,11 +1325,15 @@ def refresh_lut_list() -> Dict[str, Any]:
 
 
 @mcp.tool()
-def reset_intellisearch_analysis() -> Dict[str, Any]:
+def reset_intellisearch_analysis(confirm_token: Optional[str] = None) -> Dict[str, Any]:
     """Clear IntelliSearch analysis data for the project (Resolve 21+).
 
     Destructive: the analysis has to be re-run (analyze_for_intellisearch) to
     restore searchability. Needs no Extra of its own.
+
+    Args:
+        confirm_token: Omit on the first call to receive a token plus a preview of
+            what is lost, then re-call with that token to proceed.
     """
     resolve = get_resolve()
     if resolve is None:
@@ -1339,7 +1343,23 @@ def reset_intellisearch_analysis() -> Dict[str, Any]:
         return {"error": "No project currently open"}
     if not _has_method(project, "ResetIntellisearchAnalysis"):
         return {"error": "ResetIntellisearchAnalysis requires DaVinci Resolve 21+"}
-    return {"success": bool(project.ResetIntellisearchAnalysis())}
+    gate = confirm_gate(
+        action="project_settings.reset_intellisearch_analysis",
+        confirm_token=confirm_token,
+        params={},
+        preview=lambda: {
+            "operation": "project_settings.reset_intellisearch_analysis",
+            "warning": "Clears ALL IntelliSearch analysis data for this project. "
+                       "Searchability only comes back by re-running "
+                       "analyze_for_intellisearch over the media, which costs GPU time.",
+        },
+    )
+    if gate:
+        return gate
+    with ledger_timed("reset_intellisearch_analysis") as _rec:
+        ok = bool(project.ResetIntellisearchAnalysis())
+        _rec.success = ok
+    return {"success": ok}
 
 
 @mcp.tool()
@@ -1613,7 +1633,8 @@ def generate_speech(text_input: str, voice_model: str = "", timecode: str = "",
                     add_to_timeline: bool = False, audio_track: Optional[int] = None,
                     custom_voice_file: str = "", speed: Optional[int] = None,
                     variation: Optional[int] = None, pitch: Optional[int] = None,
-                    generation_id: Optional[int] = None, filename: str = "") -> Dict[str, Any]:
+                    generation_id: Optional[int] = None, filename: str = "",
+                    confirm_token: Optional[str] = None) -> Dict[str, Any]:
     """Generate AI text-to-speech audio and add it to the media pool (Resolve 21+).
 
     Requires the AI Speech Generator Extra. Creates a NEW audio MediaPoolItem; if
@@ -1631,6 +1652,8 @@ def generate_speech(text_input: str, voice_model: str = "", timecode: str = "",
         pitch: Voice pitch.
         generation_id: Generation ID.
         filename: Output filename.
+        confirm_token: Omit on the first call to receive a token plus a preview of
+            what will be generated, then re-call with that token to proceed.
     """
     pm, current_project = get_current_project()
     if not current_project:
@@ -1658,7 +1681,27 @@ def generate_speech(text_input: str, voice_model: str = "", timecode: str = "",
         settings["AddToTimeline"] = True
         if audio_track is not None:
             settings["AudioTrack"] = audio_track
-    new_item = current_project.GenerateSpeech(settings, timecode or "")
+    gate = confirm_gate(
+        action="project_settings.generate_speech",
+        confirm_token=confirm_token,
+        params={"settings": settings, "timecode": timecode or ""},
+        preview=lambda: {
+            "operation": "project_settings.generate_speech",
+            "warning": "Generates a NEW AI text-to-speech audio item"
+                       + (" and adds it to the timeline." if add_to_timeline else "."),
+            "text_input": text_input,
+            "voice_model": voice_model or None,
+            "add_to_timeline": bool(add_to_timeline),
+            "timecode": timecode or "",
+        },
+    )
+    if gate:
+        return gate
+    with ledger_timed("generate_speech") as _rec:
+        new_item = current_project.GenerateSpeech(settings, timecode or "")
+        _rec.success = bool(new_item)
+        if new_item:
+            _rec.output_path, _rec.output_bytes = _clip_file_size(new_item)
     if not new_item:
         # The method exists (checked above) and the call returned nil rather than
         # raising. Resolve exposes no way to enumerate installed voice models, so
@@ -1671,7 +1714,8 @@ def generate_speech(text_input: str, voice_model: str = "", timecode: str = "",
                          "voice-model availability, so this is not distinguishable from a "
                          "generation failure. Verify in Resolve that a voice model is "
                          "downloaded and selectable."}
-    return {"success": True, "new": new_item.GetName(), "new_id": new_item.GetUniqueId()}
+    return {"success": True, "new": new_item.GetName(), "new_id": new_item.GetUniqueId(),
+            "output_path": _rec.output_path, "output_bytes": _rec.output_bytes}
 
 
 @mcp.tool()

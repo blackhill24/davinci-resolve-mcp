@@ -39,6 +39,10 @@ from src.core.timeline_lookup import _set_current_timeline, _set_start_timecode
 # re-exported via __all__ so every granular star-import binds the same object.
 # tests/core/test_bridge_helper_identity.py asserts that identity holds.
 from src.core.envelope import _api_constant, _has_method
+# #138/#139: the confirm-token gate and the AI-ops ledger are shared with the
+# compound server rather than reimplemented here. Imported into common so a star
+# import gives every granular module the same guard objects (see guards.py).
+from src.granular.guards import _clip_file_size, confirm_gate, ledger_timed
 from src.domains.color_grade.utils.cdl import normalize_cdl_payload
 from src.domains.project_lifecycle.utils.cloud_operations import (
     create_cloud_project,

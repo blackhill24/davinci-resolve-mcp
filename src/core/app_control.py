@@ -35,6 +35,11 @@ def _run_app_command(
             check=False,
             capture_output=True,
             text=True,
+            # The process locale may be C (a service/cron start, or a native library
+            # that reset it), which would decode this output as ASCII. Only ever
+            # logged, so replace undecodable bytes rather than raise.
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
@@ -270,6 +275,9 @@ def resolve_process_running() -> Optional[bool]:
             check=False,
             capture_output=True,
             text=True,
+            # Output is substring-matched, never parsed — see _run_app_command.
+            encoding="utf-8",
+            errors="replace",
             timeout=APP_CONTROL_TIMEOUT_SECONDS,
         )
     except (subprocess.TimeoutExpired, OSError) as exc:

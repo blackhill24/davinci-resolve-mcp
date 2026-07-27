@@ -3229,6 +3229,9 @@ def _port_owner_pid(host: str, port: int) -> Optional[int]:
         result = subprocess.run(
             ["lsof", "-nP", "-iTCP:" + str(port), "-sTCP:LISTEN", "-t"],
             capture_output=True, timeout=3, text=True, check=False,
+            # `-t` output is bare PIDs, but the encoding must not come from the
+            # process locale, which may be C. replace: only digits are read.
+            encoding="utf-8", errors="replace",
             stdin=subprocess.DEVNULL,
         )
     except (OSError, subprocess.TimeoutExpired):

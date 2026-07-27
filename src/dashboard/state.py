@@ -240,6 +240,9 @@ def _launch_claude_code_terminal() -> Dict[str, Any]:
         check = subprocess.run(
             ["osascript", "-e", 'application "iTerm" is running'],
             capture_output=True, text=True, timeout=8,
+            # Never rely on the process locale for the encoding: it may be C in a
+            # service/cron start. Output is compared to "true", so replace is safe.
+            encoding="utf-8", errors="replace",
         )
         iterm_running = (check.stdout or "").strip().lower() == "true"
     except Exception:
@@ -263,6 +266,7 @@ def _launch_claude_code_terminal() -> Dict[str, Any]:
         proc = subprocess.run(
             ["osascript", "-e", script],
             capture_output=True, text=True, timeout=15,
+            encoding="utf-8", errors="replace",   # stderr is only reported back
         )
         if proc.returncode != 0:
             return {"success": False, "error": (proc.stderr or "").strip() or "osascript failed"}
@@ -294,6 +298,10 @@ def _native_directory_picker(initial: Optional[str] = None) -> Dict[str, Any]:
             proc = subprocess.run(
                 ["osascript", "-e", script],
                 capture_output=True, text=True, timeout=120,
+                # No errors="replace" here: stdout is the chosen folder's real path.
+                # A replaced byte would hand back a path that silently points nowhere,
+                # which is worse than raising. Accented folder names are the norm.
+                encoding="utf-8",
             )
             if proc.returncode != 0:
                 stderr = (proc.stderr or "").strip()

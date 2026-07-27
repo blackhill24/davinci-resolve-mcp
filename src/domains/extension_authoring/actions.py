@@ -310,7 +310,10 @@ def _validate_lua_syntax(source: str) -> Dict[str, Any]:
         f.write(source)
         tmp = f.name
     try:
+        # encoding named explicitly — the process locale may be C, and luac reports
+        # syntax errors quoting the offending source line, which is often not ASCII.
         result = subprocess.run([luac, "-p", tmp], capture_output=True, text=True, timeout=10,
+                                encoding="utf-8", errors="replace",
                                 stdin=subprocess.DEVNULL)
         if result.returncode == 0:
             return {"valid": True, "errors": None, "checker": luac}
@@ -832,8 +835,12 @@ def _execute_python_script(path: str, args: List[str],
     get_resolve()
     cmd = [sys.executable, path] + [str(a) for a in args]
     try:
+        # The user's script prints whatever it likes; decode it as UTF-8 rather than
+        # as whatever the process locale happens to be, and replace bad bytes so a
+        # single odd byte cannot discard the whole run's output.
         result = safe_run(cmd, env=_python_env_for_resolve(),
-                          capture_output=True, text=True, timeout=timeout)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", timeout=timeout)
     except subprocess.TimeoutExpired as e:
         return _err(f"Script timed out after {timeout}s. "
                     f"Partial stdout: {(e.stdout or '')[:1000]}")

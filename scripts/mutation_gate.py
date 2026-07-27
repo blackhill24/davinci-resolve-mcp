@@ -180,6 +180,19 @@ MUTATIONS = {
     guard._is_mutator = lambda name: False
 """,
     },
+    "text_encoding_scan_blind": {
+        "why": "The text-encoding guard's src/ walk matches nothing, so every "
+               "encoding-less subprocess(text=True)/open() reads as absent — the "
+               "#124 bug class reintroduced with the guard still green.",
+        "baseline": "not previously measured — guard added by #124",
+        "min_failures": 1,
+        "patch": """
+    import sys, pathlib
+    sys.path.insert(0, str(pathlib.Path.cwd() / "tests"))
+    import test_text_encoding_guard as guard
+    guard.SRC = pathlib.Path.cwd() / "no_such_src_directory"
+""",
+    },
     "catastrophic_sink_scan_blind": {
         "why": "The catastrophic-sink scanner returns no call sites, so a new "
                "DeleteAllRenderJobs()/DeleteProject() anywhere in src/ is no longer "

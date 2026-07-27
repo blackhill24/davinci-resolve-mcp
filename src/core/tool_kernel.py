@@ -755,6 +755,11 @@ def _activate_resolve_window() -> Dict[str, Any]:
     Linux: wmctrl/xdotool if present.
 
     Best-effort; returns {activated: bool, platform, error?}. Never raises.
+
+    Every subprocess here names its encoding: the process locale may be C (Resolve's
+    scriptapp() used to reset it, and a service/cron environment can start that way),
+    which would otherwise decode this output as ASCII. errors="replace" because the
+    output is a diagnostic string — a stray byte must not raise in place of the report.
     """
     try:
         if sys.platform == "darwin":
@@ -762,6 +767,7 @@ def _activate_resolve_window() -> Dict[str, Any]:
             proc = subprocess.run(
                 ["osascript", "-e", 'tell application "DaVinci Resolve" to activate'],
                 capture_output=True, text=True, timeout=5,
+                encoding="utf-8", errors="replace",
                 stdin=subprocess.DEVNULL,
             )
             return {
@@ -776,6 +782,7 @@ def _activate_resolve_window() -> Dict[str, Any]:
                  "$s = New-Object -ComObject WScript.Shell; "
                  "$null = $s.AppActivate('DaVinci Resolve')"],
                 capture_output=True, text=True, timeout=5,
+                encoding="utf-8", errors="replace",
                 stdin=subprocess.DEVNULL,
             )
             return {
@@ -790,6 +797,7 @@ def _activate_resolve_window() -> Dict[str, Any]:
             proc = subprocess.run(
                 ["wmctrl", "-a", "DaVinci Resolve"],
                 capture_output=True, text=True, timeout=5,
+                encoding="utf-8", errors="replace",
                 stdin=subprocess.DEVNULL,
             )
             return {
@@ -801,6 +809,7 @@ def _activate_resolve_window() -> Dict[str, Any]:
             proc = subprocess.run(
                 ["xdotool", "search", "--name", "DaVinci Resolve", "windowactivate"],
                 capture_output=True, text=True, timeout=5,
+                encoding="utf-8", errors="replace",
                 stdin=subprocess.DEVNULL,
             )
             return {
@@ -832,6 +841,7 @@ def _send_resolve_keystroke_go_to_mark_in() -> Dict[str, Any]:
             proc = subprocess.run(
                 ["osascript", "-e", script],
                 capture_output=True, text=True, timeout=5,
+                encoding="utf-8", errors="replace",
                 stdin=subprocess.DEVNULL,
             )
             return {
@@ -848,6 +858,7 @@ def _send_resolve_keystroke_go_to_mark_in() -> Dict[str, Any]:
                  "Start-Sleep -Milliseconds 150; "
                  "[System.Windows.Forms.SendKeys]::SendWait('+i')"],
                 capture_output=True, text=True, timeout=5,
+                encoding="utf-8", errors="replace",
                 stdin=subprocess.DEVNULL,
             )
             return {
@@ -863,6 +874,7 @@ def _send_resolve_keystroke_go_to_mark_in() -> Dict[str, Any]:
             proc = subprocess.run(
                 ["xdotool", "search", "--name", "DaVinci Resolve", "key", "--window", "%@", "shift+i"],
                 capture_output=True, text=True, timeout=5,
+                encoding="utf-8", errors="replace",
                 stdin=subprocess.DEVNULL,
             )
             return {"sent": proc.returncode == 0, "platform": "linux", "tool": "xdotool", "shortcut": "Shift+I"}

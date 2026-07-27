@@ -39,7 +39,7 @@ from src.core.timeline_lookup import _set_current_timeline, _set_start_timecode
 # this module with the offline suite staying 100% green. One definition now,
 # re-exported via __all__ so every granular star-import binds the same object.
 # tests/core/test_bridge_helper_identity.py asserts that identity holds.
-from src.core.envelope import _api_constant, _has_method
+from src.core.envelope import _api_constant, _has_method, _ser
 # #138/#139: the confirm-token gate and the AI-ops ledger are shared with the
 # compound server rather than reimplemented here. Imported into common so a star
 # import gives every granular module the same guard objects (see guards.py).

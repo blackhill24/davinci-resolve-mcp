@@ -36,7 +36,7 @@ scan result (`assertGreater(len(files), N)`) and earns a mutation here.
 | `test_vacuous_assertion_audit.py` | the three shapes swept in #121 §3 — assert-on-a-self-configured-mock, error-envelope-passes-for-the-wrong-reason, swallowed exception |
 | `test_env_leak_guard.py` | the `conftest.py` env guard silently ceasing to detect leaks |
 | `test_locale_guard.py` | a `scriptapp()` call site with no `locale_guard.restore()` within three lines |
-| `test_text_encoding_guard.py` | a `subprocess(text=True)` / `open()` / `read_text()` under `src/` that names no `encoding=`, so its decoding follows the process locale — ASCII under a C locale (#124). Keys on a literal `text=True`, never on a `text=` kwarg. `_ALLOWLIST` is empty by design |
+| `test_text_encoding_guard.py` | a `subprocess(text=True)` / `open()` / `read_text()` under `src/` that names no `encoding=`, so its decoding follows the process locale — ASCII once a native library resets that locale mid-process, as `scriptapp()` did (#124; a C/POSIX *startup* locale is harmless, it turns UTF-8 mode on — #127). Keys on a literal `text=True`, never on a `text=` kwarg. `_ALLOWLIST` is empty by design |
 | `test_*_drift.py` set | action list, agent rules, destructive registry, discarded mutator returns |
 
 ## Assert on the reason, not the shape

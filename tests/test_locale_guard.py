@@ -7,6 +7,16 @@ connection every one of those calls that did not name an encoding decodes as
 ASCII and raises on the first non-ASCII byte (an accented clip path, a subtitle
 file, a non-English project name).
 
+A *mid-process* reset is what makes this reachable. CPython decides UTF-8 mode
+once, from the locale the interpreter started in: start in C/POSIX and UTF-8 mode
+comes on, so `getpreferredencoding()` reports utf-8 no matter what the locale is
+set to later. Start in a UTF-8 locale — as every real launch of this server does —
+and UTF-8 mode stays off, so the encoding follows the live locale and `scriptapp()`
+resetting it mid-flight really does switch the process to ASCII (#127).
+
+That also means (1) below has an unreachable precondition when the interpreter
+itself started in C, and skips there with that reason stated.
+
 The offline suite never connects to Resolve, so it can never observe the reset
 directly. Two things are checkable offline and both are checked here:
 
@@ -21,6 +31,7 @@ from __future__ import annotations
 import ast
 import locale
 import pathlib
+import sys
 import unittest
 
 from src.core import locale_guard
@@ -71,10 +82,25 @@ class RestoreTest(unittest.TestCase):
 
     def test_restore_recovers_from_the_c_locale(self):
         # This is what scriptapp() does to the process, reproduced directly.
+        healthy = locale.getpreferredencoding(False)
         locale.setlocale(locale.LC_ALL, "C")
         broken = locale.getpreferredencoding(False)
+        if broken == healthy:
+            # CPython decides UTF-8 mode once, from the *startup* locale: start in
+            # C/POSIX and getpreferredencoding() stays utf-8 however the live locale
+            # is reset afterwards. The precondition is then unreachable — there is no
+            # broken encoding for restore() to recover — so assert why and skip (#127).
+            self.assertTrue(
+                sys.flags.utf8_mode,
+                "the C locale stopped yielding ASCII, and UTF-8 mode is off — "
+                "the precondition broke for some other reason",
+            )
+            raise unittest.SkipTest(
+                "UTF-8 mode is on (the interpreter started in a C/POSIX locale), so a "
+                "mid-process C-locale reset cannot change the encoding"
+            )
         self.assertEqual(broken, "ANSI_X3.4-1968", "the C locale no longer yields ASCII here")
-        self.assertNotEqual(locale_guard.restore(), broken)
+        self.assertEqual(locale_guard.restore(), healthy)
 
     def test_restore_is_idempotent(self):
         first = locale_guard.restore()

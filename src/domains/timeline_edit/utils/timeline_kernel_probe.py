@@ -152,6 +152,30 @@ def _is_infrastructure_error(message: Any) -> bool:
     return any(marker in text for marker in _INFRASTRUCTURE_ERROR_MARKERS)
 
 
+def confirm_and_retry(call, action: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Drive a destructive action through both halves of its confirm-token gate.
+
+    The guard answers the first call with CONFIRMATION_REQUIRED plus a one-shot
+    token, and only does the work on the re-call. A probe that stops at the gate
+    records the guard *working* as an error, so run both halves and report the
+    second — keeping the gate's preview attached as evidence that it did fire.
+
+    ``call`` is the domain tool, invoked as ``call(action, params)``.
+    """
+    first = call(action, params)
+    if not isinstance(first, dict):
+        return first
+    token = first.get("confirm_token")
+    error = first.get("error")
+    code = error.get("code") if isinstance(error, dict) else None
+    if not token or code != "CONFIRMATION_REQUIRED":
+        return first
+    second = call(action, {**params, "confirm_token": token})
+    if isinstance(second, dict):
+        return {**second, "confirm_gate": {"code": code, "preview": first.get("preview")}}
+    return second
+
+
 def observe_result(result: Any) -> Dict[str, Any]:
     """Classify a tool result into a probe status from the result ALONE.
 

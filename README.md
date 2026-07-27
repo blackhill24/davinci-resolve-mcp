@@ -230,8 +230,8 @@ The default server is a local stdio process launched by your MCP client; it does
 | Advanced (offline) tools | **18** — .drp/.drt/.drx + DB authoring, no Resolve running |
 | Kernel Actions | **210** guarded workflow actions across 14 compound tools |
 | API Methods Covered | **349/349** (100%) |
-| Methods Live Tested | **342/349** (98.0%) |
-| Live Test Pass Rate | **342/342** (100%) |
+| Methods Live Tested | **343/349** (98.3%) |
+| Live Test Pass Rate | **343/343** (100%) |
 | Tested Against | DaVinci Resolve 21.0.2.4 Studio (Linux) |
 
 For method-by-method status, see [API Coverage and Test Results](docs/reference/api-coverage.md). For current workflow support, see [Kernel Action Coverage](docs/kernels/README.md).

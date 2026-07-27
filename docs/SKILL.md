@@ -1718,7 +1718,7 @@ timeline(action="get_items", params={"track_type": "video", "index": 1})
 ## API Coverage
 
 All 349 non-deprecated methods of the DaVinci Resolve Scripting API are covered
-(recount via `scripts/audit_api_parity.py --count`). 342 methods have been
+(recount via `scripts/audit_api_parity.py --count`). 343 methods have been
 live-tested — originally across Resolve 19.1.3 / 20.3.2 Studio and re-validated
 on Resolve 21.0.2.4 Studio (Linux) with no regressions. The 12 Resolve 21 delta
 methods are exposed and await dedicated live validation in Stage 2. Five other

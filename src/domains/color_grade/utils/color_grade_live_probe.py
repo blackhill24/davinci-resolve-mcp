@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.domains.timeline_edit.utils.timeline_kernel_probe import ProbeRecorder, record_tool_result, render_markdown_report, utc_timestamp
+from src.domains.timeline_edit.utils.timeline_kernel_probe import ProbeRecorder, confirm_and_retry, record_tool_result, render_markdown_report, utc_timestamp
 
 
 def _require_success(label: str, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -36,26 +36,11 @@ def _record_tool_result(recorder: ProbeRecorder, category: str, name: str,
     record_tool_result(recorder, category, name, result, **kwargs)
 
 
+# #119 task 9, same rule as _record_tool_result above: the confirm-gate driver now
+# lives once in timeline_kernel_probe. Thin alias so this probe's call sites read
+# unchanged.
 def _confirm_and_retry(call, action: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    """Drive a destructive action through both halves of its confirm-token gate.
-
-    The guard answers the first call with CONFIRMATION_REQUIRED plus a one-shot
-    token, and only does the work on the re-call. A probe that stops at the gate
-    records the guard *working* as an error, so run both halves and report the
-    second — keeping the gate's preview attached as evidence that it did fire.
-    """
-    first = call(action, params)
-    if not isinstance(first, dict):
-        return first
-    token = first.get("confirm_token")
-    error = first.get("error")
-    code = error.get("code") if isinstance(error, dict) else None
-    if not token or code != "CONFIRMATION_REQUIRED":
-        return first
-    second = call(action, {**params, "confirm_token": token})
-    if isinstance(second, dict):
-        return {**second, "confirm_gate": {"code": code, "preview": first.get("preview")}}
-    return second
+    return confirm_and_retry(call, action, params)
 
 
 FFMPEG_TIMEOUT_SECONDS = 120

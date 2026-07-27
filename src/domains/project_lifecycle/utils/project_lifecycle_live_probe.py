@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.domains.timeline_edit.utils.timeline_kernel_probe import ProbeRecorder, record_tool_result, render_markdown_report, utc_timestamp
+from src.domains.timeline_edit.utils.timeline_kernel_probe import ProbeRecorder, confirm_and_retry, record_tool_result, render_markdown_report, utc_timestamp
 
 
 def _require_success(label: str, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -42,6 +42,23 @@ def _delete_disposable_project(server, name: str) -> Dict[str, Any]:
     if result.get("error") and "currently open" in result.get("error", ""):
         result = server.project_manager("safe_project_delete", {"name": name})
     return result
+
+
+def _major_version(version: Any) -> int:
+    """Major component of a Resolve version; 0 when unreadable.
+
+    GetVersion() answers a LIST ([21, 0, 2, 4]) while version_string is "21.0.2.4",
+    so accept both — stringifying the list would parse as 0 and silently skip the
+    version-gated steps below.
+    """
+    if isinstance(version, (list, tuple)):
+        version = version[0] if version else None
+    if isinstance(version, bool):
+        return 0
+    if isinstance(version, (int, float)):
+        return int(version)
+    head = str(version or "").split(".", 1)[0].strip()
+    return int(head) if head.isdigit() else 0
 
 
 def _first_setting_value(snapshot: Dict[str, Any], keys: list[str]) -> Optional[Dict[str, Any]]:
@@ -146,6 +163,25 @@ def run_probe(server, output_dir: Path, keep_open: bool = False) -> Dict[str, An
             "probe_project_settings_try_write_dry_run",
             server.project_manager("probe_project_settings", {"try_write": True, "dry_run": True}),
         )
+        # ResetIntellisearchAnalysis (new in the 26 May 2026 API) destroys the project's
+        # IntelliSearch data, so it is only ever exercised HERE — on the disposable
+        # project created above, which has no analysis to lose. Running it against a real
+        # project would cost a full re-analysis (GPU time over the whole media pool).
+        if _major_version(metadata.get("version")) >= 21:
+            _record_tool_result(
+                recorder,
+                "settings",
+                "reset_intellisearch_analysis",
+                confirm_and_retry(server.project_settings, "reset_intellisearch_analysis", {}),
+            )
+        else:
+            recorder.record(
+                "settings",
+                "reset_intellisearch_analysis",
+                "not_applicable",
+                details={"reason": f"ResetIntellisearchAnalysis needs Resolve 21+, this is {metadata.get('version_string')}"},
+            )
+
         _record_tool_result(recorder, "presets", "preset_lifecycle_probe", server.project_manager("preset_lifecycle_probe"))
 
         drp_path = work_dir / "project-lifecycle-export.drp"

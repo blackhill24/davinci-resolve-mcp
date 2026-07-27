@@ -29,10 +29,11 @@ Usage:
 """
 import logging
 import os
-import tempfile
 import threading
 import time
 from contextlib import contextmanager
+
+from src.core.private_tmp import open_private_handle, private_path
 
 try:
     import fcntl  # type: ignore
@@ -43,7 +44,12 @@ except ImportError:  # pragma: no cover - Windows
 logger = logging.getLogger("resolve-mcp.page-lock")
 
 _INTRA = threading.RLock()
-_LOCKFILE = os.path.join(tempfile.gettempdir(), "davinci_resolve_mcp_page.lock")
+# Per-uid 0700 directory, not bare /tmp: the handle below is truncate()d, so a
+# predictable name another local user could pre-create as a symlink would turn a
+# page switch into "empty the victim's file" (#143 finding 3). None when no
+# private directory could be established — the inter-process guard then degrades
+# to a no-op, which this module already tolerates.
+_LOCKFILE = private_path("davinci_resolve_mcp_page.lock")
 
 # How long to wait for another process's page-switch section before giving up on
 # the inter-process guard. Generous — a legitimate page switch plus its work is
@@ -76,11 +82,17 @@ def _acquire_file_lock(timeout: float = None):
     """
     if timeout is None:
         timeout = PAGE_LOCK_TIMEOUT_SECONDS
-    try:
-        # a+ rather than w: opening must not truncate the PID a live holder wrote.
-        fh = open(_LOCKFILE, "a+", encoding="utf-8")
-    except OSError as exc:
-        logger.debug("Page lock file %s unavailable (%s); continuing without it", _LOCKFILE, exc)
+    if _LOCKFILE is None:
+        logger.debug(
+            "No private lock directory available; continuing without the "
+            "inter-process page guard"
+        )
+        return None
+    # a+ semantics (no truncate on open: a live holder's PID must survive), plus
+    # O_NOFOLLOW so a planted symlink is an error rather than a redirect.
+    fh = open_private_handle(_LOCKFILE, "a+")
+    if fh is None:
+        logger.debug("Page lock file %s unavailable; continuing without it", _LOCKFILE)
         return None
 
     deadline = time.monotonic() + timeout

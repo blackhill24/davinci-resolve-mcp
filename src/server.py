@@ -3112,6 +3112,86 @@ def _control_panel_read_state() -> Optional[Dict[str, Any]]:
         return None
 
 
+# argv marker of the control-panel child (see the Popen cmd in
+# _open_control_panel). Used to tell "our panel" from an unrelated process that
+# inherited a recycled PID.
+_CONTROL_PANEL_CMDLINE_MARKER = "src.dashboard.main"
+
+
+def _process_cmdline(pid: int) -> str:
+    """Best-effort command line of ``pid``; empty string when unobtainable."""
+    if not pid or pid <= 0:
+        return ""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as handle:
+            raw = handle.read()
+        if raw:
+            return raw.replace(b"\0", b" ").decode("utf-8", "replace").strip()
+    except OSError:
+        pass
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "args=", "-p", str(pid)],
+            capture_output=True, timeout=3, text=True, check=False,
+            encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return (result.stdout or "").strip()
+
+
+def _control_panel_pid_is_ours(pid: int, state: Dict[str, Any]) -> Tuple[bool, str]:
+    """Whether ``pid`` really is the control panel this pidfile describes.
+
+    "Is the PID alive" is NOT identity. Nothing in ``src/dashboard/`` removes
+    the pidfile, so any crash, ``kill -9`` or reboot strands it; after a reboot
+    PIDs restart low and get reused, so the recorded PID is very likely alive
+    and belonging to something else entirely. SIGTERMing it on that basis kills
+    an innocent process.
+
+    Confirmation:
+
+    1. The command line of ``pid`` still carries the dashboard entry point.
+       Cheap (``/proc`` on Linux) and decisive against PID reuse — an unrelated
+       process that inherited the PID is not running ``src.dashboard.main``. It
+       also holds when the panel is wedged and no longer listening.
+    2. Only when the command line is unobtainable: ``pid`` is the process
+       LISTENing on the port we recorded.
+
+    Anything else is a refusal, including "cannot tell": declining to signal a
+    process we cannot identify is always the recoverable side of this call. This
+    check is deliberately cheap enough to run on the status path too.
+    """
+    if not _control_panel_pid_alive(pid):
+        return False, f"pid {pid} is not running"
+    cmdline = _process_cmdline(pid)
+    if cmdline:
+        if _CONTROL_PANEL_CMDLINE_MARKER in cmdline:
+            return True, f"pid {pid} is running {_CONTROL_PANEL_CMDLINE_MARKER}"
+        return False, (
+            f"pid {pid} is running an unrelated process ({cmdline[:120]!r}) — the "
+            "pidfile is stale and its PID has been reused"
+        )
+    host = state.get("host") or "127.0.0.1"
+    try:
+        port = int(state.get("port") or 0)
+    except (TypeError, ValueError):
+        port = 0
+    if port:
+        owner = _port_owner_pid(host, port)
+        if owner == pid:
+            return True, f"pid {pid} owns the recorded control-panel port {port}"
+        if owner is not None:
+            return False, (
+                f"port {port} is held by pid {owner}, not the recorded pid {pid} — "
+                "the pidfile is stale and its PID has been reused"
+            )
+    return False, (
+        f"could not confirm that pid {pid} is the control panel (no command line, "
+        "no port ownership evidence)"
+    )
+
+
 def _control_panel_pid_alive(pid: int) -> bool:
     """Check whether a PID is alive on this OS without killing it."""
     if not pid or pid <= 0:
@@ -3128,7 +3208,10 @@ def _control_panel_pid_alive(pid: int) -> bool:
 def _control_panel_status() -> Dict[str, Any]:
     state = _control_panel_read_state() or {}
     pid = int(state.get("pid") or 0)
-    running = _control_panel_pid_alive(pid)
+    # Identity, not just liveness: a recycled PID from a stale pidfile would
+    # otherwise be reported as a running panel, complete with a URL nothing is
+    # serving.
+    running, _identity_note = _control_panel_pid_is_ours(pid, state)
     if not running:
         # Stale pidfile — clean up
         if state:
@@ -3310,8 +3393,20 @@ def _open_control_panel(p: Dict[str, Any]) -> Dict[str, Any]:
     # Force-restart path: kill whatever owns the port (could be the tracked PID
     # or an untracked stale process) before re-spawning.
     if force_restart:
+        # The port owner is a deliberate target — force_restart's whole contract
+        # is "free this port". The *tracked* pid is not: it comes from a pidfile
+        # nothing ever cleans up, so after a reboot it is very likely a recycled
+        # PID belonging to an unrelated process. Only signal it once identity is
+        # confirmed (see _control_panel_pid_is_ours).
+        victims = {port_pid or 0} - {0}
         tracked_pid = int((existing or {}).get("pid") or 0)
-        for victim in {tracked_pid, port_pid or 0} - {0}:
+        if tracked_pid and tracked_pid not in victims:
+            tracked_is_ours, _tracked_note = _control_panel_pid_is_ours(
+                tracked_pid, existing or {}
+            )
+            if tracked_is_ours:
+                victims.add(tracked_pid)
+        for victim in victims:
             try:
                 os.kill(victim, 15)  # SIGTERM
             except (ProcessLookupError, PermissionError, OSError):
@@ -3579,12 +3674,21 @@ def _close_control_panel() -> Dict[str, Any]:
     if not state:
         return {"success": True, "was_running": False, "note": "No control panel was running."}
     pid = int(state.get("pid") or 0)
-    if not _control_panel_pid_alive(pid):
+    is_ours, identity_note = _control_panel_pid_is_ours(pid, state)
+    if not is_ours:
+        # Stale pidfile — including the dangerous case where the PID is alive
+        # but belongs to an unrelated process that inherited it after a reboot.
+        # Drop the pidfile and signal nothing.
         try:
             os.remove(_control_panel_pidfile())
         except OSError:
             pass
-        return {"success": True, "was_running": False, "note": "Stale pidfile cleaned up."}
+        return {
+            "success": True,
+            "was_running": False,
+            "note": f"Stale pidfile cleaned up; no signal sent ({identity_note}).",
+            "identity_check": identity_note,
+        }
     try:
         os.kill(pid, 15)  # SIGTERM
     except (ProcessLookupError, PermissionError, OSError) as exc:

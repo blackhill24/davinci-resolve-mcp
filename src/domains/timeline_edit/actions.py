@@ -2159,94 +2159,101 @@ def _advanced_timeline_edit(
     source_name = tl.GetName()
     baseline_media = _timeline_media_coverage(tl)
 
+    # The scratch dir holds a full .drt export of the timeline plus the op
+    # chain's intermediates. Every exit below must remove it: on a tmpfs /tmp
+    # (systemd's default) a long editing session otherwise exhausts RAM-backed
+    # temp space and every later export starts failing (#143 finding 4).
     scratch = tempfile.mkdtemp(prefix=f"timeline_{action_name}_")
-    export_path = os.path.join(scratch, f"{re.sub(r'[^A-Za-z0-9._-]+', '_', source_name).strip('_') or 'timeline'}.drt")
-    exported = _export_timeline_checked(tl, {
-        "path": export_path, "format": "drt",
-        "require_temp_path": False, "background": False, "async_job": False,
-    })
-    if not exported.get("success"):
-        return _err(f"drt export failed — cannot {action_name}") | {"export": exported}
-    drt_src = exported.get("primary_file") or export_path
+    try:
+        export_path = os.path.join(scratch, f"{re.sub(r'[^A-Za-z0-9._-]+', '_', source_name).strip('_') or 'timeline'}.drt")
+        exported = _export_timeline_checked(tl, {
+            "path": export_path, "format": "drt",
+            "require_temp_path": False, "background": False, "async_job": False,
+        })
+        if not exported.get("success"):
+            return _err(f"drt export failed — cannot {action_name}") | {"export": exported}
+        drt_src = exported.get("primary_file") or export_path
 
-    if callable(ops):
-        ops, ops_err = ops(drt_src)
-        if ops_err:
-            return ops_err
+        if callable(ops):
+            ops, ops_err = ops(drt_src)
+            if ops_err:
+                return ops_err
 
-    chain = _advanced_bridge.run_drp_op_chain(ops, drt_src, scratch_dir=os.path.join(scratch, "ops"))
-    if not chain.get("success"):
-        return _err(chain.get("error") or f"{action_name} op chain failed") | {"chain": chain}
-    edited_drt = chain["output_path"]
+        chain = _advanced_bridge.run_drp_op_chain(ops, drt_src, scratch_dir=os.path.join(scratch, "ops"))
+        if not chain.get("success"):
+            return _err(chain.get("error") or f"{action_name} op chain failed") | {"chain": chain}
+        edited_drt = chain["output_path"]
 
-    mp = proj.GetMediaPool()
-    if not mp:
-        return _err("No media pool")
-    new_name = _unique_timeline_name(proj, f"{source_name} (edited)")
-    imported = _import_timeline_checked(proj, mp, {
-        "path": edited_drt, "timeline_name": new_name,
-        "require_temp_path": False,
-    })
-    if not imported.get("success"):
-        return _err(imported.get("error") or "reimport of edited .drt failed") | {
-            "import": imported, "chain": chain}
+        mp = proj.GetMediaPool()
+        if not mp:
+            return _err("No media pool")
+        new_name = _unique_timeline_name(proj, f"{source_name} (edited)")
+        imported = _import_timeline_checked(proj, mp, {
+            "path": edited_drt, "timeline_name": new_name,
+            "require_temp_path": False,
+        })
+        if not imported.get("success"):
+            return _err(imported.get("error") or "reimport of edited .drt failed") | {
+                "import": imported, "chain": chain}
 
-    # Resolve names the imported timeline after the .drt container, ignoring the
-    # timelineName import option (verified live on 21, see polish_timeline) —
-    # rename it explicitly so it reads as "<source> (edited)".
-    final_name = imported.get("name") or new_name
-    imp_tl = None
-    for i in range(1, int(proj.GetTimelineCount() or 0) + 1):
-        cand = proj.GetTimelineByIndex(i)
-        if cand and str(cand.GetUniqueId()) == str(imported.get("id")):
-            imp_tl = cand
-            break
-    if imp_tl is not None:
-        try:
-            if imp_tl.SetName(new_name):
-                final_name = new_name
-        except Exception:
-            pass
+        # Resolve names the imported timeline after the .drt container, ignoring the
+        # timelineName import option (verified live on 21, see polish_timeline) —
+        # rename it explicitly so it reads as "<source> (edited)".
+        final_name = imported.get("name") or new_name
+        imp_tl = None
+        for i in range(1, int(proj.GetTimelineCount() or 0) + 1):
+            cand = proj.GetTimelineByIndex(i)
+            if cand and str(cand.GetUniqueId()) == str(imported.get("id")):
+                imp_tl = cand
+                break
+        if imp_tl is not None:
+            try:
+                if imp_tl.SetName(new_name):
+                    final_name = new_name
+            except Exception:
+                pass
 
-    # ImportTimelineFromFile makes the newly-imported timeline Resolve's
-    # CURRENT one — left alone, that silently drags every later, independent
-    # timeline() call onto the new "(edited)" timeline instead of the one the
-    # caller actually asked about (found live: a chain of these actions kept
-    # drifting onto the previous action's output). Restore the ORIGINAL
-    # current timeline so "no existing timeline is modified" also covers the
-    # user's current-timeline context, not just its content.
-    #
-    # #113: this is a context RESTORE, not a switch-before-mutation — nothing
-    # below depends on it, so a failure is reported rather than fatal. But it is
-    # still worth reporting: the comment above records a live bug where later
-    # independent timeline() calls drifted onto the previous action's output,
-    # which is exactly what a silently-failed restore leaves behind.
-    restore_ok = _set_current_timeline(proj, tl)
+        # ImportTimelineFromFile makes the newly-imported timeline Resolve's
+        # CURRENT one — left alone, that silently drags every later, independent
+        # timeline() call onto the new "(edited)" timeline instead of the one the
+        # caller actually asked about (found live: a chain of these actions kept
+        # drifting onto the previous action's output). Restore the ORIGINAL
+        # current timeline so "no existing timeline is modified" also covers the
+        # user's current-timeline context, not just its content.
+        #
+        # #113: this is a context RESTORE, not a switch-before-mutation — nothing
+        # below depends on it, so a failure is reported rather than fatal. But it is
+        # still worth reporting: the comment above records a live bug where later
+        # independent timeline() calls drifted onto the previous action's output,
+        # which is exactly what a silently-failed restore leaves behind.
+        restore_ok = _set_current_timeline(proj, tl)
 
-    media = imported.get("media") or {}
-    dropped = _auto_edit_mod.dropped_source_clips(
-        baseline_linked=int(baseline_media.get("linked", 0)),
-        polished_linked=int(media.get("linked", 0)))
-    out = _ok(
-        new_timeline=final_name,
-        new_timeline_id=imported.get("id"),
-        original_timeline=source_name,
-        ops_applied=len(ops),
-        media_link=media,
-        baseline_media_link=baseline_media,
-        clips_relinked=dropped <= 0,
-    )
-    if dropped > 0:
-        out["warning"] = (
-            f"{dropped} source clip(s) went offline after the drt round-trip — "
-            "check media relinking.")
-    if not restore_ok:
-        out["current_timeline_warning"] = (
-            f"could not restore '{source_name}' as the current timeline; later timeline "
-            "actions may target the new one instead unless you pass an explicit selector")
-    if extra_result:
-        out.update(extra_result)
-    return out
+        media = imported.get("media") or {}
+        dropped = _auto_edit_mod.dropped_source_clips(
+            baseline_linked=int(baseline_media.get("linked", 0)),
+            polished_linked=int(media.get("linked", 0)))
+        out = _ok(
+            new_timeline=final_name,
+            new_timeline_id=imported.get("id"),
+            original_timeline=source_name,
+            ops_applied=len(ops),
+            media_link=media,
+            baseline_media_link=baseline_media,
+            clips_relinked=dropped <= 0,
+        )
+        if dropped > 0:
+            out["warning"] = (
+                f"{dropped} source clip(s) went offline after the drt round-trip — "
+                "check media relinking.")
+        if not restore_ok:
+            out["current_timeline_warning"] = (
+                f"could not restore '{source_name}' as the current timeline; later timeline "
+                "actions may target the new one instead unless you pass an explicit selector")
+        if extra_result:
+            out.update(extra_result)
+        return out
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
 
 def _advanced_edit_lookup_clip_db_id(drt_src: str, track_type: str, track_index: int, clip_index: int):
     """Read a clip's real drp-format DbId out of an exported .drt (read-only `drt.parse`).
@@ -2867,30 +2874,34 @@ def _timeline_list_transitions_impl(proj, tl, p: Dict[str, Any]):
             "list_transitions requires the Node advanced-server bridge (drp-format), "
             "and Node.js was not found on PATH — install Node 18+ to enable it.",
         )
+    # Holds a full .drt export; removed on every exit (#143 finding 4).
     scratch = tempfile.mkdtemp(prefix="timeline_list_transitions_")
-    export_path = os.path.join(scratch, "timeline.drt")
-    exported = _export_timeline_checked(tl, {
-        "path": export_path, "format": "drt",
-        "require_temp_path": False, "background": False, "async_job": False,
-    })
-    if not exported.get("success"):
-        return _err("drt export failed — cannot list transitions") | {"export": exported}
-    drt_src = exported.get("primary_file") or export_path
+    try:
+        export_path = os.path.join(scratch, "timeline.drt")
+        exported = _export_timeline_checked(tl, {
+            "path": export_path, "format": "drt",
+            "require_temp_path": False, "background": False, "async_job": False,
+        })
+        if not exported.get("success"):
+            return _err("drt export failed — cannot list transitions") | {"export": exported}
+        drt_src = exported.get("primary_file") or export_path
 
-    payload = _advanced_bridge.run_node_bridge(
-        "scripts/drp-bridge.mjs", ["drt", "parse", json.dumps({"drtPath": drt_src})])
-    if not payload.get("success"):
-        return _err(payload.get("error") or "drt parse failed")
-    timelines = (payload.get("result") or {}).get("timelines") or []
-    if not timelines:
-        return _ok(transitions=[], count=0)
+        payload = _advanced_bridge.run_node_bridge(
+            "scripts/drp-bridge.mjs", ["drt", "parse", json.dumps({"drtPath": drt_src})])
+        if not payload.get("success"):
+            return _err(payload.get("error") or "drt parse failed")
+        timelines = (payload.get("result") or {}).get("timelines") or []
+        if not timelines:
+            return _ok(transitions=[], count=0)
 
-    transitions = []
-    for track_type, key in (("video", "videoTracks"), ("audio", "audioTracks")):
-        for track_idx, track in enumerate(timelines[0].get(key) or [], start=1):
-            for t in (track.get("transitions") or []):
-                transitions.append({**t, "track_type": track_type, "track_index": track_idx})
-    return _ok(transitions=transitions, count=len(transitions))
+        transitions = []
+        for track_type, key in (("video", "videoTracks"), ("audio", "audioTracks")):
+            for track_idx, track in enumerate(timelines[0].get(key) or [], start=1):
+                for t in (track.get("transitions") or []):
+                    transitions.append({**t, "track_type": track_type, "track_index": track_idx})
+        return _ok(transitions=transitions, count=len(transitions))
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
 
 def _timeline_replace_edit_impl(proj, tl, p: Dict[str, Any]):
     """Replace a timeline clip with a different Media Pool item at the same

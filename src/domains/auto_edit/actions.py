@@ -1908,103 +1908,108 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         # so those known generators don't false-alarm as dropped source clips.
         baseline_media = _timeline_media_coverage(tl)
 
+        # Holds a full .drt export of the built timeline plus the op chain's
+        # intermediates; removed on every exit (#143 finding 4).
         scratch = tempfile.mkdtemp(prefix="auto_edit_polish_")
-        export_path = os.path.join(scratch, f"{plan['plan_id']}.drt")
-        exported = _export_timeline_checked(tl, {
-            "path": export_path, "format": "drt",
-            "require_temp_path": False, "background": False, "async_job": False,
-        })
-        if not exported.get("success"):
-            return _err("drt export failed — cannot polish") | {"export": exported}
-        drt_src = exported.get("primary_file") or export_path
+        try:
+            export_path = os.path.join(scratch, f"{plan['plan_id']}.drt")
+            exported = _export_timeline_checked(tl, {
+                "path": export_path, "format": "drt",
+                "require_temp_path": False, "background": False, "async_job": False,
+            })
+            if not exported.get("success"):
+                return _err("drt export failed — cannot polish") | {"export": exported}
+            drt_src = exported.get("primary_file") or export_path
 
-        chain = _advanced_bridge.run_drp_op_chain(
-            ops, drt_src, scratch_dir=os.path.join(scratch, "ops"))
-        if not chain.get("success"):
-            return _err(chain.get("error") or "polish op chain failed") | {
-                "chain": chain, "polish": polish}
-        polished_drt = chain["output_path"]
+            chain = _advanced_bridge.run_drp_op_chain(
+                ops, drt_src, scratch_dir=os.path.join(scratch, "ops"))
+            if not chain.get("success"):
+                return _err(chain.get("error") or "polish op chain failed") | {
+                    "chain": chain, "polish": polish}
+            polished_drt = chain["output_path"]
 
-        mp = proj.GetMediaPool()
-        if not mp:
-            return _err("No media pool")
-        polished_name = _unique_timeline_name(proj, f"{built_name} (polished)")
-        imported = _import_timeline_checked(proj, mp, {
-            "path": polished_drt, "timeline_name": polished_name,
-            "require_temp_path": False,
-        })
-        if not imported.get("success"):
-            return _err(imported.get("error") or "reimport of polished .drt failed") | {
-                "import": imported, "chain": chain}
+            mp = proj.GetMediaPool()
+            if not mp:
+                return _err("No media pool")
+            polished_name = _unique_timeline_name(proj, f"{built_name} (polished)")
+            imported = _import_timeline_checked(proj, mp, {
+                "path": polished_drt, "timeline_name": polished_name,
+                "require_temp_path": False,
+            })
+            if not imported.get("success"):
+                return _err(imported.get("error") or "reimport of polished .drt failed") | {
+                    "import": imported, "chain": chain}
 
-        # Resolve names the imported timeline after the .drt container, ignoring the
-        # timelineName import option (verified live on 21) — rename it explicitly so
-        # the polished timeline reads as "<built> (polished)".
-        final_name = imported.get("name") or polished_name
-        imp_tl = None
-        for _i in range(1, int(proj.GetTimelineCount() or 0) + 1):
-            cand = proj.GetTimelineByIndex(_i)
-            if cand and str(cand.GetUniqueId()) == str(imported.get("id")):
-                imp_tl = cand
-                break
-        if imp_tl is not None:
-            try:
-                if imp_tl.SetName(polished_name):
-                    final_name = polished_name
-            except Exception:
-                pass
+            # Resolve names the imported timeline after the .drt container, ignoring the
+            # timelineName import option (verified live on 21) — rename it explicitly so
+            # the polished timeline reads as "<built> (polished)".
+            final_name = imported.get("name") or polished_name
+            imp_tl = None
+            for _i in range(1, int(proj.GetTimelineCount() or 0) + 1):
+                cand = proj.GetTimelineByIndex(_i)
+                if cand and str(cand.GetUniqueId()) == str(imported.get("id")):
+                    imp_tl = cand
+                    break
+            if imp_tl is not None:
+                try:
+                    if imp_tl.SetName(polished_name):
+                        final_name = polished_name
+                except Exception:
+                    pass
 
-        # NOTE (checked, intentional): ImportTimelineFromFile makes the polished
-        # timeline Resolve's CURRENT one, same mechanism Stage 3.1 (#21) found
-        # and restores-away for its trim/move/split/etc. actions. Deliberately
-        # left as-is here: `finish` looks up the built timeline by NAME via the
-        # plan and calls proj.SetCurrentTimeline(tl) itself before doing any
-        # work (see the "finish" branch above), so it never depends on current-
-        # timeline state either way — and the docstring's own next-step guidance
-        # ("review the (polished) timeline") wants it front-and-center in the
-        # Resolve UI right after this call, unlike the small composable Stage
-        # 3.1 edits where switching the user's context away is a surprise.
+            # NOTE (checked, intentional): ImportTimelineFromFile makes the polished
+            # timeline Resolve's CURRENT one, same mechanism Stage 3.1 (#21) found
+            # and restores-away for its trim/move/split/etc. actions. Deliberately
+            # left as-is here: `finish` looks up the built timeline by NAME via the
+            # plan and calls proj.SetCurrentTimeline(tl) itself before doing any
+            # work (see the "finish" branch above), so it never depends on current-
+            # timeline state either way — and the docstring's own next-step guidance
+            # ("review the (polished) timeline") wants it front-and-center in the
+            # Resolve UI right after this call, unlike the small composable Stage
+            # 3.1 edits where switching the user's context away is a surprise.
 
-        # Media-link honesty: the polish adds media-less items (a lower-third Text+
-        # and, in the reimported timeline, a cross-dissolve transition item) that
-        # all read as "offline", so an offline-count diff false-positives. The
-        # robust signal is the LINKED count — a dropped source clip is the only
-        # thing that reduces it (verified live on a two-source cut: built 9/8 linked
-        # → polished 11/8 linked, offline +2, zero clips dropped). Diff linked
-        # against the built timeline's pre-round-trip coverage.
-        media = imported.get("media") or {}
-        real_offline = _auto_edit_mod.dropped_source_clips(
-            baseline_linked=int(baseline_media.get("linked", 0)),
-            polished_linked=int(media.get("linked", 0)))
-        out = {
-            "success": True,
-            "polished_timeline": final_name,
-            "source_timeline": built_name,
-            "transitions": polish["transitions"],
-            "lower_thirds": polish["lower_thirds"],
-            "ops_applied": len(ops),
-            "media_link": media,  # {total, linked, offline}; offline includes added generators
-            "baseline_media_link": baseline_media,  # built timeline before the round-trip
-            "clips_relinked": real_offline == 0,
-            "notes": polish.get("notes"),
-            "plan_id": plan["plan_id"],
-            "next": "review the (polished) timeline; finish(plan_id) still targets "
-                    "the built timeline for grade/render",
-        }
-        if real_offline:
-            out["warning"] = (
-                f"{real_offline} source clip(s) went offline after the drt round-trip "
-                "(beyond the intro title and added lower-thirds) — check media relinking.")
-        _edit_engine_mod.mark_plan_executed(project_root, plan["plan_id"], {
-            **exec_summary,
-            "polished": {
-                "timeline_name": out["polished_timeline"],
+            # Media-link honesty: the polish adds media-less items (a lower-third Text+
+            # and, in the reimported timeline, a cross-dissolve transition item) that
+            # all read as "offline", so an offline-count diff false-positives. The
+            # robust signal is the LINKED count — a dropped source clip is the only
+            # thing that reduces it (verified live on a two-source cut: built 9/8 linked
+            # → polished 11/8 linked, offline +2, zero clips dropped). Diff linked
+            # against the built timeline's pre-round-trip coverage.
+            media = imported.get("media") or {}
+            real_offline = _auto_edit_mod.dropped_source_clips(
+                baseline_linked=int(baseline_media.get("linked", 0)),
+                polished_linked=int(media.get("linked", 0)))
+            out = {
+                "success": True,
+                "polished_timeline": final_name,
+                "source_timeline": built_name,
                 "transitions": polish["transitions"],
                 "lower_thirds": polish["lower_thirds"],
-                "media_link": media,
-            },
-        })
-        return out
+                "ops_applied": len(ops),
+                "media_link": media,  # {total, linked, offline}; offline includes added generators
+                "baseline_media_link": baseline_media,  # built timeline before the round-trip
+                "clips_relinked": real_offline == 0,
+                "notes": polish.get("notes"),
+                "plan_id": plan["plan_id"],
+                "next": "review the (polished) timeline; finish(plan_id) still targets "
+                        "the built timeline for grade/render",
+            }
+            if real_offline:
+                out["warning"] = (
+                    f"{real_offline} source clip(s) went offline after the drt round-trip "
+                    "(beyond the intro title and added lower-thirds) — check media relinking.")
+            _edit_engine_mod.mark_plan_executed(project_root, plan["plan_id"], {
+                **exec_summary,
+                "polished": {
+                    "timeline_name": out["polished_timeline"],
+                    "transitions": polish["transitions"],
+                    "lower_thirds": polish["lower_thirds"],
+                    "media_link": media,
+                },
+            })
+            return out
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
 
     if action == "list_briefs":
         _r, _proj, project_root, err = _auto_edit_project_context(p, need_resolve=False)

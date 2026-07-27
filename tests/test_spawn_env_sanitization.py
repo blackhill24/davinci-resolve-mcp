@@ -18,6 +18,8 @@ import src.server as server
 import src.core.live_connection as live_connection
 import src.core.resolve_launch as resolve_launch
 import src.core.app_control as app_control
+import src.core.launch_shim as launch_shim
+import src.core.proc as proc
 import src.domains.media_analysis.utils.technical_probe as media_analysis
 from src.core.proc import preload_audit, resolve_spawn_env, sanitized_spawn_env
 
@@ -353,6 +355,136 @@ class PreloadAuditTest(unittest.TestCase):
             result = server.resolve_control("env_audit")
         self.assertTrue(result["poisoned"])
         self.assertIn(NXEGL, result["crashy_entries"])
+
+
+class RestoreAudioServerTest(unittest.TestCase):
+    """The raw-hw ALSA conf takes the card exclusively; the desktop needs it back.
+
+    While Resolve holds hw:X,Y, PipeWire's node fails to open the device and is
+    parked in a terminal `error` state that it never retries out of — so the
+    machine has no audio device *after* Resolve exits, until the session manager
+    is restarted or the user reboots (#129).
+    """
+
+    def _on(self):
+        """Clear the suite-wide kill switch conftest sets (see tests/conftest.py)."""
+        env = {k: v for k, v in os.environ.items() if k != proc.AUDIO_RESTORE_OFF_ENV}
+        return mock.patch.dict("os.environ", env, clear=True)
+
+    def _linux(self):
+        return mock.patch.object(proc.platform, "system", return_value="Linux")
+
+    def test_restarts_the_first_active_session_manager(self):
+        with self._on(), self._linux(), \
+             mock.patch.object(proc.subprocess, "run") as run:
+            run.return_value = mock.Mock(returncode=0)
+            self.assertTrue(proc.restore_audio_server(units=("wireplumber", "other")))
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertEqual(
+            commands,
+            [
+                ["systemctl", "--user", "is-active", "--quiet", "wireplumber"],
+                ["systemctl", "--user", "restart", "wireplumber"],
+            ],
+            msg="must stop at the first active manager, not bounce every unit",
+        )
+
+    def test_inactive_unit_is_skipped_for_the_next_one(self):
+        def fake_run(argv, **kwargs):
+            if argv[2] == "is-active" and argv[-1] == "wireplumber":
+                return mock.Mock(returncode=3)
+            return mock.Mock(returncode=0)
+
+        with self._on(), self._linux(), \
+             mock.patch.object(proc.subprocess, "run", side_effect=fake_run) as run:
+            self.assertTrue(proc.restore_audio_server(units=("wireplumber", "fallback")))
+        self.assertEqual(run.call_args_list[-1].args[0][-1], "fallback")
+
+    def test_no_active_unit_returns_false(self):
+        with self._on(), self._linux(), \
+             mock.patch.object(proc.subprocess, "run") as run:
+            run.return_value = mock.Mock(returncode=3)
+            self.assertFalse(proc.restore_audio_server(units=("wireplumber",)))
+
+    def test_subprocess_failure_never_raises(self):
+        """Audio restore is a courtesy — it must not break a launch or a quit."""
+        with self._on(), self._linux(), \
+             mock.patch.object(proc.subprocess, "run", side_effect=OSError("no systemctl")):
+            self.assertFalse(proc.restore_audio_server(units=("wireplumber",)))
+
+    def test_kill_switch_blocks_everything(self):
+        with self._linux(), \
+             mock.patch.dict("os.environ", {proc.AUDIO_RESTORE_OFF_ENV: "1"}, clear=False), \
+             mock.patch.object(proc.subprocess, "run") as run:
+            self.assertFalse(proc.restore_audio_server(units=("wireplumber",)))
+        self.assertFalse(run.called, msg="kill switch must short-circuit before any command")
+
+    def test_non_linux_is_a_no_op(self):
+        with self._on(), \
+             mock.patch.object(proc.platform, "system", return_value="Darwin"), \
+             mock.patch.object(proc.subprocess, "run") as run:
+            self.assertFalse(proc.restore_audio_server())
+        self.assertFalse(run.called)
+
+
+class AudioReleaseWatcherTest(unittest.TestCase):
+    """spawn_resolve arms the restore only when it actually took the card."""
+
+    def _spawn(self, env):
+        with mock.patch.object(resolve_launch.subprocess, "Popen") as popen, \
+             mock.patch("os.path.exists", return_value=True), \
+             mock.patch.object(resolve_launch.platform, "system", return_value="Linux"), \
+             mock.patch.object(resolve_launch, "resolve_spawn_env", return_value=env), \
+             mock.patch.object(resolve_launch, "_watch_for_audio_release") as watch:
+            self.assertTrue(resolve_launch.spawn_resolve())
+        return popen, watch
+
+    def test_watcher_armed_when_a_raw_hw_conf_was_handed_out(self):
+        popen, watch = self._spawn({"ALSA_CONFIG_PATH": "/tmp/x.conf"})
+        watch.assert_called_once()
+        self.assertIs(watch.call_args.args[0], popen.return_value)
+
+    def test_no_watcher_without_a_raw_hw_conf(self):
+        """No conf means Resolve shares the card via PipeWire — nothing to restore."""
+        _popen, watch = self._spawn({"HOME": "/home/x"})
+        self.assertFalse(watch.called)
+
+    def test_watcher_restores_after_the_process_exits(self):
+        proc_mock = mock.Mock()
+        with mock.patch.object(resolve_launch, "restore_audio_server") as restore:
+            thread = resolve_launch._watch_for_audio_release(proc_mock)
+            thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        proc_mock.wait.assert_called_once()
+        restore.assert_called_once()
+
+    def test_watcher_thread_never_blocks_shutdown(self):
+        proc_mock = mock.Mock()
+        with mock.patch.object(resolve_launch, "restore_audio_server"):
+            thread = resolve_launch._watch_for_audio_release(proc_mock)
+            thread.join(timeout=5)
+        self.assertTrue(thread.daemon)
+
+
+class LaunchShimAudioReleaseTest(unittest.TestCase):
+    """The desktop/terminal launch path needs the same release (#93/#94 + #129)."""
+
+    def test_shim_restores_audio_instead_of_bare_exec(self):
+        shim = launch_shim._SHIM_TEMPLATE
+        self.assertIn("restore_audio_server", shim)
+        self.assertIn("proc.wait()", shim)
+
+    def test_shim_still_execs_when_no_conf_was_produced(self):
+        """Without a raw-hw conf there is nothing to clean up, so don't linger
+        as a parent process for the whole of Resolve's lifetime."""
+        self.assertIn('if not env.get("ALSA_CONFIG_PATH")', launch_shim._SHIM_TEMPLATE)
+        self.assertIn("os.execve", launch_shim._SHIM_TEMPLATE)
+
+    def test_shim_template_is_valid_python(self):
+        source = launch_shim._SHIM_TEMPLATE.format(
+            marker=launch_shim.SHIM_MARKER, repo_root="/repo", binary="/opt/resolve/bin/resolve"
+        )
+        compile(source, "<shim>", "exec")
 
 
 if __name__ == "__main__":

@@ -39,6 +39,17 @@ writeback/persistence policy) plus the MCP self-update policy — see
 | `set_high_priority` / `disable_background_tasks_for_current_session` | Process-priority and background-task tuning for the current Resolve session. |
 | `install_launch_shim` / `uninstall_launch_shim` / `launch_shim_status` | Linux only. Install a user-scoped shim (`~/.local/bin/resolve` + a user-level `.desktop` override) so the Fairlight raw-hw ALSA config applies however Resolve is started, not only when this connector spawns it — without it, a desktop-launcher or terminal start wedges renders mid-run. Idempotent; refuses to overwrite files it did not write. `launch` reports a `launch_shim` key when an installed shim has been shadowed on `PATH`. |
 
+**Linux audio, while Resolve runs.** The raw-hw ALSA config opens the card
+*exclusively*, so PipeWire loses it for as long as Resolve is up — that part is
+unavoidable if Fairlight is to initialize at all. What is not unavoidable is
+what happens next: PipeWire parks the node in a terminal `error` state and never
+retries, so the desktop stays silent even after Resolve exits ("the sound card
+disappeared until I reboot", #129). Every launch path this connector owns —
+`spawn_resolve()` and the launch shim — now restarts the session manager
+(wireplumber) once Resolve releases the card. Set `RESOLVE_MCP_NO_AUDIO_RESTORE`
+to opt out; to recover by hand, quit Resolve and run
+`systemctl --user restart wireplumber`.
+
 ### `timeline_versioning` — snapshot / rollback safety net
 
 | Action | Purpose |

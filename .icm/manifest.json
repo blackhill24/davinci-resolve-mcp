@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "83509a09f1cbe58d",
+      "fingerprint": "dfbf117aaac284e7",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -614,7 +614,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "bce060ee6b28789d",
+      "fingerprint": "48160b22d714d560",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -687,7 +687,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "ede9b54859d508fd",
+      "fingerprint": "cd06a4ac1c51f0db",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",

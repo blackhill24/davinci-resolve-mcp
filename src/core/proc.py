@@ -8,6 +8,7 @@ than re-applied at every call site.
 """
 import logging
 import os
+import platform
 import re
 import stat
 import subprocess
@@ -291,6 +292,68 @@ def resolve_spawn_env(
         return env
     env["ALSA_CONFIG_PATH"] = conf_path
     return env
+
+
+# The raw-hw conf above opens the card *exclusively*, so while Resolve runs the
+# session's audio server cannot have it. PipeWire reacts by failing the node
+# ("playback open failed: Device or resource busy") and parking it in `error`
+# — a terminal state it never retries out of. So the desktop stays silent even
+# after Resolve exits and the card is free again, which reads to the user as
+# "the sound card disappeared until I reboot" (#129). Restarting the session
+# manager makes it re-probe the card and rebuild the node.
+_AUDIO_RESTORE_TIMEOUT_SECONDS = 15.0
+
+# Candidate session managers, in preference order — the FIRST active one is
+# restarted and the rest are left alone. Deliberately the session manager and
+# not `pipewire` itself: re-probing the card is wireplumber's job, and bouncing
+# the daemon would tear down every unrelated audio stream on the desktop.
+_AUDIO_SERVER_UNITS = ("wireplumber", "pipewire-media-session")
+
+# Set to disable the restart entirely. Two users: anyone who would rather we
+# never touch their audio stack, and the offline test suite — tests/conftest.py
+# sets it for the whole run so a mocked spawn can never bounce the developer's
+# real session manager (the tests patch Popen, not resolve_spawn_env).
+AUDIO_RESTORE_OFF_ENV = "RESOLVE_MCP_NO_AUDIO_RESTORE"
+
+
+def restore_audio_server(units: Optional[Tuple[str, ...]] = None) -> bool:
+    """Make the session audio server re-acquire a card Resolve had exclusively.
+
+    Best-effort and Linux-only: restarts the first active session manager among
+    ``_AUDIO_SERVER_UNITS``, which is what pulls a PipeWire node back out of the
+    terminal ``error`` state it enters when the device is busy. Returns True if
+    a unit was restarted. Never raises — a machine with no systemd user session,
+    no PipeWire, or Resolve still holding the card just gets False, and the
+    caller carries on. Opt out with ``$RESOLVE_MCP_NO_AUDIO_RESTORE``.
+    """
+    if platform.system().lower() != "linux":
+        return False
+    if os.environ.get(AUDIO_RESTORE_OFF_ENV):
+        logger.debug("audio restore: skipped (%s is set)", AUDIO_RESTORE_OFF_ENV)
+        return False
+    for unit in units if units is not None else _AUDIO_SERVER_UNITS:
+        try:
+            active = subprocess.run(
+                ["systemctl", "--user", "is-active", "--quiet", unit],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                timeout=_AUDIO_RESTORE_TIMEOUT_SECONDS,
+            )
+            if active.returncode != 0:
+                continue
+            subprocess.run(
+                ["systemctl", "--user", "restart", unit],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                timeout=_AUDIO_RESTORE_TIMEOUT_SECONDS,
+                check=True,
+            )
+        except (OSError, subprocess.SubprocessError):
+            logger.debug("audio restore: could not restart user unit %s", unit, exc_info=True)
+            continue
+        logger.info("audio restore: restarted user unit %s", unit)
+        return True
+    return False
 
 
 def safe_run(*args: Any, **kwargs: Any) -> "subprocess.CompletedProcess":

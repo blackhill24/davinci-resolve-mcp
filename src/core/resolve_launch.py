@@ -18,10 +18,11 @@ import logging
 import os
 import platform
 import subprocess
+import threading
 import time
 from typing import Callable, Dict, Optional
 
-from src.core.proc import resolve_spawn_env
+from src.core.proc import resolve_spawn_env, restore_audio_server
 
 logger = logging.getLogger("resolve-mcp.launch")
 
@@ -68,13 +69,44 @@ def spawn_resolve(log: Optional[logging.Logger] = None) -> bool:
         # Linux: a sanitized env (no crashy LD_PRELOAD, raw-hw ALSA conf) and a
         # detached session, so Resolve doesn't die with the MCP server and
         # doesn't inherit an audio config that hangs headless renders (#28).
-        subprocess.Popen(
+        env = resolve_spawn_env()
+        proc = subprocess.Popen(
             [app_path],
             stdin=subprocess.DEVNULL,
-            env=resolve_spawn_env(),
+            env=env,
             start_new_session=True,
         )
+        if env.get("ALSA_CONFIG_PATH"):
+            _watch_for_audio_release(proc, log)
     return True
+
+
+def _watch_for_audio_release(
+    proc: "subprocess.Popen", log: Optional[logging.Logger] = None
+) -> "threading.Thread":
+    """Restore the desktop's audio once this Resolve releases the sound card.
+
+    Only started when we handed Resolve the generated raw-hw ALSA config, which
+    takes the card exclusively: PipeWire loses it, parks the node in a terminal
+    `error` state, and never recovers on its own — so without this the desktop
+    stays silent long after Resolve is gone (#129).
+
+    A daemon thread, so it never holds up server shutdown; if the MCP server
+    exits before Resolve does, the restore is simply skipped and the user can
+    run it by hand (see `restore_audio_server`).
+    """
+    log = log or logger
+
+    def _wait_then_restore() -> None:
+        proc.wait()
+        if restore_audio_server():
+            log.info("Resolve exited; restarted the session audio manager")
+
+    thread = threading.Thread(
+        target=_wait_then_restore, name="resolve-audio-restore", daemon=True
+    )
+    thread.start()
+    return thread
 
 
 def launch_resolve(

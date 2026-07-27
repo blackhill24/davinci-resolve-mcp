@@ -24,6 +24,14 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+# No test may restart the developer's audio session manager. The launch tests
+# patch subprocess.Popen but not resolve_spawn_env(), so on a Linux box with a
+# free hw pair the spawn really does hand out an ALSA config and really does
+# arm the post-exit audio-restore watcher — against a mock whose wait() returns
+# instantly. Set before src.core.proc is imported, and before the per-test
+# os.environ snapshot, so it is not seen as a leak (#129).
+os.environ.setdefault("RESOLVE_MCP_NO_AUDIO_RESTORE", "1")
+
 from tests.bridge_double import (  # noqa: E402
     RESOLVE_EXPORT_CONSTANTS,
     ResolveBridgeDouble,

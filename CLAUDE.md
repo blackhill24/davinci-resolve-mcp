@@ -33,14 +33,14 @@ method). Per-domain depth: `AGENTS.md` → Domain Routing + `docs/kernels/`. Liv
 | dashboard | `src/dashboard/` | Local browser control-panel UI + backend (no Resolve required to serve it) | Editing the control panel's HTTP handler, panel UI, or its endpoints |
 | advanced-server | `resolve-advanced/` | Node beyond-API file/DB authoring | Editing `.drp/.drt/.drx` codecs or offline tools |
 | docs | `docs/` | Kernels, guides, reference, process | Writing/finding domain depth or process docs |
-| tests | `tests/` | ~220 Python tests, mirrors `src/domains`+`core`+`dashboard` (offline + live) | Adding/running validation |
+| tests | `tests/` | Python tests, mirrors `src/domains`+`core`+`dashboard` (offline + live) | Adding/running validation |
 | tooling | `scripts/` (+ `install.py`) | Installer, audits, doc/rule generators | Running audits or regenerating generated docs |
 
 ## Folder map (top level only — each workspace maps its own depth)
 
 ```
 src/  resolve-advanced/  docs/  tests/  scripts/  bin/  examples/
-install.py  package.json  requirements.txt  ruff.toml  pytest.ini  AGENTS.md  README.md  CHANGELOG.md
+install.py  package.json  requirements.txt  ruff.toml  pytest.ini  .coveragerc  AGENTS.md  README.md  CHANGELOG.md
 .claude/skills/   (Claude Code domain skills; mirrors in .cursor/ .roo/ etc.)
 ```
 

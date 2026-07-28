@@ -4,40 +4,80 @@ from src.granular.common import *  # noqa: F401,F403
 
 resolve = ResolveProxy()
 
-@mcp.tool(annotations=READ_ONLY_TOOL)
-def get_gallery_album_name() -> Dict[str, Any]:
-    """Get the name of the current gallery album."""
+
+def _gallery_or_error():
+    """(gallery, None) or (None, error dict). Guards the whole chain."""
     resolve = get_resolve()
     if resolve is None:
-        return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+        return None, {"error": "Not connected to DaVinci Resolve"}
+    pm = resolve.GetProjectManager()
+    if pm is None:
+        return None, {"error": "Failed to get Project Manager"}
+    project = pm.GetCurrentProject()
     if not project:
-        return {"error": "No project open"}
+        return None, {"error": "No project open"}
     gallery = project.GetGallery()
     if not gallery:
-        return {"error": "Failed to get Gallery"}
-    name = gallery.GetAlbumName()
+        return None, {"error": "Failed to get Gallery"}
+    return gallery, None
+
+
+def _still_album(gallery, album_index=None):
+    """Resolve a GalleryStillAlbum object. (album, None) or (None, error).
+
+    Every Gallery album method takes the album OBJECT as its first argument —
+    `GetAlbumName(galleryStillAlbum)`, `SetAlbumName(galleryStillAlbum,
+    albumName)`. Calling them with only the name never touched an album at all
+    (#144 finding 1).
+    """
+    if album_index is None:
+        album = gallery.GetCurrentStillAlbum()
+        if not album:
+            return None, {"error": "No current gallery still album"}
+        return album, None
+    albums = gallery.GetGalleryStillAlbums() or []
+    if not isinstance(album_index, int) or album_index < 0 or album_index >= len(albums):
+        return None, {"error": f"Album index {album_index} out of range ({len(albums)} albums)"}
+    return albums[album_index], None
+
+@mcp.tool(annotations=READ_ONLY_TOOL)
+def get_gallery_album_name(album_index: Optional[int] = None) -> Dict[str, Any]:
+    """Get a gallery still album's name.
+
+    Args:
+        album_index: 0-based index into GetGalleryStillAlbums(). Omit for the
+            current album.
+    """
+    gallery, err = _gallery_or_error()
+    if err:
+        return err
+    album, err = _still_album(gallery, album_index)
+    if err:
+        return err
+    # GetAlbumName takes the album object; calling it bare read nothing.
+    name = gallery.GetAlbumName(album)
     return {"album_name": name if name else ""}
 
 
 @mcp.tool()
-def set_gallery_album_name(name: str) -> Dict[str, Any]:
-    """Set the name of the current gallery album.
+def set_gallery_album_name(name: str, album_index: Optional[int] = None) -> Dict[str, Any]:
+    """Set a gallery still album's name.
 
     Args:
         name: New album name.
+        album_index: 0-based index into GetGalleryStillAlbums(). Omit to rename
+            the current album.
     """
-    resolve = get_resolve()
-    if resolve is None:
-        return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
-    if not project:
-        return {"error": "No project open"}
-    gallery = project.GetGallery()
-    if not gallery:
-        return {"error": "Failed to get Gallery"}
-    result = gallery.SetAlbumName(name)
-    return {"success": bool(result)}
+    gallery, err = _gallery_or_error()
+    if err:
+        return err
+    album, err = _still_album(gallery, album_index)
+    if err:
+        return err
+    # SetAlbumName(galleryStillAlbum, albumName) - the album argument was never
+    # passed, so this renamed nothing (#144 finding 1). The compound surface has
+    # always had it right (color_grade/actions.py set_album_name).
+    return {"success": bool(gallery.SetAlbumName(album, name))}
 
 
 @mcp.tool()
@@ -127,11 +167,21 @@ def create_gallery_still_album(album_name: str = "") -> Dict[str, Any]:
     gallery = project.GetGallery()
     if not gallery:
         return {"error": "Failed to get Gallery"}
+    # CreateGalleryStillAlbum() takes NO arguments - the naming path was an
+    # undocumented 1-arg call, so the tool's only parameter took the unverified
+    # branch (#144 finding 2). Naming is a second call, SetAlbumName(album, name).
+    album = gallery.CreateGalleryStillAlbum()
+    if album is None:
+        return {"success": False, "error": "Failed to create album"}
+    named = None
     if album_name:
-        album = gallery.CreateGalleryStillAlbum(album_name)
-    else:
-        album = gallery.CreateGalleryStillAlbum()
-    return {"success": album is not None}
+        named = bool(gallery.SetAlbumName(album, album_name))
+    out = {"success": True}
+    if album_name:
+        out["named"] = named
+        if not named:
+            out["warning"] = f"Album created but could not be renamed to {album_name!r}"
+    return out
 
 
 @mcp.tool()
@@ -150,11 +200,21 @@ def create_gallery_power_grade_album(album_name: str = "") -> Dict[str, Any]:
     gallery = project.GetGallery()
     if not gallery:
         return {"error": "Failed to get Gallery"}
+    # CreateGalleryPowerGradeAlbum() takes NO arguments - the naming path was an
+    # undocumented 1-arg call, so the tool's only parameter took the unverified
+    # branch (#144 finding 2). Naming is a second call, SetAlbumName(album, name).
+    album = gallery.CreateGalleryPowerGradeAlbum()
+    if album is None:
+        return {"success": False, "error": "Failed to create album"}
+    named = None
     if album_name:
-        album = gallery.CreateGalleryPowerGradeAlbum(album_name)
-    else:
-        album = gallery.CreateGalleryPowerGradeAlbum()
-    return {"success": album is not None}
+        named = bool(gallery.SetAlbumName(album, album_name))
+    out = {"success": True}
+    if album_name:
+        out["named"] = named
+        if not named:
+            out["warning"] = f"Album created but could not be renamed to {album_name!r}"
+    return out
 
 
 @mcp.tool()

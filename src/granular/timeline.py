@@ -765,20 +765,23 @@ def timeline_export(file_path: str, export_type: str, export_subtype: str = "EXP
 
 
 @mcp.tool()
-def timeline_insert_generator(generator_name: str, duration: Optional[int] = None) -> Dict[str, Any]:
+def timeline_insert_generator(generator_name: str) -> Dict[str, Any]:
     """Insert a generator into the timeline.
 
     Args:
         generator_name: Name of the generator to insert.
-        duration: Optional duration in frames.
+
+    `InsertGeneratorIntoTimeline(generatorName)` takes exactly one argument. The
+    `duration` parameter this tool used to declare existed only in an
+    undocumented 2-arg call, so supplying it took the unverified branch while
+    omitting it took the correct one (#144 finding 4). Set the generator's
+    duration afterwards with timeline_item(action="set_property") or by trimming
+    the inserted item; the compound surface calls this with one argument too.
     """
     _, tl, err = _get_timeline()
     if err:
         return err
-    if duration:
-        result = tl.InsertGeneratorIntoTimeline(generator_name, {"duration": duration})
-    else:
-        result = tl.InsertGeneratorIntoTimeline(generator_name)
+    result = tl.InsertGeneratorIntoTimeline(generator_name)
     return {"success": result is not None}
 
 

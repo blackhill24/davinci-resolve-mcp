@@ -149,6 +149,24 @@ def _descendant_pids(pid: int, proc_root: str = "/proc") -> list[int]:
     return sorted(found)
 
 
+def describe_pid(pid: int, proc_root: str = "/proc") -> dict:
+    """`{pid, name, state}` for one process — enough to name what a child is.
+
+    A bare descendant *count* is not enough, which the #153 bisect proved: the
+    count going 1 → 3 was the signal, but only the names said what had
+    happened — a live `fuscript -s` plus two unreaped `ScriptState` zombies.
+    """
+    fields = _status_fields(pid, proc_root)
+    return {
+        "pid": pid,
+        "name": fields.get("Name"),
+        # "Z (zombie)" → "Z"; the letter is the part worth comparing on. A
+        # process that exits between the listing and this read has no status at
+        # all, so guard the split rather than indexing an empty list.
+        "state": next(iter((fields.get("State") or "").split()), None),
+    }
+
+
 def _fd_count(pid: int, proc_root: str = "/proc") -> int | None:
     """Open file descriptors, or None when the table cannot be read."""
     try:
@@ -293,6 +311,13 @@ def sample(pid: int | None = None, proc_root: str = "/proc",
         # child that disappeared never reads as a child holding nothing.
         "child_fds": _sum_or_none(child_fds),
         "child_rss_kb": _sum_or_none(child_rss),
+        "child_detail": [describe_pid(child, proc_root) for child in descendants],
+        # Broken out because it is the one child state that is never normal:
+        # a zombie is a child Resolve has stopped reaping, and the #153 bisect
+        # found two of them (`ScriptState`) surviving from the extension
+        # harnesses right up to the harness where Resolve dies.
+        "zombies": sum(1 for child in descendants
+                       if describe_pid(child, proc_root)["state"] == "Z"),
     }
     if with_gpu:
         reading["gpu_mib"] = gpu_memory_mib([pid] + descendants)
@@ -314,7 +339,7 @@ def _sum_or_none(values: list) -> int | None:
 
 
 # Fields whose growth across a sweep is the thing #153 is testing for.
-GROWTH_FIELDS = ("rss_kb", "fds", "child_fds", "threads", "children", "gpu_mib")
+GROWTH_FIELDS = ("rss_kb", "fds", "child_fds", "threads", "children", "zombies", "gpu_mib")
 
 
 def delta(first: dict, last: dict, fields: tuple = GROWTH_FIELDS) -> dict:
@@ -333,13 +358,17 @@ def format_sample(reading: dict) -> str:
         return f"resolve: GONE (pid={reading.get('pid')})"
     rss = reading.get("rss_kb")
     fds, limit = reading.get("fds"), reading.get("fd_limit")
+    # Called out inline rather than buried in child_detail: an unreaped child is
+    # never normal, and it is the one number in #153 that moved before the exit.
+    zombie_note = f"(+{reading['zombies']}Z)" if reading.get("zombies") else ""
     return (
         f"pid={reading['pid']} "
         f"rss={rss // 1024 if rss else '?'}M "
         f"fds={fds if fds is not None else '?'}"
         f"{f'/{limit}' if limit else ''} "
         f"threads={reading.get('threads') or '?'} "
-        f"children={reading.get('children')} "
+        f"children={reading.get('children')}"
+        f"{zombie_note} "
         f"childfds={reading.get('child_fds') or 0} "
         f"gpu={reading.get('gpu_mib') if reading.get('gpu_mib') is not None else '?'}M "
         f"cpu={reading.get('cpu_seconds')}s"

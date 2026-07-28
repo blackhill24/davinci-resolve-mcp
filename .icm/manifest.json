@@ -691,7 +691,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "c2a8f89420c35591",
+      "fingerprint": "9b07986330e8cbf0",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -977,7 +977,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "71dc0f63fe5cecb4",
+      "fingerprint": "7fc966ae9a4741a3",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

@@ -30,7 +30,8 @@ def write_proc(root: Path, pid: int, *, cmdline: str, ppid: int = 1,
                rss_kb: int = 1024, vm_kb: int = 4096, threads: int = 8,
                fds: int = 3, fd_limit: int = 1024,
                utime: int = 100, stime: int = 50,
-               environ: dict | None = None, comm: str = "GUI Thread") -> Path:
+               environ: dict | None = None, comm: str = "GUI Thread",
+               state: str | None = "S (sleeping)") -> Path:
     """Write one plausible `/proc/<pid>` into `root` and return its path."""
     proc = root / str(pid)
     (proc / "fd").mkdir(parents=True)
@@ -39,7 +40,8 @@ def write_proc(root: Path, pid: int, *, cmdline: str, ppid: int = 1,
     (proc / "cmdline").write_bytes(cmdline.replace(" ", "\0").encode("utf-8") + b"\0")
     (proc / "status").write_text(
         f"Name:\t{comm}\nPPid:\t{ppid}\nThreads:\t{threads}\n"
-        f"VmSize:\t{vm_kb} kB\nVmRSS:\t{rss_kb} kB\n",
+        + (f"State:\t{state}\n" if state is not None else "")
+        + f"VmSize:\t{vm_kb} kB\nVmRSS:\t{rss_kb} kB\n",
         encoding="utf-8",
     )
     (proc / "limits").write_text(
@@ -114,6 +116,29 @@ class SampleTests(unittest.TestCase):
         self.assertEqual(reading["fds"], 5, "the parent's own fds stay its own")
         self.assertEqual(reading["child_fds"], 10)
         self.assertEqual(reading["child_rss_kb"], 96)
+
+    def test_unreaped_children_are_counted_and_named(self):
+        """The signal that cracked #153: `children` alone said 1 → 3, but only
+        the names identified a live `fuscript` plus two `ScriptState` zombies."""
+        write_proc(self.root, 100, cmdline="/opt/resolve/bin/resolve")
+        write_proc(self.root, 101, cmdline="fuscript -s", ppid=100, comm="fuscript")
+        write_proc(self.root, 102, cmdline="", ppid=100, comm="ScriptState",
+                   state="Z (zombie)")
+        write_proc(self.root, 103, cmdline="", ppid=100, comm="ScriptState",
+                   state="Z (zombie)")
+        reading = vitals.sample(proc_root=str(self.root), with_gpu=False)
+        self.assertEqual(reading["zombies"], 2)
+        self.assertEqual(
+            [(c["name"], c["state"]) for c in reading["child_detail"]],
+            [("fuscript", "S"), ("ScriptState", "Z"), ("ScriptState", "Z")])
+        self.assertIn("children=3(+2Z)", vitals.format_sample(reading))
+
+    def test_a_child_with_no_state_line_does_not_blow_up_the_sample(self):
+        write_proc(self.root, 100, cmdline="/opt/resolve/bin/resolve")
+        write_proc(self.root, 101, cmdline="odd", ppid=100, state=None)
+        reading = vitals.sample(proc_root=str(self.root), with_gpu=False)
+        self.assertEqual(reading["zombies"], 0)
+        self.assertIsNone(reading["child_detail"][0]["state"])
 
     def test_no_resolve_process_is_a_recorded_state_not_an_error(self):
         write_proc(self.root, 200, cmdline="/usr/lib/systemd/systemd-resolved")
@@ -214,6 +239,41 @@ class VitalsReportTests(unittest.TestCase):
     def test_survives_a_sweep_whose_only_sample_is_a_dead_one(self):
         results = [{"harness": "a.py", "vitals": {"alive": False, "pid": None}}]
         self.assertIn("no live sample", self.runner.vitals_report(results, None))
+
+
+class WedgedResolveTests(unittest.TestCase):
+    """A Resolve that wedges instead of exiting must still produce a report.
+
+    Letting the op's `TimeoutExpired` propagate killed the sweep mid-run and
+    took the results file with it — a run that hit the bug reported nothing at
+    all, which is the same false-reporting family the runner exists to prevent.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location(
+            "run_live_suite",
+            Path(__file__).resolve().parents[1] / "scripts" / "run_live_suite.py",
+        )
+        cls.runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.runner)
+
+    def test_a_timed_out_op_reads_as_resolve_gone_not_as_an_exception(self):
+        with mock.patch.object(
+            self.runner.subprocess, "run",
+            side_effect=self.runner.subprocess.TimeoutExpired(cmd="op", timeout=180),
+        ):
+            result = self.runner.resolve_op("projects", {}, timeout=180)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], self.runner.RESOLVE_GONE)
+        self.assertIn("wedged", result["detail"])
+
+    def test_a_wedged_op_still_yields_a_project_list_callers_can_use(self):
+        with mock.patch.object(
+            self.runner.subprocess, "run",
+            side_effect=self.runner.subprocess.TimeoutExpired(cmd="op", timeout=1),
+        ):
+            self.assertEqual(self.runner.resolve_op("projects", {}).get("projects", []), [])
 
 
 class DeltaTests(unittest.TestCase):

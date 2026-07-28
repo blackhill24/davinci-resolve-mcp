@@ -111,12 +111,28 @@ def build_env() -> dict:
 # runner survives both and keeps reporting.
 
 def resolve_op(op: str, env: dict, timeout: int = 180) -> dict:
-    """Run one internal op in a subprocess and return its JSON result."""
-    proc = subprocess.run(
-        [sys.executable, str(Path(__file__).resolve()), "--internal-op", op],
-        env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-        timeout=timeout, cwd=str(ROOT),
-    )
+    """Run one internal op in a subprocess and return its JSON result.
+
+    A timeout is reported as `RESOLVE_GONE`, not raised. Resolve has two ways of
+    failing here and only one of them is an exit: it can also **wedge** — stay
+    up, hold its scripting socket open, and never answer — in which case this
+    op's child blocks in `futex_wait` until the timeout. Letting that
+    `TimeoutExpired` propagate killed the whole run mid-sweep and took the
+    results file with it, which is the same false-reporting family as #151:
+    a sweep that hit the bug produced no report at all rather than an honest
+    one. Observed in the #153 bisect, on the same harness that elsewhere makes
+    Resolve exit outright.
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), "--internal-op", op],
+            env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            timeout=timeout, cwd=str(ROOT),
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": RESOLVE_GONE,
+                "detail": f"op {op!r} did not answer within {timeout}s — Resolve is "
+                          f"wedged (still up, no longer serving the scripting API)."}
     for line in reversed(proc.stdout.splitlines()):
         if line.startswith("{"):
             try:
@@ -347,15 +363,21 @@ def sweep(harnesses: list, env: dict, args) -> tuple:
                       f"{len(harnesses) - index + 1} harness(es) unrun.")
                 # The sample at the abort point is the one that matters: it says
                 # whether the process is gone outright or still up but no longer
-                # answering, which are different bugs (#153).
-                dying = take_vitals(args.vitals)
-                if dying:
-                    print(f"      ! vitals at abort: "
-                          f"{resolve_vitals.format_sample(dying)}")
+                # answering, which are different bugs (#153) — and it is always
+                # taken here, not only under --vitals, because one `/proc` read
+                # is free and the distinction is the whole diagnosis.
+                dying = take_vitals(True)
+                mode = ("EXITED — no Resolve process remains"
+                        if not dying.get("alive")
+                        else "WEDGED — the process is still up but no longer "
+                             "serving the scripting API")
+                print(f"      ! Resolve {mode}")
+                print(f"      ! vitals at abort: {resolve_vitals.format_sample(dying)}")
                 results.append({"harness": rel, "status": ABORTED, "returncode": None,
                                 "seconds": 0.0, "vitals": dying,
-                                "output": "Resolve stopped responding "
-                                          "before this harness ran."})
+                                "output": f"Resolve stopped responding before this "
+                                          f"harness ran. {mode}. "
+                                          f"{scratch.get('detail', '')}"})
                 break
             before = resolve_op("projects", env).get("projects", [])
         else:
@@ -363,19 +385,40 @@ def sweep(harnesses: list, env: dict, args) -> tuple:
 
         result = run_harness(path, env, args.timeout, args.quiet)
 
+        died_after = False
         if not args.cold:
-            after = resolve_op("projects", env).get("projects", [])
+            after_op = resolve_op("projects", env)
+            # Resolve can go down *during* the harness that just ran — which is
+            # exactly what #153 does, and the harness still exits 0 because its
+            # assertions had already passed and only its cleanup hit the dead
+            # bridge. Catch it here rather than on the next iteration, or the
+            # last harness in a run would end the sweep looking green.
+            died_after = after_op.get("error") == RESOLVE_GONE
+            after = after_op.get("projects", [])
             leaked = [p for p in after if p not in before and p != SCRATCH_PROJECT]
             result["leaked_projects"] = leaked
             if leaked:
                 print(f"      ! leaked projects: {', '.join(leaked)}")
-        result["vitals"] = take_vitals(args.vitals)
+        result["vitals"] = take_vitals(args.vitals or died_after)
         results.append(result)
         print(f"      {result['status']} in {result['seconds']}s", flush=True)
-        if result["vitals"]:
+        if result["vitals"] and args.vitals:
             growth = resolve_vitals.delta(baseline or {}, result["vitals"])
             print(f"      vitals {resolve_vitals.format_sample(result['vitals'])}"
                   f"{f'  since baseline: {growth}' if growth else ''}", flush=True)
+
+        if died_after:
+            alive = (result["vitals"] or {}).get("alive")
+            mode = ("WEDGED — still up, no longer serving the scripting API"
+                    if alive else "EXITED — no Resolve process remains")
+            print(f"      ! Resolve went down DURING this harness: {mode}")
+            print(f"      ! aborting with {len(harnesses) - index} harness(es) unrun.")
+            result["resolve_went_down"] = mode
+            results.append({"harness": "(sweep aborted)", "status": ABORTED,
+                            "returncode": None, "seconds": 0.0,
+                            "vitals": result["vitals"],
+                            "output": f"Resolve went down during {rel}. {mode}."})
+            break
 
     if not args.cold and args.clean_leaks:
         after_all = resolve_op("projects", env).get("projects", [])

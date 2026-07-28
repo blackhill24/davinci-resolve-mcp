@@ -85,13 +85,13 @@ class BrainEdits(unittest.TestCase):
     # ── capture helpers ──
 
     def test_capture_duration_seconds(self) -> None:
-        # 241 frames at 24fps. All three duration sites now share
-        # timeline_lookup.timeline_frame_duration, which is inclusive of the end
-        # frame — brain_edits used to be the one place computing `end - start`
-        # (#141 finding 6). See that helper for the open api_truth question.
+        # 240 frames at 24fps. Timeline.GetEndFrame() is EXCLUSIVE — measured
+        # live on 21.0.2.4, see src/core/api_truth.py — so the duration is
+        # `end - start` with no +1. All three duration sites now share
+        # timeline_lookup.timeline_frame_duration; brain_edits was the only one
+        # that already had it right (#141 finding 6).
         tl = _MockTimeline(start=0, end=240, fps=24.0)
-        self.assertAlmostEqual(
-            brain_edits.capture_timeline_duration_seconds(tl), 241 / 24.0)
+        self.assertEqual(brain_edits.capture_timeline_duration_seconds(tl), 10.0)
 
     def test_capture_duration_handles_zero_fps(self) -> None:
         tl = _MockTimeline(fps=0.0)
@@ -110,8 +110,7 @@ class BrainEdits(unittest.TestCase):
 
     def test_capture_metric_dispatch(self) -> None:
         tl = _MockTimeline(start=0, end=240, fps=24.0)
-        self.assertAlmostEqual(
-            brain_edits.capture_metric("duration_seconds", tl), 241 / 24.0)
+        self.assertEqual(brain_edits.capture_metric("duration_seconds", tl), 10.0)
         self.assertIsNone(brain_edits.capture_metric("unknown_metric", tl))
 
     # ── log + query ──

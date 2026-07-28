@@ -2,6 +2,98 @@
 
 Release history for the DaVinci Resolve MCP Server. The latest release is summarized in the root README; older entries live here to keep the README focused.
 
+## Unreleased
+
+Four rounds of connector audit fixed and merged: **30 defects + 5 minor items**
+across #141–#144 (PRs #145–#148). Offline suite 2503 → 2593 passing. No tools
+were added or removed, but **six behaviours changed in ways a caller can
+notice** — read Changed/Removed before upgrading.
+
+### Removed
+
+Three granular tools lost parameters the Resolve API has **no slot for**.
+Passing them previously did nothing while the tool reported success (#144, #143):
+
+- **`add_timeline_mattes_to_media_pool(matte_paths)`** — dropped
+  `timeline_item_index`, `track_type`, `track_index`.
+  `AddTimelineMattesToMediaPool([paths])` attaches mattes to the current media
+  pool folder, not to a timeline item; the tool had been given the adjacent
+  clip-matte signature, so a `TimelineItem` was passed where the paths list
+  belongs. **It cannot ever have worked.** It now also returns `added_count`
+  and `added` instead of a bare boolean.
+- **`timeline_insert_generator(generator_name)`** — dropped `duration`.
+  `InsertGeneratorIntoTimeline` takes exactly one argument. Set the length
+  afterwards by trimming the inserted item.
+- **`timeline_get_current_clip_thumbnail()`** — dropped `width`/`height`.
+  `GetCurrentClipThumbnailImage()` takes no arguments, so the requested size was
+  silently ignored.
+
+### Changed
+
+- **`timeline_get_current_clip_thumbnail` returns the image.** Was
+  `{"success": true, "has_data": true}` — the payload was fetched and thrown
+  away. Now `{"success": true, "thumbnail": {width, height, format, data}}`,
+  matching the compound `timeline_markers(action="get_thumbnail")`.
+- **`export_folder(export_type=...)` refuses a non-DRB value.** It used to
+  report `"Successfully exported folder … to '/tmp/x.drt'"` while DRB content
+  was written. `Folder.Export()` has no format argument.
+- **Timeline `duration` is one frame shorter — and now correct.**
+  `Timeline.GetEndFrame()` is **exclusive**, measured live on Studio 21.0.2.4
+  against clips of known length (`tests/live_timeline_end_frame_probe.py
+  --allow-mutation`). The repo had three conventions for it and the majority one
+  was wrong: the granular `get_current_timeline` and the project-metadata
+  `duration` both over-reported by a frame. One definition now
+  (`core/timeline_lookup.timeline_frame_duration`), recorded in `api_truth.py`.
+- **Operations that matched zero clips now fail instead of reporting success.**
+  `timeline delete_clips`, `timeline set_clips_linked` and
+  `timeline_item_color copy_grades` scanned tracks for the caller's ids; an
+  all-stale id list left the set empty, the Resolve call returned truthy, and
+  the response was `{"success": true}` with nothing done. They now return the
+  `missing` ids and `success: false`.
+- **The five `timeline_item` keyframe actions return a typed refusal.**
+  TimelineItem exposes **no keyframe API at all** on Resolve 21.x — all seven
+  methods are absent from `dir()`, so these raised an unhandled `TypeError`.
+  They now return `KEYFRAMES_UNSUPPORTED` (`category: unsupported`) naming the
+  missing methods. Relatedly, `timeline duplicate_clips` with
+  `copy_properties=["keyframes"]` reported `success: true` having copied
+  nothing; it now reports the refusal.
+- **Missing required params are `invalid_input` envelopes, not tracebacks.**
+  101 unguarded `p["key"]` reads across the compound domains raised a raw
+  `KeyError`; they now return `MISSING_PARAM`.
+- **The transport state file and page lock moved out of `/tmp`** into a per-uid
+  `0700` directory, mode `0600`. Anything reading the old
+  `/tmp/davinci_resolve_mcp_transport.json` path will no longer find it — the
+  file holds the networked-transport **bearer token** and was world-readable.
+
+### Fixed
+
+- **A dry-run metadata publish destroyed the project's persisted analysis root.**
+  `media_analysis(action="publish_clip_metadata")` defaults to `dry_run=true`,
+  which set `session_only=true`, and the session cleanup defaulted its `rmtree`
+  target to the persistent root — deleting every clip report, the analysis
+  registry, the SQLite index, `_memory/` corrections and batch-job state,
+  silently, while reporting `artifacts_cleaned_up: true`. Cleanup is now
+  proof-based and refuses anything that is not a verified session scratch dir.
+- **`close_control_panel` could SIGTERM an unrelated process.** Nothing removed
+  the pidfile, so after a reboot its recycled PID was "alive" and got signalled.
+  Identity is now confirmed before any signal.
+- **The dashboard could leak a worker thread per request.** A client that
+  announced a `Content-Length` and stopped writing blocked that thread forever;
+  malformed bodies surfaced as 500s. Now a socket timeout plus 400/408/411/413.
+- **MCP resource reads no longer freeze the server.** Resource handlers ran
+  inline on the event loop, outside `_bridge_lock`, so a passive host poll could
+  block everything for ~60s launching Resolve, or enter the non-reentrant bridge
+  alongside a tool call.
+- **Background jobs and DB readers no longer race.** Job bodies hold
+  `_bridge_lock` rather than only an advisory record, and each thread gets its
+  own SQLite connection instead of sharing the writer's open transaction.
+- **`get_project_metadata` returned an error on every live call** — it probed
+  `GetPath` with `hasattr`, which the Resolve bridge always answers `True`.
+- Plus: negative `item_index` no longer targets the last clip; 81 unguarded
+  `GetProjectManager()` calls in the granular surface; contact sheets no longer
+  corrupt on mixed thumbnail sizes; 15 tool params annotated non-nullable but
+  defaulting to `None`; and the five-item minor bucket from #141.
+
 ## What's New in v2.62.3
 
 A single grading fix (PR #90, by @Mldphotohraphie), extended and hardened. No

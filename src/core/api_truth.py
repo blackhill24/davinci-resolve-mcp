@@ -944,26 +944,27 @@ API_TRUTH: List[Dict[str, Any]] = [
         "issue": 142,
     },
     {
-        "symbol": "Timeline.GetEndFrame() inclusivity",
+        "symbol": "Timeline.GetEndFrame() is EXCLUSIVE",
         "object": "Timeline",
         "signature": "() -> int",
-        "reality": "UNSETTLED. Whether the returned frame is the last frame of "
-                   "the timeline or one past it has not been measured against a "
-                   "running Resolve. This repo had THREE conventions for the same "
-                   "call - `end - start` and `end - start + 1` in two places - so "
-                   "at most one was right and the others reported a duration off "
-                   "by one frame (#141 finding 6). Note this is a different method "
-                   "from TimelineItem.GetEnd(), which IS exclusive.",
-        "recommended": "All callers now share "
-                       "src/core/timeline_lookup.py:timeline_frame_duration, which "
-                       "assumes INCLUSIVE (the convention two of the three sites "
-                       "and both user-facing 'duration' fields already used, so "
-                       "unifying changed no user-visible output). "
-                       "tests/live_timeline_end_frame_probe.py settles it in one "
-                       "read-only run against a timeline that ends on a clip; if "
-                       "it reports EXCLUSIVE, drop the single `+ 1` in that helper "
-                       "and update this entry.",
-        "tags": ["semantics", "timeline", "unverified"],
+        "reality": "GetEndFrame() returns one PAST the last frame, the same "
+                   "convention as TimelineItem.GetEnd() - so the duration in "
+                   "frames is `GetEndFrame() - GetStartFrame()`, with no +1. "
+                   "Measured on Resolve Studio 21.0.2.4 (2026-07-28) against "
+                   "synthesised clips of known length: a 48-frame clip gives "
+                   "start=86400 end=86448, a 100-frame clip gives 86400/86500, "
+                   "and the single timeline item reports GetEnd()=86448 with "
+                   "GetDuration()=48. This repo had THREE conventions for the "
+                   "call, and the MAJORITY one was wrong: granular/timeline.py "
+                   "and project_lifecycle/utils/project_properties.py both "
+                   "reported a duration one frame too long (#141 finding 6).",
+        "recommended": "Use src/core/timeline_lookup.py:timeline_frame_duration, "
+                       "the single definition every caller now shares. Re-measure "
+                       "on a Resolve major bump with "
+                       "tests/live_timeline_end_frame_probe.py --allow-mutation, "
+                       "which builds and tears down its own scratch project.",
+        "tags": ["semantics", "timeline"],
+        "verified_on": "DaVinci Resolve Studio 21.0.2.4",
         "issue": 141,
     },
     {

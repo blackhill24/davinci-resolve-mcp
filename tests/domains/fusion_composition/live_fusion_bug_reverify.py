@@ -90,18 +90,12 @@ def main() -> int:
         return 0 if (copy_ok and copy_persisted and pos_roundtrip) else 1
     finally:
         try:
-            # Park off the Fusion page BEFORE deleting. Deleting a project while
+            # `resolve=` is load-bearing, not tidiness: deleting a project while
             # Resolve's UI is on the Fusion page showing that project's comp
-            # terminates Resolve outright — no dialog, no core dump, nothing in
-            # the journal (#153). Bisected to this single call: identical runs
-            # with and without this line exit and survive respectively, 2/2 each,
-            # on Studio 21.0.2.4. It is not the harness's assertions that are
-            # unsafe, only the page the cleanup runs from.
-            resolve.OpenPage("edit")
-        except Exception as e:
-            print(f"page park before cleanup failed: {e}")
-        try:
-            cleanup = delete_project_safely(pm, PROJECT_NAME, switch_to=original_name, retries=2)
+            # terminates Resolve outright (#153). The helper parks off the page
+            # first, but only when it is given a handle (#157).
+            cleanup = delete_project_safely(pm, PROJECT_NAME, resolve=resolve,
+                                            switch_to=original_name, retries=2)
             print(f"\ncleanup delete_project: {cleanup}")
         except Exception as e:
             print(f"cleanup delete error: {e}")

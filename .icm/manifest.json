@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "f0661876c87635db",
+      "fingerprint": "718dd8e8e2bd3e19",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -691,7 +691,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "250b9b536fb7de84",
+      "fingerprint": "23ed8075e931a524",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -931,6 +931,7 @@
         "tests/test_destructive_decorator_coverage.py",
         "tests/test_destructive_registry_drift.py",
         "tests/test_discarded_mutator_returns.py",
+        "tests/test_disposable_projects.py",
         "tests/test_doc_tool_counts.py",
         "tests/test_entrypoints_and_audits.py",
         "tests/test_env_leak_guard.py",
@@ -978,13 +979,14 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "42b4a7f8ec603906",
+      "fingerprint": "6731fe089b9c1bc2",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",
         "scripts/audit_api_parity.py",
         "scripts/audit_readwrite_symmetry.py",
         "scripts/coverage_floor.py",
+        "scripts/disposable_projects.py",
         "scripts/doctor.py",
         "scripts/gen_api_limitations.py",
         "scripts/live_media_analysis_polish_probe.py",

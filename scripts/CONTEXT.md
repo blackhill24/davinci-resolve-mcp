@@ -30,7 +30,8 @@ Installer and maintenance scripts: audits, generators, probes. The generators ow
   harnesses by reading `gate("closed")` out of their source, so a new one needs no list edit.
 - `disposable_projects.py` — decides which projects a bulk delete may take. The prefixes are
   AST-derived from `tests/**/live_*.py`, never hand-listed, so a new harness needs no edit
-  here and a name no harness generates is always kept (#155).
+  here and a name no harness generates is always kept (#155). Only project *creation*
+  counts as evidence; `.disposable-keep` (repo root, gitignored) overrides it by name.
 - `resolve_vitals.py` — reads Resolve's `/proc` vitals (RSS, fds vs the process's own soft
   limit, threads, descendants, GPU MiB, env slice). Pure `/proc` + `nvidia-smi`, never the
   scripting API, so it survives the exit it exists to describe. `--watch` samples an idle

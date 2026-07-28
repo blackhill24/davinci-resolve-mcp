@@ -128,3 +128,6 @@ davinci-resolve-mcp-analysis/
 /-r
 /-rf
 /-la
+
+# User-declared projects that --clean-disposable must never delete (personal, not shared).
+.disposable-keep

@@ -26,7 +26,9 @@ That diff is what makes `--clean-leaks` safe — it can only delete what the
 current run created — and also what makes it useless against the pile from
 *earlier* sessions. `--clean-disposable` covers those (#155); it decides what is
 a harness artifact through `disposable_projects`, which derives the answer from
-the harness sources rather than a hand-kept pattern list.
+the harness sources rather than a hand-kept pattern list. Projects of your own
+that collide with that derivation go in `.disposable-keep` at the repo root, one
+name per line, and are never deleted.
 
 `--vitals` adds the other half of that accounting. Resolve on this box
 terminates by itself ~20 harnesses into a sweep, leaving no crash dialog, no
@@ -49,6 +51,7 @@ Usage:
     .venv/bin/python scripts/run_live_suite.py --clean-leaks # delete THIS run's leftovers
     .venv/bin/python scripts/run_live_suite.py --clean-disposable        # list older ones
     .venv/bin/python scripts/run_live_suite.py --clean-disposable --yes  # and delete them
+    .venv/bin/python scripts/run_live_suite.py --clean-disposable --keep "My Grade"  # spare one
     .venv/bin/python scripts/run_live_suite.py --vitals      # + resource curve (#153)
 """
 
@@ -544,7 +547,7 @@ def summarize(results: list, out_path: Path, started_at: float,
 
 # ── entry point ───────────────────────────────────────────────────────────────
 
-def clean_disposable(env: dict, confirmed: bool) -> int:
+def clean_disposable(env: dict, confirmed: bool, extra_keep=()) -> int:
     """Reclaim harness leftovers from *earlier* sessions, not just this run.
 
     `--clean-leaks` diffs the project list around a sweep, so it can only ever
@@ -554,6 +557,10 @@ def clean_disposable(env: dict, confirmed: bool) -> int:
     `disposable_projects`, whose rule for "disposable" is derived from the
     harness sources rather than hand-written here.
 
+    Names in `.disposable-keep` (or passed with `--keep`) are held back no
+    matter what the derivation says — the manual override for a real project
+    that happens to collide with a harness prefix.
+
     It lists and exits unless `--yes` is passed. A one-keystroke bulk delete
     against a project database is the kind of thing that should have to be
     asked for twice, and the listing is also the review: the kept column is
@@ -562,14 +569,18 @@ def clean_disposable(env: dict, confirmed: bool) -> int:
     import disposable_projects
 
     prefixes = disposable_projects.harness_prefixes(ROOT)
+    keep = disposable_projects.user_keeps(ROOT) | set(extra_keep or ())
     listing = resolve_op("projects", env)
     if listing.get("error"):
         print(f"[clean] cannot read the project list — {listing['error']}")
         return 2
-    split = disposable_projects.classify(listing.get("projects", []), prefixes)
+    split = disposable_projects.classify(listing.get("projects", []), prefixes, keep)
 
     print(f"[clean] {len(prefixes)} disposable name prefix(es) derived from "
           f"tests/**/live_*.py")
+    if keep:
+        print(f"[clean] {len(keep)} name(s) held back by "
+              f"{disposable_projects.KEEP_FILE}/--keep: {', '.join(sorted(keep))}")
     print(f"[clean] keeping {len(split['kept'])}: {', '.join(split['kept']) or '—'}")
     if not split["disposable"]:
         print("[clean] nothing disposable — the database is already clean.")
@@ -653,6 +664,9 @@ def main() -> int:
                              "Add --yes to delete them (issue #155).")
     parser.add_argument("--yes", action="store_true",
                         help="With --clean-disposable, actually delete instead of listing.")
+    parser.add_argument("--keep", action="append", default=[], metavar="NAME",
+                        help="Never delete this project, whatever the derived prefixes say "
+                             "(repeatable; the persistent form is a .disposable-keep file).")
     parser.add_argument("--vitals", action="store_true",
                         help="Sample Resolve's RSS/fds/threads/GPU between harnesses "
                              "and report the growth curve (issue #153).")
@@ -678,7 +692,7 @@ def main() -> int:
     if args.clean_disposable:
         env = build_env()
         not_ready = preflight(env, cold=False)
-        return not_ready or clean_disposable(env, args.yes)
+        return not_ready or clean_disposable(env, args.yes, args.keep)
 
     harnesses = [h for h in discover(args.pattern) if is_cold(h) == args.cold]
     if not harnesses:

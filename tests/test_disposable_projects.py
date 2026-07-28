@@ -12,6 +12,7 @@ quietly reclaims nothing and the pile #155 is about starts growing again.
 from __future__ import annotations
 
 import pathlib
+import tempfile
 import sys
 import unittest
 
@@ -22,13 +23,36 @@ import disposable_projects as dp  # noqa: E402
 
 
 class PrefixDerivationTest(unittest.TestCase):
-    def test_module_level_assignment_to_a_project_name(self):
-        source = 'PILOT = f"auto_edit_pilot_{time.strftime(\'%H%M%S\')}"\n'
+    def test_module_level_assignment_creating_the_project(self):
+        source = ('PILOT = f"auto_edit_pilot_{time.strftime(\'%H%M%S\')}"\n'
+                  "pm.CreateProject(PILOT)\n")
         self.assertEqual(dp.prefixes_in_source(source), {"auto_edit_pilot_"})
 
-    def test_plain_constant_assignment(self):
-        source = 'PROJECT_NAME = "ZZ_fusion_bug_reverify"\n'
+    def test_plain_constant_assignment_creating_the_project(self):
+        source = ('PROJECT_NAME = "ZZ_fusion_bug_reverify"\n'
+                  "pm.CreateProject(PROJECT_NAME)\n")
         self.assertEqual(dp.prefixes_in_source(source), {"ZZ_fusion_bug_reverify"})
+
+    def test_the_mcp_tool_create_shape_is_evidence(self):
+        """Most harnesses never touch the ProjectManager — they go through the
+        tool. Miss this shape and six probes' projects are unreclaimable."""
+        source = ('project_name = f"_mcp_folder_rename_probe_{int(time.time())}"\n'
+                  'server.project_manager("create", {"name": project_name})\n')
+        self.assertEqual(dp.prefixes_in_source(source),
+                         {"_mcp_folder_rename_probe_"})
+
+    def test_naming_a_variable_after_a_project_is_not_evidence_of_one(self):
+        """The widening this replaced: any literal assigned to a project-ish
+        name became a deletion prefix, so a harness holding a media path in
+        `probe_dir` would have marked a real `duck_footage_2024` for deletion.
+        Only a call that makes or owns the project counts now."""
+        source = ('probe_dir = "duck_footage"\n'
+                  'PILOT = "Wedding Feature Grade"\n')
+        self.assertEqual(dp.prefixes_in_source(source), set())
+
+    def test_a_read_only_tool_call_carrying_a_name_is_not_creation(self):
+        source = 'server.project_manager("list", {"name": "Wedding Feature"})\n'
+        self.assertEqual(dp.prefixes_in_source(source), set())
 
     def test_local_handed_to_create_project_one_hop_later(self):
         """The shape `live_multicam_drt_probe` uses: the variable is called
@@ -109,6 +133,37 @@ class ClassificationTest(unittest.TestCase):
         split = dp.classify(names, self.PREFIXES | {"ZZ_live_suite_scratch"})
         self.assertEqual(split["disposable"], ["fx_probe_110438"])
         self.assertEqual(split["kept"], ["New Project 1", "ZZ_live_suite_scratch"])
+
+
+class UserKeepListTest(unittest.TestCase):
+    """`.disposable-keep` is the manual override for "don't touch my projects":
+    a real project that collides with a harness prefix stays put."""
+
+    PREFIXES = {"fx_probe_", "duck_probe_"}
+
+    def test_a_kept_name_survives_a_matching_prefix_and_suffix(self):
+        self.assertTrue(dp.is_disposable("fx_probe_110438", self.PREFIXES))
+        self.assertFalse(dp.is_disposable("fx_probe_110438", self.PREFIXES,
+                                          keep={"fx_probe_110438"}))
+
+    def test_classify_moves_a_kept_name_to_the_kept_column(self):
+        split = dp.classify(["fx_probe_110438", "duck_probe_9"], self.PREFIXES,
+                            keep={"duck_probe_9"})
+        self.assertEqual(split["disposable"], ["fx_probe_110438"])
+        self.assertIn("duck_probe_9", split["kept"])
+
+    def test_the_keep_file_is_read_with_comments_and_blanks_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            root.joinpath(dp.KEEP_FILE).write_text(
+                "# my own work\nfx_probe_110438\n\n  Wedding Feature  # inline\n",
+                encoding="utf-8")
+            self.assertEqual(dp.user_keeps(root),
+                             frozenset({"fx_probe_110438", "Wedding Feature"}))
+
+    def test_a_missing_keep_file_keeps_nothing_rather_than_raising(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(dp.user_keeps(pathlib.Path(tmp)), frozenset())
 
 
 class AgainstTheRealHarnessesTest(unittest.TestCase):

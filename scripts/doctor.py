@@ -6,6 +6,9 @@ MCP client configs, and probes the DaVinciResolveScript bridge without
 mutating anything. Prints OK/WARN/FAIL lines (or JSON with --json) and exits
 nonzero only when a FAIL is present.
 
+Resolve paths are platform-derived (macOS/Windows/Linux) from the same helpers
+`src/` uses, so this reports a healthy install as healthy on every platform.
+
 Run: `python3 scripts/doctor.py`
 
 Overridable via environment: DAVINCI_MCP_REPO, DAVINCI_MCP_PYTHON,
@@ -37,6 +40,44 @@ def find_repo_root() -> Path:
 
 
 REPO = find_repo_root()
+
+# The Resolve install locations are PLATFORM-SPECIFIC and `src/` already owns
+# both maps: `get_resolve_paths()` for the scripting API, `resolve_app_path()`
+# for the application binary. This script used to inline the macOS literals,
+# so on Linux and Windows it reported four FAILs and exited 1 against a
+# perfectly healthy install — the diagnostic told users their setup was broken.
+# Imported rather than copied: a second copy is what drifts.
+#
+# Both chains are stdlib-only, so `python3 scripts/doctor.py` still runs with no
+# dependencies installed. If the import fails the checks below degrade to the
+# env-var values instead of crashing — a diagnostic must survive a broken tree.
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+try:
+    from src.core.platform import get_platform, get_resolve_paths
+    from src.core.resolve_launch import resolve_app_path
+
+    _RESOLVE_PATHS: dict[str, str] | None = get_resolve_paths()
+    _APP_PATH = resolve_app_path()
+    _PLATFORM = get_platform()
+    _PATHS_IMPORT_ERROR = ""
+except Exception as exc:  # pragma: no cover - only when the tree is broken
+    _RESOLVE_PATHS = None
+    _APP_PATH = None
+    _PLATFORM = sys.platform
+    _PATHS_IMPORT_ERROR = str(exc)
+
+
+def _default_claude_config() -> str:
+    """Claude Desktop's config location, per platform."""
+    if _PLATFORM == "darwin":
+        return "~/Library/Application Support/Claude/claude_desktop_config.json"
+    if _PLATFORM == "windows":
+        appdata = os.environ.get("APPDATA", "~/AppData/Roaming")
+        return os.path.join(appdata, "Claude", "claude_desktop_config.json")
+    return "~/.config/Claude/claude_desktop_config.json"
+
+
 PYTHON = Path(os.environ.get("DAVINCI_MCP_PYTHON", REPO / "venv" / "bin" / "python")).expanduser()
 if not PYTHON.exists():
     PYTHON = REPO / ".venv" / "bin" / "python"
@@ -46,25 +87,18 @@ SERVER = REPO / "src" / "server.py"
 CODEX_HOME = Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser()
 CODEX_CONFIG = CODEX_HOME / "config.toml"
 CLAUDE_CONFIG = Path(
-    os.environ.get(
-        "CLAUDE_DESKTOP_CONFIG",
-        "~/Library/Application Support/Claude/claude_desktop_config.json",
-    )
+    os.environ.get("CLAUDE_DESKTOP_CONFIG", _default_claude_config())
 ).expanduser()
-RESOLVE_APP = Path(os.environ.get("RESOLVE_APP", "/Applications/DaVinci Resolve/DaVinci Resolve.app"))
-RESOLVE_API = Path(
-    os.environ.get(
-        "RESOLVE_SCRIPT_API",
-        "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting",
-    )
+_APP_DEFAULT = _APP_PATH or ""
+_API_DEFAULT = (_RESOLVE_PATHS or {}).get("api_path", "")
+_LIB_DEFAULT = (_RESOLVE_PATHS or {}).get("lib_path", "")
+_MODULES_DEFAULT = (_RESOLVE_PATHS or {}).get("modules_path", "")
+RESOLVE_APP = Path(os.environ.get("RESOLVE_APP", _APP_DEFAULT))
+RESOLVE_API = Path(os.environ.get("RESOLVE_SCRIPT_API", _API_DEFAULT))
+RESOLVE_MODULES = Path(
+    os.environ.get("RESOLVE_SCRIPT_MODULES", _MODULES_DEFAULT or RESOLVE_API / "Modules")
 )
-RESOLVE_MODULES = Path(os.environ.get("RESOLVE_SCRIPT_MODULES", RESOLVE_API / "Modules"))
-RESOLVE_LIB = Path(
-    os.environ.get(
-        "RESOLVE_SCRIPT_LIB",
-        "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so",
-    )
-)
+RESOLVE_LIB = Path(os.environ.get("RESOLVE_SCRIPT_LIB", _LIB_DEFAULT))
 
 
 def run(cmd: list[str], timeout: int = 12) -> dict[str, Any]:
@@ -172,6 +206,13 @@ def collect() -> list[dict[str, str]]:
     check(results, "OK" if REPO.exists() else "FAIL", "MCP checkout", str(REPO))
     check(results, "OK" if SERVER.exists() else "FAIL", "Server entrypoint", str(SERVER))
     check(results, "OK" if PYTHON.exists() else "FAIL", "Python", str(PYTHON))
+    # Printed before the Resolve paths: every path below is platform-derived, so
+    # a wrong platform explains a whole block of FAILs at a glance.
+    check(results, "OK", "Platform", _PLATFORM)
+    if _PATHS_IMPORT_ERROR:
+        check(results, "WARN", "Resolve path defaults",
+              f"could not import src.core path helpers ({_PATHS_IMPORT_ERROR}); "
+              "falling back to RESOLVE_* env vars only")
     check(results, "OK" if RESOLVE_APP.exists() else "FAIL", "Resolve app", str(RESOLVE_APP))
     check(results, "OK" if RESOLVE_API.exists() else "FAIL", "Resolve scripting API", str(RESOLVE_API))
     check(results, "OK" if RESOLVE_MODULES.exists() else "FAIL", "Resolve scripting modules", str(RESOLVE_MODULES))

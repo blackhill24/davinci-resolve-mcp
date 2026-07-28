@@ -984,7 +984,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "bd60db7ba18da248",
+      "fingerprint": "66c2f3ea10b69b74",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "ba81679e5e3cbf9a",
+      "fingerprint": "5d358db8b9b8543e",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -32,6 +32,7 @@
         "src/core/mcp_transport.py",
         "src/core/object_inspection.py",
         "src/core/page_lock.py",
+        "src/core/params.py",
         "src/core/platform.py",
         "src/core/private_tmp.py",
         "src/core/proc.py",
@@ -617,7 +618,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "bb261d73321ead50",
+      "fingerprint": "2e10529bda4b9b8b",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -690,7 +691,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "678adfc8eda15f36",
+      "fingerprint": "9427c8fa1d0d8031",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -707,8 +708,10 @@
         "tests/core/test_api_truth_mitigations.py",
         "tests/core/test_app_control_restart.py",
         "tests/core/test_auto_run.py",
+        "tests/core/test_auto_run_idle_timeout.py",
         "tests/core/test_background_jobs.py",
         "tests/core/test_brain_edits.py",
+        "tests/core/test_brain_edits_registry_writer.py",
         "tests/core/test_bridge_double_fidelity.py",
         "tests/core/test_bridge_helper_identity.py",
         "tests/core/test_bridge_metrics.py",
@@ -727,6 +730,7 @@
         "tests/core/test_platform_guards.py",
         "tests/core/test_private_tmp.py",
         "tests/core/test_probe_result_recorder.py",
+        "tests/core/test_range_selector_input.py",
         "tests/core/test_readback.py",
         "tests/core/test_resolve_ai_governance.py",
         "tests/core/test_resolve_ai_ledger.py",
@@ -941,6 +945,7 @@
         "tests/test_locale_guard.py",
         "tests/test_mcp_prompts.py",
         "tests/test_mcp_resources.py",
+        "tests/test_missing_param_envelope.py",
         "tests/test_mutation_gate.py",
         "tests/test_p1_param_validation.py",
         "tests/test_p1_whitelist_and_delete.py",
@@ -954,6 +959,7 @@
         "tests/test_text_encoding_guard.py",
         "tests/test_threaded_tool_dispatch.py",
         "tests/test_tier3_readback_guards.py",
+        "tests/test_timeline_item_missing_api.py",
         "tests/test_tool_param_nullability.py",
         "tests/test_tool_registration.py",
         "tests/test_update_history.py",

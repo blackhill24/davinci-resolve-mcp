@@ -15,7 +15,7 @@ semantics of its own.
 | Task | Read | Skip | Notes |
 |------|------|------|-------|
 | Governance / AI-ops gating | `resolve_ai_governance.py`, `resolve_ai_ledger.py` | domain `utils/` | ledger backs every destructive-op audit trail |
-| Action-dispatch envelope | `contracts.py` | — | shared `validate()`; reuse before adding per-tool validation |
+| Action-dispatch envelope | `contracts.py`, `params.py` | — | shared `validate()`; reuse before adding per-tool validation. `params.py` holds the caller's params dict: `_tool_params(params)` + the innermost `@_missing_param_envelope` on every compound tool turn a missing required key into an `invalid_input` envelope instead of a raw `KeyError` (#142) |
 | Process/platform spawn helpers | `proc.py`, `platform.py`, `app_control.py` | — | `resolve_spawn_env`/`sanitized_spawn_env` — raw-hw ALSA fix lives here |
 | Background job runner | `background_jobs.py` | — | used by batch/analysis job tools across domains |
 | Brain DB / edit history | `timeline_brain_db.py`, `brain_edits.py`, `timeline_versioning.py` | — | shared SQLite-backed edit ledger, not domain-owned |

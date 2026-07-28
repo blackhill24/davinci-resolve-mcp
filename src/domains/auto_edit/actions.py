@@ -1757,13 +1757,38 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                         continue
                 graded["cdl"] = {"applied": ok_count, "of": len(items)}
             if grade.get("drx_path"):
-                try:
-                    ok = bool(tl.ApplyGradeFromDRX(
-                        str(grade["drx_path"]), int(grade.get("grade_mode") or 0), items))
-                except Exception as exc:
-                    ok = False
-                    graded["drx_error"] = f"{type(exc).__name__}: {exc}"
-                graded["drx"] = {"applied": ok}
+                # ApplyGradeFromDRX(path, gradeMode) is a GRAPH method, and
+                # Timeline.ApplyGradeFromDRX is fabricated - live-verified absent
+                # from dir(Timeline) on 21.0.2.4. The old call passed three
+                # arguments to it on the timeline, so the swallowed
+                # "TypeError: 'NoneType' object is not callable" made every
+                # auto-edit finish carrying a drx_path report
+                # {"drx": {"applied": false}} with the cause buried in drx_error:
+                # the .drx grade has never been applied by this path (#144
+                # finding 5). Apply per item on its own node graph, guarded, the
+                # way granular/graph.py and color_grade/actions.py already do.
+                drx_path = str(grade["drx_path"])
+                grade_mode = int(grade.get("grade_mode") or 0)
+                ok_count = 0
+                drx_errors = []
+                for item in items:
+                    try:
+                        g = item.GetNodeGraph()
+                    except Exception as exc:
+                        drx_errors.append(f"GetNodeGraph: {type(exc).__name__}: {exc}")
+                        continue
+                    if not _has_method(g, "ApplyGradeFromDRX"):
+                        drx_errors.append("node graph does not expose ApplyGradeFromDRX")
+                        continue
+                    try:
+                        if g.ApplyGradeFromDRX(drx_path, grade_mode):
+                            ok_count += 1
+                    except Exception as exc:
+                        drx_errors.append(f"{type(exc).__name__}: {exc}")
+                graded["drx"] = {"applied": ok_count, "of": len(items)}
+                if drx_errors:
+                    # Deduplicate: one identical message per item is noise.
+                    graded["drx_error"] = "; ".join(sorted(set(drx_errors)))
             result["grade"] = graded
 
         if subtitles:

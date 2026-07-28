@@ -147,14 +147,21 @@ def add_clip_mattes_to_media_pool(media_pool_item_id: str, matte_paths: List[str
 
 
 @mcp.tool()
-def add_timeline_mattes_to_media_pool(timeline_item_index: int, matte_paths: List[str], track_type: str = "video", track_index: int = 1) -> Dict[str, Any]:
-    """Add timeline mattes from Media Storage to a timeline item.
+def add_timeline_mattes_to_media_pool(matte_paths: List[str]) -> Dict[str, Any]:
+    """Add timeline mattes from Media Storage into the current media pool folder.
 
     Args:
-        timeline_item_index: 0-based index of the item in the track.
         matte_paths: List of absolute file paths for the matte files.
-        track_type: Track type ('video' or 'audio'). Default: 'video'.
-        track_index: 1-based track index. Default: 1.
+
+    Timeline mattes attach to the CURRENT MEDIA POOL FOLDER, not to a timeline
+    item — `AddTimelineMattesToMediaPool([paths])` takes only the paths list.
+    This tool used to be given the clip-matte signature
+    (`AddClipMattesToMediaPool(MediaPoolItem, [paths], stereoEye)`, called
+    correctly a few lines up), so it passed a TimelineItem where the paths list
+    belongs and the paths landed in a parameter slot the method does not have.
+    It cannot ever have worked (#144 finding 3). The timeline_item_index /
+    track_type / track_index parameters computed that wrong argument and are
+    gone with it.
     """
     resolve = get_resolve()
     if resolve is None:
@@ -162,18 +169,15 @@ def add_timeline_mattes_to_media_pool(timeline_item_index: int, matte_paths: Lis
     ms = resolve.GetMediaStorage()
     if not ms:
         return {"error": "Failed to get MediaStorage"}
+    if not matte_paths:
+        return {"error": "matte_paths must be a non-empty list of file paths"}
 
-    project = resolve.GetProjectManager().GetCurrentProject()
-    if not project:
-        return {"error": "No project currently open"}
-    timeline = project.GetCurrentTimeline()
-    if not timeline:
-        return {"error": "No current timeline"}
-
-    items = timeline.GetItemListInTrack(track_type, track_index)
-    if not items or timeline_item_index < 0 or timeline_item_index >= len(items):  # reject negatives (EX5)
-        return {"error": f"Timeline item at index {timeline_item_index} not found"}
-
-    item = items[timeline_item_index]
-    result = ms.AddTimelineMattesToMediaPool(item, matte_paths)
-    return {"success": bool(result)}
+    # Returns [MediaPoolItems], not a bool.
+    added = ms.AddTimelineMattesToMediaPool(matte_paths)
+    if not added:
+        return {"success": False, "error": "Resolve added no timeline mattes"}
+    return {
+        "success": True,
+        "added_count": len(added),
+        "added": [_ser(item.GetName()) for item in added],
+    }

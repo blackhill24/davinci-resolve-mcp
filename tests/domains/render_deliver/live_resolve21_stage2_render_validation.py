@@ -13,6 +13,12 @@ Tools validated:
     MediaPoolItem via the Neural Engine / AI Speech Generator Extra
   - media_pool_item.remove_clip_motion_blur (2.4/2.7) — GPU motion-deblur
     render, creates a NEW video MediaPoolItem; source clip untouched
+
+Both are on the destructive-confirm gate (#138/#139), so each is exercised as a
+two-call dance and BOTH halves are assertions: the first call must refuse and
+create nothing (that refusal is the whole point of the gate), the second call
+must carry the token and actually run. Asserting only the second half would let
+an ungated build pass; asserting only the first would never reach Resolve.
 """
 
 import os
@@ -48,6 +54,62 @@ def report(name, ok, detail="", *, skipped=False):
         line += f" — {detail}"
     print(line)
     return "skip" if skipped else bool(ok)
+
+
+def is_unsupported(out):
+    """True when Resolve declined the op for lack of the build/Extra rather than
+    for lack of a token — the 21+ guard fires BEFORE the confirm gate, so this
+    has to be told apart from a gate refusal or the refusal check reads as red on
+    a box that simply lacks the feature."""
+    err = str(out.get("error", "")) if isinstance(out, dict) else ""
+    return "21+" in err or bool(out.get("unavailable"))
+
+
+def confirm_dance(label, call, count_clips, results):
+    """Run a gated op through both calls, appending an assertion for each half.
+
+    `call` takes a confirm_token (None for the first call).
+    """
+    before = count_clips()
+    first = call(None)
+    if is_unsupported(first):
+        results.append(report(f"{label} — confirm gate refuses first call", None,
+                              f"🔬 not available on this box — {first.get('error')}", skipped=True))
+        record(label, first, results)
+        return
+
+    token = first.get("confirm_token")
+    refused = (first.get("status") == "confirmation_required" and bool(token)
+               and count_clips() == before)
+    results.append(report(f"{label} — confirm gate refuses first call", refused,
+                          f"token={'yes' if token else 'no'}, "
+                          f"status={first.get('status')!r}, "
+                          f"clips {before}→{count_clips()} (must be unchanged)"))
+    if not token:
+        # No token means there is nothing to re-call with; running the op
+        # unconfirmed would defeat the gate this harness exists to prove.
+        results.append(report(label, False, f"no confirm_token issued: {first!r}"))
+        return
+
+    t0 = time.time()
+    second = call(token)
+    print(f"  confirmed call returned after {time.time() - t0:.1f}s: {second!r}")
+    record(label, second, results)
+
+
+def record(label, out, results):
+    """Classify a confirmed call: ran / not available on this box / failed."""
+    if out is None:  # confirm_dance already recorded why there was no second call
+        return
+    if out.get("success") is True:
+        results.append(report(label, True, f"created {out.get('new')!r}"))
+    elif is_unsupported(out):
+        # The Extra / voice models are not installed, or the build predates the
+        # method. Not a defect in this repo, and not a pass either.
+        results.append(report(label, None, f"🔬 not available on this box — {out.get('error')}",
+                              skipped=True))
+    else:
+        results.append(report(label, False, f"got {out!r}"))
 
 
 def main():
@@ -88,39 +150,27 @@ def main():
 
         results = []
 
+        def count_clips():
+            """Root-folder clip count — the observable both ops move when they run,
+            and therefore the proof that the refused first call did nothing."""
+            return len(mp.GetRootFolder().GetClipList() or [])
+
         # ─── 2.2 generate_speech (AI text-to-speech) ───
         print("Calling GenerateSpeech (AI text-to-speech)...")
-        t0 = time.time()
-        out = gproj.generate_speech(text_input="Stage two live validation test.")
-        elapsed = time.time() - t0
-        print(f"  returned after {elapsed:.1f}s: {out!r}")
-        if out.get("success") is True:
-            results.append(report("project.generate_speech", True, f"created {out.get('new')!r}"))
-        else:
-            err = str(out.get("error", ""))
-            # `unavailable` is set when Resolve took the call and returned nil —
-            # the Extra/voice models are not installed. Nothing to validate here,
-            # so skip rather than fail the box for missing an optional download.
-            if out.get("unavailable") or "21+" in err:
-                results.append(report("project.generate_speech", None,
-                                       f"🔬 not installed on this box — {err}", skipped=True))
-            else:
-                results.append(report("project.generate_speech", False, f"got {out!r}"))
+        confirm_dance(
+            "project.generate_speech",
+            lambda tok: gproj.generate_speech(text_input="Stage two live validation test.",
+                                              confirm_token=tok),
+            count_clips, results,
+        )
 
         # ─── 2.4/2.7 remove_motion_blur (GPU deblur render) ───
         print("Calling RemoveMotionBlur (GPU deblur render)...")
-        t0 = time.time()
-        out = gclip.remove_clip_motion_blur(clip_id, deblur_option={})
-        elapsed = time.time() - t0
-        print(f"  returned after {elapsed:.1f}s: {out!r}")
-        if out.get("success") is True:
-            results.append(report("media_pool_item.remove_clip_motion_blur", True,
-                                   f"created {out.get('new')!r}"))
-        else:
-            err = str(out.get("error", ""))
-            gated = "21+" in err
-            results.append(report("media_pool_item.remove_clip_motion_blur", gated or not out.get("error"),
-                                   f"🔬 gated — {err}" if gated else f"got {out!r}"))
+        confirm_dance(
+            "media_pool_item.remove_clip_motion_blur",
+            lambda tok: gclip.remove_clip_motion_blur(clip_id, deblur_option={}, confirm_token=tok),
+            count_clips, results,
+        )
 
         print()
         print("=" * 70)

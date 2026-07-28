@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "782b2eea47ec4f3c",
+      "fingerprint": "c19b7b86f1f66794",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -618,7 +618,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "2e10529bda4b9b8b",
+      "fingerprint": "49d158596b88043c",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -691,7 +691,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "724aef7d24880d03",
+      "fingerprint": "9b07986330e8cbf0",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -957,6 +957,7 @@
         "tests/test_readwrite_audit.py",
         "tests/test_render_scratch.py",
         "tests/test_resolve21_actions.py",
+        "tests/test_resolve_vitals.py",
         "tests/test_spawn_env_sanitization.py",
         "tests/test_spec_lint_wiring.py",
         "tests/test_static_undefined_names.py",
@@ -976,7 +977,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "5c0b0605b7e94cec",
+      "fingerprint": "7fc966ae9a4741a3",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",
@@ -988,7 +989,9 @@
         "scripts/live_media_analysis_polish_probe.py",
         "scripts/measure_bridge_cost.py",
         "scripts/mutation_gate.py",
-        "scripts/regen_panel_screenshots.py"
+        "scripts/regen_panel_screenshots.py",
+        "scripts/resolve_vitals.py",
+        "scripts/run_live_suite.py"
       ]
     }
   },

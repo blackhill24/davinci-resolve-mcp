@@ -100,6 +100,29 @@ Resolve validation before release. Use disposable projects and synthetic media
 only. Never modify, transcode, proxy, or create derivatives of source media
 unless the user explicitly requests it.
 
+### Running the whole live suite
+
+`scripts/run_live_suite.py` runs every `tests/**/live_*.py` harness. Prefer it
+over hand-assembling a loop: it sets the scripting env, gives each harness
+`stdin=DEVNULL` and a timeout, re-establishes a known project + timeline between
+harnesses, classifies by the preflight exit contract (2/3 = SKIP, 1 = FAIL), and
+reports any disposable project a harness leaked. Running the harnesses back to
+back *without* that isolation produces failures that do not reproduce standalone
+(issue #151).
+
+```bash
+.venv/bin/python scripts/run_live_suite.py             # warm sweep, Resolve open
+.venv/bin/python scripts/run_live_suite.py --cold      # the 3 cold-launch harnesses, Resolve QUIT
+.venv/bin/python scripts/run_live_suite.py -k timeline # one domain
+```
+
+A full pass takes **two runs**: the cold-launch harnesses self-skip while
+Resolve is up, so quit Resolve and re-run with `--cold`. Results land in
+`tests/live_suite_results.json` (gitignored) with each harness's full output —
+a sweep-only failure is only diagnosable from what it printed at the time.
+
+### Running one harness
+
 Examples:
 
 ```bash

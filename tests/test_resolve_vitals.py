@@ -164,6 +164,58 @@ class GpuTests(unittest.TestCase):
         self.assertIsNone(vitals.gpu_memory_mib([]))
 
 
+class VitalsReportTests(unittest.TestCase):
+    """The sweep-side report — the half that can silently print nothing."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location(
+            "run_live_suite",
+            Path(__file__).resolve().parents[1] / "scripts" / "run_live_suite.py",
+        )
+        cls.runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.runner)
+
+    @staticmethod
+    def _reading(**overrides):
+        base = {"alive": True, "pid": 100, "rss_kb": 1_048_576, "fds": 100,
+                "fd_limit": 1024, "threads": 40, "children": 1, "child_fds": 4,
+                "cpu_seconds": 1.0, "gpu_mib": 512}
+        return {**base, **overrides}
+
+    def test_no_vitals_no_report(self):
+        results = [{"harness": "a.py", "status": "PASS"}]
+        self.assertEqual(self.runner.vitals_report(results, None), "")
+
+    def test_reports_growth_and_names_the_biggest_grower(self):
+        baseline = self._reading()
+        results = [
+            {"harness": "small.py", "vitals": self._reading(rss_kb=1_048_576 + 1024)},
+            {"harness": "hog.py", "vitals": self._reading(rss_kb=1_048_576 + 600 * 1024)},
+        ]
+        report = self.runner.vitals_report(results, baseline)
+        self.assertIn("growth", report)
+        self.assertIn("'rss_kb': 614400", report)
+        self.assertIn("hog.py", report)
+        self.assertLess(report.index("hog.py"), report.index("small.py"),
+                        "the biggest grower is listed first")
+
+    def test_fd_pressure_is_called_out_against_the_process_own_limit(self):
+        baseline = self._reading(fds=100)
+        results = [{"harness": "a.py", "vitals": self._reading(fds=900, fd_limit=1024)}]
+        self.assertIn("fd table is 88%", self.runner.vitals_report(results, baseline))
+
+    def test_a_dead_sample_says_it_exited_rather_than_stopped_answering(self):
+        baseline = self._reading()
+        results = [{"harness": "a.py", "vitals": {"alive": False, "pid": None}}]
+        report = self.runner.vitals_report(results, baseline)
+        self.assertIn("it exited, it did not merely stop answering", report)
+
+    def test_survives_a_sweep_whose_only_sample_is_a_dead_one(self):
+        results = [{"harness": "a.py", "vitals": {"alive": False, "pid": None}}]
+        self.assertIn("no live sample", self.runner.vitals_report(results, None))
+
+
 class DeltaTests(unittest.TestCase):
     def test_growth_is_reported_only_for_fields_readable_at_both_ends(self):
         first = {"rss_kb": 100, "fds": 10, "gpu_mib": None}

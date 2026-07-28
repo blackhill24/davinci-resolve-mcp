@@ -618,7 +618,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "7d8efeafad64c8ef",
+      "fingerprint": "49d158596b88043c",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -691,7 +691,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "ffbaf9876e9c7c27",
+      "fingerprint": "c2a8f89420c35591",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -957,6 +957,7 @@
         "tests/test_readwrite_audit.py",
         "tests/test_render_scratch.py",
         "tests/test_resolve21_actions.py",
+        "tests/test_resolve_vitals.py",
         "tests/test_spawn_env_sanitization.py",
         "tests/test_spec_lint_wiring.py",
         "tests/test_static_undefined_names.py",
@@ -976,7 +977,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "9ad53810983600ad",
+      "fingerprint": "71dc0f63fe5cecb4",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",
@@ -989,6 +990,7 @@
         "scripts/measure_bridge_cost.py",
         "scripts/mutation_gate.py",
         "scripts/regen_panel_screenshots.py",
+        "scripts/resolve_vitals.py",
         "scripts/run_live_suite.py"
       ]
     }

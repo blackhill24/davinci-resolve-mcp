@@ -36,6 +36,11 @@ test('decodeXmlEntities handles named, decimal and hex references', () => {
   assert.equal(decodeXmlEntities('caf&#233;'), 'café');
   assert.equal(decodeXmlEntities('caf&#xE9;'), 'café');
   assert.equal(decodeXmlEntities('&notanentity; stays'), '&notanentity; stays');
+  // Out-of-range code points degrade to the literal text rather than throwing
+  // RangeError out of the project.xml read.
+  assert.equal(decodeXmlEntities('&#999999999; stays'), '&#999999999; stays');
+  assert.equal(decodeXmlEntities('&#xFFFFFFF; stays'), '&#xFFFFFFF; stays');
+  assert.equal(decodeXmlEntities('&#1114111;'), String.fromCodePoint(0x10ffff));
 });
 
 test('a group whose name contains an escaped entity is discoverable', () => {

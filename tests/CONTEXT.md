@@ -16,7 +16,7 @@ stay flat in `tests/`. `test_*` run offline; `live_*` need Resolve (often Studio
 | Stand in for a Resolve object | `GUARDS.md` → "the one faithful double", `bridge_double.py` | `MagicMock` — never for a Resolve object | — |
 | Add a repo-wide guard / drift test, or a `live_*` harness | `GUARDS.md`, then root `test_*.py` — only when it genuinely spans every domain | domain folders | — |
 | Cloud-project live test setup | `cloud-test-setup.md`, `domains/project_lifecycle/live_cloud_project_validation.py` | — | issue #25 |
-| Benchmark the bridge | `scripts/measure_bridge_cost.py` | — | — |
+| Benchmark the bridge | `<repo>/scripts/measure_bridge_cost.py` (tooling workspace, not `tests/`) | — | — |
 
 ## Key files (only where the name doesn't say enough)
 

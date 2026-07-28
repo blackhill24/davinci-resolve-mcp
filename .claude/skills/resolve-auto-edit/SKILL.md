@@ -11,21 +11,46 @@ approval (`approve_cut`) sits between planning and execution.
 
 ## The loop
 
-1. `auto_edit(action="start_brief", params={files, music?, target_duration_seconds?, title_text?})`
-   — validates media, scaffolds Footage/Music bins, kicks the analysis batch.
+1. `auto_edit(action="start_brief", params={files, music?, genre?, deliverable?,
+   target_duration_seconds?, title_text?})` — validates media, scaffolds
+   Footage/Music bins, kicks the analysis batch.
+   **`genre` selects the decision layer**: `"talking_head"` (default) or
+   `"montage"`. Montage additionally *requires* `music` — its length sets the
+   runtime, so `target_duration_seconds` is not the driver there.
+   `deliverable` defaults to `"youtube_1080p"`.
 2. Poll `brief_status(brief_id)`. While the job runs, complete any
    `commit_vision` handoffs the analysis requests (host reads frames, returns
    JSON) — deep passes feed better cut decisions.
 3. `plan_cut(brief_id)` → CutList + markdown summary.
-4. **Show the summary to the user verbatim.** This is the checkpoint artifact:
-   runtime, segment table with excerpts, removed-cut counts, title, music line
-   and the music-bed consent line.
+4. **Show the summary to the user verbatim.** This is the checkpoint artifact.
+   Talking-head: runtime, segment table with transcript excerpts, removed-cut
+   counts, title, music line and the music-bed consent line. Montage renders a
+   different table (`render_montage_summary`) — role / description / pacing
+   columns, and no consent line. Relay whichever you actually got; don't
+   describe columns that aren't there.
+   `get_cut_summary(plan_id, format="markdown"|"json")` re-reads a saved plan's
+   summary if you lost it.
 5. Iterate with `revise_cut(brief_id, notes, edits=[{op: reorder|drop|keep|title, …}])`
    until the user is happy. Revisions are new plans; old ones stay loadable.
 6. `approve_cut(plan_id, music_bed_consent=<user's explicit choice>)` — the
    confirm-token ceremony. Never assume consent for the ducked-bed render; ask.
+   **Talking-head only** — for a montage plan `approve_cut` forces the static
+   bed regardless of what consent flags you pass (no voiceover to duck under),
+   so don't put a meaningless consent question to the user.
 7. `build_timeline(plan_id)` — append-rebuild; check the readback
    (`usage_summary`, `build_errors`, `punch_ins`) and report anomalies.
+7b. *(optional)* `polish_timeline(plan_id, options?)` — the pro polish the
+   scripting API cannot do: exports the built timeline to `.drt`, runs the
+   verified `drp-format` vendor ops on it in scratch (cross-dissolves at
+   flagged cuts, Fusion lower-thirds on an upper track) and reimports a NEW
+   `(polished)` timeline — the built one is left intact. `options`:
+   `lower_thirds[]`, `dissolve_at_segments[]`, `dissolve_on_beat_change`,
+   `dissolve_frames`, `lower_third_frames`/`_track`, `no_dissolves`,
+   `no_lower_thirds`. **`finish` still targets the BUILT timeline**, not the
+   polished one — so polish is a review/hand-off artifact, and if the user wants
+   the polished cut rendered they render it themselves (or you drive
+   `render` against it). Check `clips_relinked`; a `warning` means real source
+   clips went offline in the `.drt` round-trip.
 8. `finish(plan_id, grade?, subtitles?, render={target_dir, format?, codec?})`
    — verify the reported `output_path` exists before declaring success.
    On Linux, `subtitles` hits a `SUBTITLE_GENERATION_CRASH_GUARD` refusal
@@ -33,6 +58,8 @@ approval (`approve_cut`) sits between planning and execution.
    exception). Skip `subtitles` on the `finish` call and instead import an
    offline-generated `.srt` via `timeline(action="import_srt")` — live-proven,
    does not call the crashing API.
+
+`list_briefs()` recovers saved briefs (newest first) after a context reset.
 
 ## Rules that bind this skill
 

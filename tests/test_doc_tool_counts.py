@@ -15,7 +15,7 @@ offline suite and the release publish gate instead of shipping wrong numbers.
 
 Fix drift by updating the docs to the printed counts, not by loosening this test.
 (`@mcp.tool(` matches both the bare `()` and the `(annotations=...)` forms; the static
-counts are cross-checked against the runtime tool registry and agree: 34 / 341.)
+counts are cross-checked against the runtime tool registry and agree: 36 / 342.)
 """
 
 import pathlib
@@ -76,12 +76,17 @@ class DocToolCountsDriftTest(unittest.TestCase):
             ("docs/reference/api-coverage.md", f"**{gran} individual tools**"),
             (".github/copilot-instructions.md", f"compound MCP server ({comp} tools)"),
             (".github/copilot-instructions.md", f"Full server ({gran} tools)"),
+            # The skill index quotes both counts in prose; it drifted to 341
+            # once already because nothing guarded it.
+            (".claude/skills/resolve-mcp/SKILL.md", f"({gran} tools) instead of the {comp} guarded compound tools"),
         ]
 
         stale = []
         for rel, needle in checks:
-            text = (ROOT / rel).read_text(encoding="utf-8")
-            if needle not in text:
+            # Collapse whitespace so a needle still matches when the doc wraps it
+            # across lines (the prose docs reflow; the numbers are the point).
+            text = re.sub(r"\s+", " ", (ROOT / rel).read_text(encoding="utf-8"))
+            if re.sub(r"\s+", " ", needle) not in text:
                 stale.append(f"{rel}: expected to contain {needle!r}")
 
         self.assertEqual(

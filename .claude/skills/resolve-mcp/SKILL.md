@@ -50,7 +50,7 @@ index rather than its own skill:
 
 ## Other surfaces (no domain table row — named here so nothing is invisible)
 
-- **Granular (`--full`)** — one tool per underlying Scripting API method (341
+- **Granular (`--full`)** — one tool per underlying Scripting API method (342
   tools) instead of the 36 guarded compound tools above. `src/resolve_mcp_server.py`
   / `src/granular/*.py`. Reach for it only when a compound action doesn't expose
   the call you need — each domain skill notes its own granular pointers (or their

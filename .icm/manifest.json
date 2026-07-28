@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "c19b7b86f1f66794",
+      "fingerprint": "f0661876c87635db",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -691,7 +691,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "9b07986330e8cbf0",
+      "fingerprint": "250b9b536fb7de84",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -942,6 +942,7 @@
         "tests/test_granular_wrong_shape_tools.py",
         "tests/test_hand_rolled_double_audit.py",
         "tests/test_import.py",
+        "tests/test_import_time_connect_guard.py",
         "tests/test_keyframe_delete_readback.py",
         "tests/test_launch_shim.py",
         "tests/test_live_harness_exit_codes.py",
@@ -977,7 +978,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "7fc966ae9a4741a3",
+      "fingerprint": "42b4a7f8ec603906",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

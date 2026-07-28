@@ -13,7 +13,7 @@ Prompt: `/project_lifecycle_workflow`.
 | Cloud projects (Blackmagic Cloud) | `actions.py` (`project_manager_cloud`), `utils/cloud_operations.py` | — | `_build_cloud_settings` normalizer; account-gated, see epic #26 stage 5 |
 | Database switch/connect | `actions.py` (`project_manager_database`) | — | |
 | Project settings snapshot/restore, layout presets | `actions.py` (`project_settings`, `layout_presets`) | — | |
-| Safe project deletion | `utils/project_cleanup.py` | — | `delete_project_safely`; retries + leftover detection |
+| Safe project deletion | `utils/project_cleanup.py` | — | `delete_project_safely`; page-park + retries + leftover detection |
 | Project spec / lint | `utils/project_spec.py`, `utils/project_lint.py` | — | structural validation of a project's settings/timeline shape |
 | Live capability probes | `utils/project_lifecycle_live_probe.py`, `utils/cloud_project_live_probe.py` | — | regenerate kernel counts |
 
@@ -27,6 +27,10 @@ Prompt: `/project_lifecycle_workflow`.
 
 - Any project deletion MUST go through `utils/project_cleanup.delete_project_safely`
   — a raw `DeleteProject` call was a shipped bug class (see destructive-op tests).
+- **Pass `resolve=` to it whenever you have a handle.** Deleting a project while Resolve's
+  UI is on the Fusion page showing that project's comp does not fail — it *terminates
+  Resolve*, no dialog and no core dump (#153/#157). The helper parks off the page first,
+  but only when given a handle; it stays optional for the live harnesses that have only `pm`.
 - Live: `project_manager`, `project_manager_folders`, `project_manager_cloud`,
   `project_manager_database`, `project_settings`, `layout_presets`.
   Offline (resolve-advanced): `project_db`.

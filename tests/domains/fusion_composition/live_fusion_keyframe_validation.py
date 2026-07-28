@@ -144,7 +144,10 @@ def main():
         return _validate(item)
     finally:
         try:
-            cleanup = delete_project_safely(pm, PROJECT_NAME, switch_to=original_name, retries=2)
+            # resolve= lets the helper park off the Fusion page first; deleting
+            # from that page terminates Resolve outright (#153/#157).
+            cleanup = delete_project_safely(pm, PROJECT_NAME, resolve=resolve,
+                                            switch_to=original_name, retries=2)
             print(f"\ncleanup delete_project: {cleanup}")
         except Exception as e:
             print(f"cleanup delete error: {e}")

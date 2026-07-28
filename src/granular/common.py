@@ -239,17 +239,27 @@ mcp.tool = _tool_with_default_annotations
 resolve = None
 dvr_script = None
 
+# Load the bridge module, but DO NOT CONNECT here — `get_resolve()` below does
+# that lazily, on the first tool call.
+#
+# An eager `scriptapp("Resolve")` at import time used to live here, and it hung
+# the process forever whenever Resolve was up but **wedged** — still running,
+# holding its scripting socket, never answering, which #153 documents as a real
+# failure mode. Because this module is reachable from ordinary offline tests,
+# that took out the whole pytest **collection**: no output, no timeout, no
+# indication of why (#158). It was invisible the rest of the time, since with
+# Resolve closed or Resolve healthy the suite is green in ~45s.
+#
+# Nothing needed the eager connect. Every consumer goes through `get_resolve()`
+# — granular modules shadow it with a local `resolve = get_resolve()`, and the
+# module-level `resolve` each of them binds via `import *` is a late-bound
+# `ResolveProxy`. `src/core/live_connection.py` has always done it this way.
+#
+# `tests/test_import_time_connect_guard.py` fails if a connect returns here.
 try:
     import DaVinciResolveScript as dvr_script  # type: ignore
 
-    resolve = dvr_script.scriptapp("Resolve")
-    _locale_guard.restore()  # scriptapp() resets the C locale — see the module docstring
-    if resolve:
-        logger.info(
-            f"Connected to DaVinci Resolve: {resolve.GetProductName()} {resolve.GetVersionString()}"
-        )
-    else:
-        logger.error("Failed to get Resolve object. Is DaVinci Resolve running?")
+    logger.info("DaVinciResolveScript module loaded")
 except ImportError as exc:
     logger.error(f"Failed to import DaVinciResolveScript: {exc}")
     logger.error("Check that DaVinci Resolve is installed and running.")
@@ -257,10 +267,10 @@ except ImportError as exc:
     logger.error(f"RESOLVE_SCRIPT_LIB: {RESOLVE_LIB_PATH}")
     logger.error(f"RESOLVE_MODULES_PATH: {RESOLVE_MODULES_PATH}")
     logger.error(f"sys.path: {sys.path}")
-    resolve = None
+    dvr_script = None
 except Exception as exc:
-    logger.error(f"Unexpected error initializing Resolve: {exc}")
-    resolve = None
+    logger.error(f"Unexpected error loading the Resolve bridge: {exc}")
+    dvr_script = None
 
 
 def _normalize_cdl(cdl):
@@ -320,6 +330,11 @@ def _is_resolve_handle_live(candidate) -> bool:
 def _try_connect():
     """Attempt to connect to Resolve once. Returns resolve object or None."""
     global resolve
+    # The bridge module may have failed to load (see the import above); without
+    # this the first call raises AttributeError on None and the error message
+    # names the wrong problem. Same guard src/core/live_connection.py carries.
+    if dvr_script is None:
+        return None
     try:
         candidate = dvr_script.scriptapp("Resolve")
         _locale_guard.restore()

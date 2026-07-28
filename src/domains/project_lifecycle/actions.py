@@ -634,6 +634,9 @@ def _safe_project_delete(pm, p: Dict[str, Any]) -> Dict[str, Any]:
     # Route through delete_project_safely: DeleteProject silently returns False
     # when the target is/was current and is flaky on the first attempt (#19).
     from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
+    # The handle is what lets the helper park off the Fusion page first —
+    # deleting from that page terminates Resolve outright (#153/#157).
+    _resolve = get_resolve()
     current_name = current.GetName() if current and _has_method(current, "GetName") else None
     if current_name == name:
         if not p.get("close_current", False):
@@ -642,12 +645,12 @@ def _safe_project_delete(pm, p: Dict[str, Any]) -> Dict[str, Any]:
         closed = bool(pm.CloseProject(current))
         if not closed:
             return _err(f"Failed to close current project '{name}' before delete")
-        deleted = delete_project_safely(pm, name)
+        deleted = delete_project_safely(pm, name, resolve=_resolve)
         result = {"success": bool(deleted.get("success")), "delete_detail": deleted}
         if saved is False:
             result["warning"] = "SaveProject returned False before close; unsaved changes may have been discarded"
         return result
-    deleted = delete_project_safely(pm, name)
+    deleted = delete_project_safely(pm, name, resolve=_resolve)
     return {"success": bool(deleted.get("success")), "delete_detail": deleted}
 
 def _database_capabilities(pm) -> Dict[str, Any]:

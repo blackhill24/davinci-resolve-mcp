@@ -789,7 +789,9 @@ def delete_project(project_name: str) -> Dict[str, Any]:
     # current, transient first-attempt failures); route through the retry+switch
     # guard (#19).
     from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
-    deleted = delete_project_safely(pm, project_name)
+    # `resolve` is already in hand here — pass it so the helper can park off
+    # the Fusion page, where a delete terminates Resolve outright (#153/#157).
+    deleted = delete_project_safely(pm, project_name, resolve=resolve)
     return {"success": bool(deleted.get("success")), "project_name": project_name, "delete_detail": deleted}
 
 

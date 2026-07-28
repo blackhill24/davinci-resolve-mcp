@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "718dd8e8e2bd3e19",
+      "fingerprint": "066cad4bf3a20943",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -692,7 +692,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "17b06fd504aa546a",
+      "fingerprint": "f7cbcbf1d2850dd8",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -830,6 +830,7 @@
         "tests/domains/media_analysis/test_deep_vision.py",
         "tests/domains/media_analysis/test_embeddings.py",
         "tests/domains/media_analysis/test_entities.py",
+        "tests/domains/media_analysis/test_marker_plan.py",
         "tests/domains/media_analysis/test_media_analysis.py",
         "tests/domains/media_analysis/test_partial_success_manifest.py",
         "tests/domains/media_analysis/test_prefer_handle.py",
@@ -939,6 +940,7 @@
         "tests/test_env_leak_guard.py",
         "tests/test_exhaustive_wave_a.py",
         "tests/test_granular_api_signatures.py",
+        "tests/test_granular_common_helpers.py",
         "tests/test_granular_disconnected_smoke.py",
         "tests/test_granular_guard_drift.py",
         "tests/test_granular_guards.py",

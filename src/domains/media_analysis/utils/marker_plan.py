@@ -405,9 +405,16 @@ def _build_clip_marker_plan(
         ))
 
     flash_candidates = cut_analysis.get("flash_frame_candidates") if isinstance(cut_analysis.get("flash_frame_candidates"), list) else []
-    for index, item in enumerate(flash_candidates, 1):
+    # Counted as markers are built, not as len(flash_candidates): a malformed
+    # entry is skipped below, so the raw length would claim a marker that was
+    # never emitted, and enumerate() over the raw list would leave a hole in the
+    # id sequence (flash-frame-candidate-002 with no -001).
+    flash_marker_count = 0
+    for item in flash_candidates:
         if not isinstance(item, dict):
             continue
+        flash_marker_count += 1
+        index = flash_marker_count
         start = _parse_float(item.get("start"))
         end = _parse_float(item.get("end"))
         sound_note, transcript_text = _marker_sound_note(transcript, readthrough, start, end)
@@ -534,7 +541,7 @@ def _build_clip_marker_plan(
         "cut_analysis": {
             "cut_count": cut_analysis.get("cut_count", 0),
             "likely_edited_sequence": bool(cut_analysis.get("likely_edited_sequence")),
-            "flash_frame_candidates": len(flash_candidates),
+            "flash_frame_candidates": flash_marker_count,
         },
         "marker_count": len(markers),
         "markers": markers,

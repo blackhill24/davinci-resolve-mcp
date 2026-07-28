@@ -13,6 +13,7 @@ stay flat in `tests/`. `test_*` run offline; `live_*` need Resolve (often Studio
 | Add/find a domain's tests | `domains/<domain>/test_*.py`, `domains/<domain>/live_*.py` | other domains | matching `.claude/skills/` |
 | Add/find a core-infra test | `core/test_*.py` | domain folders | — |
 | Add/find a dashboard test | `dashboard/test_*.py` | domain folders | — |
+| Add/find a granular-surface test | root `test_granular_*.py` (`src/granular/` has no mirror dir) | domain folders | — |
 | Stand in for a Resolve object | `GUARDS.md` → "the one faithful double", `bridge_double.py` | `MagicMock` — never for a Resolve object | — |
 | Add a repo-wide guard / drift test, or a `live_*` harness | `GUARDS.md`, then root `test_*.py` — only when it genuinely spans every domain | domain folders | — |
 | Cloud-project live test setup | `cloud-test-setup.md`, `domains/project_lifecycle/live_cloud_project_validation.py` | — | issue #25 |

@@ -554,7 +554,12 @@ def _build_subtitle_settings(resolve_obj, language=None, preset=None,
             return None, {"error": f"Unknown preset '{preset}'. Valid: {valid}"}
         settings[resolve_obj.SUBTITLE_CAPTION_PRESET] = getattr(resolve_obj, f"AUTO_CAPTION_{suffix}")
     if chars_per_line is not None:
-        if not isinstance(chars_per_line, int) or not (1 <= chars_per_line <= 60):
+        # `bool` is an `int` subclass, so without the explicit reject True passes
+        # both the type test and `1 <= True <= 60` and reaches Resolve as a
+        # chars-per-line value. Same trap `_get_timeline_item` guards below
+        # (#141 finding 2); this validator never got the guard.
+        if (not isinstance(chars_per_line, int) or isinstance(chars_per_line, bool)
+                or not (1 <= chars_per_line <= 60)):
             return None, {"error": "chars_per_line must be an integer between 1 and 60"}
         settings[resolve_obj.SUBTITLE_CHARS_PER_LINE] = chars_per_line
     if line_break is not None:
@@ -564,7 +569,9 @@ def _build_subtitle_settings(resolve_obj, language=None, preset=None,
             return None, {"error": f"Unknown line_break '{line_break}'. Valid: {valid}"}
         settings[resolve_obj.SUBTITLE_LINE_BREAK] = getattr(resolve_obj, f"AUTO_CAPTION_{suffix}")
     if gap is not None:
-        if not isinstance(gap, int) or not (0 <= gap <= 10):
+        # Rejects True/False for the same reason as chars_per_line above; here
+        # BOTH bools slip through, since `0 <= False <= 10` also holds.
+        if not isinstance(gap, int) or isinstance(gap, bool) or not (0 <= gap <= 10):
             return None, {"error": "gap must be an integer between 0 and 10"}
         settings[resolve_obj.SUBTITLE_GAP] = gap
     return settings, None

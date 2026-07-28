@@ -180,7 +180,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "f16a9296a8f0b7ea",
+      "fingerprint": "6efd71694515a137",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -283,6 +283,7 @@
         "resolve-advanced/test/drx-structural-write-fidelity.test.mjs",
         "resolve-advanced/test/drx-ui-space-scaling.test.mjs",
         "resolve-advanced/test/drx-value-fidelity.test.mjs",
+        "resolve-advanced/test/drx-varint-bounds.test.mjs",
         "resolve-advanced/test/duplicated-test-helpers.test.mjs",
         "resolve-advanced/test/e0-type-defaults.test.mjs",
         "resolve-advanced/test/editorial.test.mjs",

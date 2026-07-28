@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "8e3872e4e1ff6c6f",
+      "fingerprint": "782b2eea47ec4f3c",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -691,7 +691,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "76dd15c08e69db09",
+      "fingerprint": "724aef7d24880d03",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",

@@ -299,15 +299,17 @@ def timeline_frame_duration(tl, start=None, end=None):
     project_lifecycle/utils/project_properties.py. At most one could be right;
     the others reported a duration off by one frame (#141 finding 6).
 
-    NOTE — `Timeline.GetEndFrame()` inclusivity is NOT yet catalogued in
-    src/core/api_truth.py. It is a different method from `TimelineItem.GetEnd()`
-    (which IS exclusive, hence the `end - start` in _timeline_item_duration
-    above) and has not been settled against a running Resolve: doing so needs a
-    project with an open timeline of known length, which a read-only probe on an
-    arbitrary user machine cannot assume. `tests/live_timeline_end_frame_probe.py`
-    settles it in one run; until then this keeps the +1 convention that two of
-    the three call sites — and both user-facing "duration" fields — already
-    reported, so unifying changed no user-visible output.
+    `Timeline.GetEndFrame()` is EXCLUSIVE — one past the last frame, the same
+    convention as `TimelineItem.GetEnd()`. Measured live on Resolve Studio
+    21.0.2.4 (2026-07-28) with `tests/live_timeline_end_frame_probe.py
+    --allow-mutation`, against synthesised clips of known length: a 48-frame
+    clip gives GetStartFrame()=86400, GetEndFrame()=86448, and a 100-frame clip
+    gives 86400/86500. So `end - start` is the duration and the `+ 1` was wrong.
+
+    That means the MAJORITY convention was the broken one: `granular/timeline.py`
+    and `project_lifecycle/utils/project_properties.py` both reported one frame
+    too many, and `core/brain_edits.py` was the single site that had it right.
+    Recorded in src/core/api_truth.py.
     """
     if start is None:
         start = _frame_int(tl.GetStartFrame())
@@ -315,7 +317,7 @@ def timeline_frame_duration(tl, start=None, end=None):
         end = _frame_int(tl.GetEndFrame())
     if start is None or end is None:
         return None
-    return max(0, end - start + 1)
+    return max(0, end - start)
 
 def _timeline_item_track_info(item):
     try:

@@ -52,7 +52,11 @@ const relayoutSchema = z.object({
   iConfirmProjectClosed: confirm,
 });
 
-function selectOne(db, table, col, value) {
+// Name-only by construction: the query hardcodes the Name column, so there is no
+// `col` parameter to pass. It used to take one, ignore it, and match on Name
+// anyway — a caller asking for a different column would have been silently
+// answered with the wrong row.
+function selectOne(db, table, value) {
   const rows = db.prepare(`SELECT rowid AS rid, Name FROM ${table} WHERE Name = ?`).all(value);
   if (!rows.length) throw new Error(`no ${table} named "${value}"`);
   if (rows.length > 1) throw new Error(`multiple ${table} named "${value}" (${rows.length}) — ambiguous`);
@@ -80,7 +84,7 @@ export const projectDbTool = {
       const bak = backup(dbPath);
       const db = openGuarded(dbPath, { writable: true, table: 'Sm2MpFolder', column: 'Name' });
       try {
-        const row = selectOne(db, 'Sm2MpFolder', 'Name', p.folder);
+        const row = selectOne(db, 'Sm2MpFolder', p.folder);
         db.prepare('UPDATE Sm2MpFolder SET Name = ? WHERE rowid = ?').run(p.newName, row.rid);
         const after = db.prepare('SELECT Name FROM Sm2MpFolder WHERE rowid = ?').get(row.rid);
         return { backup: bak, from: p.folder, to: p.newName, verified: after.Name === p.newName };
@@ -95,7 +99,7 @@ export const projectDbTool = {
       const bak = backup(dbPath);
       const db = openGuarded(dbPath, { writable: true, table: 'Sm2MpFolder', column: 'ColorTag' });
       try {
-        const row = selectOne(db, 'Sm2MpFolder', 'Name', p.folder);
+        const row = selectOne(db, 'Sm2MpFolder', p.folder);
         db.prepare('UPDATE Sm2MpFolder SET ColorTag = ? WHERE rowid = ?').run(p.color, row.rid);
         const after = db.prepare('SELECT ColorTag FROM Sm2MpFolder WHERE rowid = ?').get(row.rid);
         return { backup: bak, folder: p.folder, color: p.color, verified: after.ColorTag === p.color };
@@ -120,7 +124,7 @@ export const projectDbTool = {
       const bak = backup(dbPath);
       const db = openGuarded(dbPath, { writable: true, table: 'Sm2MpMedia', column: 'MarkIn' });
       try {
-        const row = selectOne(db, 'Sm2MpMedia', 'Name', p.clip);
+        const row = selectOne(db, 'Sm2MpMedia', p.clip);
         if (p.markIn != null) db.prepare('UPDATE Sm2MpMedia SET MarkIn = ? WHERE rowid = ?').run(p.markIn, row.rid);
         if (p.markOut != null) db.prepare('UPDATE Sm2MpMedia SET MarkOut = ? WHERE rowid = ?').run(p.markOut, row.rid);
         const after = db.prepare('SELECT MarkIn, MarkOut FROM Sm2MpMedia WHERE rowid = ?').get(row.rid);

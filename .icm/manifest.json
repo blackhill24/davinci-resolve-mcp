@@ -691,7 +691,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "956df791170f4e24",
+      "fingerprint": "4b078382b0df8e2b",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",

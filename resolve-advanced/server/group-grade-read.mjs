@@ -88,7 +88,11 @@ export function decodeXmlEntities(s) {
   return String(s).replace(/&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (whole, body) => {
     if (body[0] === '#') {
       const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
+      // Range-check, not just isFinite: every parseInt result here is finite, so
+      // that guard never fired and `&#999999999;` reached fromCodePoint and threw
+      // RangeError — aborting the whole project.xml read instead of degrading to
+      // the literal text the way an unknown named entity does.
+      return Number.isInteger(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
     }
     return Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, body) ? NAMED_ENTITIES[body] : whole;
   });

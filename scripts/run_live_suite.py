@@ -22,6 +22,11 @@ here rather than re-derived (issue #151):
 It also diffs the project list around each harness, so a disposable project left
 behind is reported against the harness that leaked it instead of accumulating
 unattributed (14 of 25 projects were probe leftovers when #151 was filed).
+That diff is what makes `--clean-leaks` safe — it can only delete what the
+current run created — and also what makes it useless against the pile from
+*earlier* sessions. `--clean-disposable` covers those (#155); it decides what is
+a harness artifact through `disposable_projects`, which derives the answer from
+the harness sources rather than a hand-kept pattern list.
 
 `--vitals` adds the other half of that accounting. Resolve on this box
 terminates by itself ~20 harnesses into a sweep, leaving no crash dialog, no
@@ -41,7 +46,9 @@ Usage:
     .venv/bin/python scripts/run_live_suite.py               # warm sweep
     .venv/bin/python scripts/run_live_suite.py --cold        # Resolve QUIT first
     .venv/bin/python scripts/run_live_suite.py -k timeline   # substring filter
-    .venv/bin/python scripts/run_live_suite.py --clean-leaks # delete leftovers
+    .venv/bin/python scripts/run_live_suite.py --clean-leaks # delete THIS run's leftovers
+    .venv/bin/python scripts/run_live_suite.py --clean-disposable        # list older ones
+    .venv/bin/python scripts/run_live_suite.py --clean-disposable --yes  # and delete them
     .venv/bin/python scripts/run_live_suite.py --vitals      # + resource curve (#153)
 """
 
@@ -246,22 +253,39 @@ def _op_scratch() -> dict:
 
 
 def _op_delete(names: list) -> dict:
+    """Delete the named projects, stepping off each one first if it is loaded.
+
+    Routed through `delete_project_safely` rather than a bare `DeleteProject`
+    loop: that helper parks the UI off the Fusion page first, and deleting from
+    that page terminates Resolve outright (#153/#157). A bulk delete is where
+    that matters most — a sweep can leave the UI anywhere, and losing Resolve
+    halfway through the cleanup leaves the rest of the list behind.
+    """
     from src.core.platform import setup_environment
 
     setup_environment()
     import DaVinciResolveScript as dvr_script
 
+    from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
+
     resolve = dvr_script.scriptapp("Resolve")
     if not resolve:
         return {"ok": False, "error": RESOLVE_GONE}
     pm = resolve.GetProjectManager()
-    current = pm.GetCurrentProject()
-    # DeleteProject refuses the loaded project, so step off it first.
-    if current is not None and current.GetName() in names:
-        pm.LoadProject(SCRATCH_PROJECT) or pm.CreateProject(SCRATCH_PROJECT)
-    deleted = [name for name in names if pm.DeleteProject(name)]
-    return {"ok": True, "deleted": deleted,
-            "failed": [n for n in names if n not in deleted]}
+    # The scratch project is the safe place to stand while deleting whatever is
+    # currently loaded; create it if a previous cleanup removed it.
+    if SCRATCH_PROJECT not in (pm.GetProjectListInCurrentFolder() or []):
+        pm.CreateProject(SCRATCH_PROJECT)
+
+    deleted, failed = [], {}
+    for name in names:
+        outcome = delete_project_safely(pm, name, resolve=resolve,
+                                        switch_to=SCRATCH_PROJECT)
+        if outcome.get("success"):
+            deleted.append(name)
+        else:
+            failed[name] = outcome.get("detail") or "DeleteProject returned False"
+    return {"ok": True, "deleted": deleted, "failed": failed}
 
 
 INTERNAL_OPS = {"status": _op_status, "projects": _op_projects, "scratch": _op_scratch}
@@ -520,6 +544,57 @@ def summarize(results: list, out_path: Path, started_at: float,
 
 # ── entry point ───────────────────────────────────────────────────────────────
 
+def clean_disposable(env: dict, confirmed: bool) -> int:
+    """Reclaim harness leftovers from *earlier* sessions, not just this run.
+
+    `--clean-leaks` diffs the project list around a sweep, so it can only ever
+    delete what that sweep created — safe by construction, and useless against
+    the pile that accumulates across sessions (19 of them by #155). This is the
+    other half: it classifies the whole current folder through
+    `disposable_projects`, whose rule for "disposable" is derived from the
+    harness sources rather than hand-written here.
+
+    It lists and exits unless `--yes` is passed. A one-keystroke bulk delete
+    against a project database is the kind of thing that should have to be
+    asked for twice, and the listing is also the review: the kept column is
+    where a misclassification would show up.
+    """
+    import disposable_projects
+
+    prefixes = disposable_projects.harness_prefixes(ROOT)
+    listing = resolve_op("projects", env)
+    if listing.get("error"):
+        print(f"[clean] cannot read the project list — {listing['error']}")
+        return 2
+    split = disposable_projects.classify(listing.get("projects", []), prefixes)
+
+    print(f"[clean] {len(prefixes)} disposable name prefix(es) derived from "
+          f"tests/**/live_*.py")
+    print(f"[clean] keeping {len(split['kept'])}: {', '.join(split['kept']) or '—'}")
+    if not split["disposable"]:
+        print("[clean] nothing disposable — the database is already clean.")
+        return 0
+    print(f"[clean] disposable ({len(split['disposable'])}):")
+    for name in split["disposable"]:
+        print(f"          {name}")
+    if not confirmed:
+        print("[clean] listing only — re-run with --yes to delete these.")
+        return 0
+
+    outcome = resolve_op("delete:" + ",".join(split["disposable"]), env,
+                         timeout=max(180, 20 * len(split["disposable"])))
+    if outcome.get("error"):
+        print(f"[clean] delete failed — {outcome['error']}")
+        return 1
+    deleted, failed = outcome.get("deleted", []), outcome.get("failed") or {}
+    print(f"[clean] deleted {len(deleted)}: {', '.join(deleted) or '—'}")
+    if failed:
+        for name, detail in failed.items():
+            print(f"[clean] ! kept {name}: {detail}")
+        return 1
+    return 0
+
+
 def preflight(env: dict, cold: bool) -> int:
     """Refuse to start a sweep Resolve cannot serve. Returns an exit code, or 0."""
     status = resolve_op("status", env)
@@ -572,6 +647,12 @@ def main() -> int:
                         help=f"Per-harness timeout in seconds (default {DEFAULT_TIMEOUT}).")
     parser.add_argument("--clean-leaks", action="store_true",
                         help="Delete disposable projects the sweep left behind (asks nothing).")
+    parser.add_argument("--clean-disposable", action="store_true",
+                        help="Do not sweep: list every harness-generated project in the "
+                             "database, from this session or any earlier one, and exit. "
+                             "Add --yes to delete them (issue #155).")
+    parser.add_argument("--yes", action="store_true",
+                        help="With --clean-disposable, actually delete instead of listing.")
     parser.add_argument("--vitals", action="store_true",
                         help="Sample Resolve's RSS/fds/threads/GPU between harnesses "
                              "and report the growth curve (issue #153).")
@@ -593,6 +674,11 @@ def main() -> int:
             result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         print(json.dumps(result, default=str))
         return 0
+
+    if args.clean_disposable:
+        env = build_env()
+        not_ready = preflight(env, cold=False)
+        return not_ready or clean_disposable(env, args.yes)
 
     harnesses = [h for h in discover(args.pattern) if is_cold(h) == args.cold]
     if not harnesses:

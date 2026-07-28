@@ -15,6 +15,7 @@ Installer and maintenance scripts: audits, generators, probes. The generators ow
 | Audit API parity / read-write symmetry | `audit_api_parity.py`, `audit_readwrite_symmetry.py` | — | `docs/reference/` |
 | Check/raise a per-module coverage floor | `coverage_floor.py`, `../.coveragerc` | — | ratchets a NAMED module list, never a repo average |
 | Run the live Resolve suite | `run_live_suite.py` | individual `tests/**/live_*.py` | `docs/process/release-process.md` |
+| Reclaim leftover probe/pilot projects | `run_live_suite.py --clean-disposable`, `disposable_projects.py` | — | issue #155 |
 | Investigate Resolve exiting by itself | `resolve_vitals.py`, `run_live_suite.py --vitals` | — | issue #153 |
 | Diagnose environment | `doctor.py` | — | — |
 | Measure bridge cost | `measure_bridge_cost.py` | — | — |
@@ -27,6 +28,9 @@ Installer and maintenance scripts: audits, generators, probes. The generators ow
 - `run_live_suite.py` — the live-suite runner: env, per-harness isolation (scratch project +
   timeline), leak diffing, and the preflight exit-code contract. It partitions cold-launch
   harnesses by reading `gate("closed")` out of their source, so a new one needs no list edit.
+- `disposable_projects.py` — decides which projects a bulk delete may take. The prefixes are
+  AST-derived from `tests/**/live_*.py`, never hand-listed, so a new harness needs no edit
+  here and a name no harness generates is always kept (#155).
 - `resolve_vitals.py` — reads Resolve's `/proc` vitals (RSS, fds vs the process's own soft
   limit, threads, descendants, GPU MiB, env slice). Pure `/proc` + `nvidia-smi`, never the
   scripting API, so it survives the exit it exists to describe. `--watch` samples an idle

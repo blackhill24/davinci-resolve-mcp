@@ -180,7 +180,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "5d908a0c6856eeb9",
+      "fingerprint": "f16a9296a8f0b7ea",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",

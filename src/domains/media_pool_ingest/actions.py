@@ -262,6 +262,10 @@ from src.core.live_connection import (
     get_resolve,
     _destructive_versioning_provider,
 )
+from src.core.params import (
+    missing_param_envelope as _missing_param_envelope,
+    tool_params as _tool_params,
+)
 
 def _find_folder_by_id(folder, folder_id):
     for sub in (folder.GetSubFolderList() or []):
@@ -1901,6 +1905,7 @@ def _media_pool_boundary_report(mp, p: Dict[str, Any]):
     return report
 
 @mcp.tool()
+@_missing_param_envelope
 def media_storage(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Browse storage volumes and import media into the Media Pool.
 
@@ -1917,7 +1922,7 @@ def media_storage(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[
       add_clip_mattes(clip_id, paths, stereo_eye?) -> {success}
       add_timeline_mattes(paths) -> {items}
     """
-    p = params or {}
+    p = _tool_params(params)
     r = get_resolve()
     if r is None:
         return _err("Could not connect to DaVinci Resolve. It was not running and auto-launch failed. Check that Resolve Studio is installed.")
@@ -1964,6 +1969,7 @@ def media_storage(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[
 
 @mcp.tool()
 @_destructive_op("media_pool")
+@_missing_param_envelope
 def media_pool(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Manage the Media Pool: folders, clips, timelines, import/export.
 
@@ -2057,7 +2063,7 @@ def media_pool(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str
     """
     from src.domains.timeline_edit.actions import _build_append_clip_info_dict, _serialize_appended_timeline_item
     from src.domains.audio_fairlight.actions import _normalize_auto_sync_settings
-    p = params or {}
+    p = _tool_params(params)
     _, proj, mp, err = _get_mp()
     if err:
         return err
@@ -2431,6 +2437,7 @@ def media_pool(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str
     return _unknown(action, ["get_root_folder","get_current_folder","set_current_folder","add_subfolder","delete_folders","move_folders","rename_folder","refresh","create_timeline","create_timeline_from_clips","import_timeline","delete_timelines","append_to_timeline","import_media","delete_clips","move_clips","relink","unlink","export_metadata","get_unique_id","create_stereo_clip","auto_sync_audio","get_selected","set_selected","get_clip_mattes","get_timeline_mattes","delete_clip_mattes","import_folder",*_MEDIA_POOL_KERNEL_ACTIONS])
 
 @mcp.tool()
+@_missing_param_envelope
 def folder(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Operations on Media Pool folders.
 
@@ -2449,7 +2456,7 @@ def folder(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, An
       analyze_for_slate(path?, marker_color?) -> {success}  — Resolve 21+, AI Slate ID Extra
       remove_motion_blur(path?, deblur_option?) -> {success, created}  — Resolve 21+; renders NEW media (confirm-gated)
     """
-    p = params or {}
+    p = _tool_params(params)
     _, _, mp, err = _get_mp()
     if err:
         return err
@@ -2572,6 +2579,7 @@ def folder(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, An
     return _unknown(action, ["get_clips","get_name","get_subfolders","is_stale","get_unique_id","export","transcribe_audio","clear_transcription","perform_audio_classification","clear_audio_classification","analyze_for_intellisearch","analyze_for_slate","remove_motion_blur"])
 
 @mcp.tool()
+@_missing_param_envelope
 def media_pool_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Operations on a media pool clip. Identify clip by clip_id.
 
@@ -2626,7 +2634,7 @@ def media_pool_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
     """
     from src.domains.color_grade.actions import _extract_clip_frames
     from src.domains.timeline_edit.actions import _verify_clip_property_writeback, _verify_writeback
-    p = params or {}
+    p = _tool_params(params)
     _, _, mp, err = _get_mp()
     if err:
         return err

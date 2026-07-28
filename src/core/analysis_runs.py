@@ -93,6 +93,15 @@ def begin_run(
         _CURRENT_RUN["id"] = run_id
         _CURRENT_RUN["initiator"] = initiator
         _CURRENT_RUN["label"] = label
+        # Start the idle clock with the run. Without this the epoch stayed at
+        # its 0.0 initial value for any explicitly-begun run, so the idle check
+        # in ensure_auto_run_for_destructive short-circuited on `last` being
+        # falsy and a run left open by a forgotten end_run was reused forever
+        # instead of being auto-closed — archives kept collapsing into a stale
+        # run, which is exactly what the B3 auto-run design exists to prevent
+        # (#142 finding 7). It also stops a NEW run inheriting the previous
+        # run's stale epoch and being auto-closed on its first destructive op.
+        _LAST_DESTRUCTIVE_AT["epoch"] = time.time()
     return {
         "success": True,
         "analysis_run_id": run_id,
@@ -117,6 +126,7 @@ def end_run(
             _CURRENT_RUN["id"] = None
             _CURRENT_RUN["initiator"] = None
             _CURRENT_RUN["label"] = None
+            _LAST_DESTRUCTIVE_AT["epoch"] = 0.0
     if not target_run_id:
         return {"success": False, "error": "no active run; pass analysis_run_id to end a specific run"}
 
@@ -181,12 +191,17 @@ def ensure_auto_run_for_destructive(
     with _LOCK:
         active = _CURRENT_RUN["id"]
         last = _LAST_DESTRUCTIVE_AT["epoch"]
-        if active and last and (now - last) > timeout:
+        # `last` is stamped by begin_run and by every op below, so an active run
+        # always has one; the `or now` keeps a run opened before this fix (or by
+        # some path that bypassed begin_run) from being treated as infinitely
+        # idle rather than never idle.
+        if active and (now - (last or now)) > timeout:
             # idle timeout — auto-close before opening fresh
             stale_id = active
             _CURRENT_RUN["id"] = None
             _CURRENT_RUN["initiator"] = None
             _CURRENT_RUN["label"] = None
+            _LAST_DESTRUCTIVE_AT["epoch"] = 0.0
         else:
             stale_id = None
 

@@ -260,6 +260,10 @@ from src.core.live_connection import (
 from src.core.tool_kernel import (
     _TIMELINE_ACTIONS,
 )
+from src.core.params import (
+    missing_param_envelope as _missing_param_envelope,
+    tool_params as _tool_params,
+)
 
 def _normalize_record_frame(
     ci: Dict[str, Any],
@@ -822,11 +826,98 @@ def _copy_takes(source_item, duplicate_item):
         pass
     return {"success": not failed, "copied": copied, "failed": failed}
 
+# Resolve 21.0.2.4 has NO keyframe read/write surface on TimelineItem: all seven
+# of GetKeyframeCount / GetKeyframeAtIndex / GetPropertyAtKeyframeIndex /
+# AddKeyframe / ModifyKeyframe / DeleteKeyframe / SetKeyframeInterpolation are
+# absent from dir(TimelineItem) — live-verified, see src/core/api_truth.py.
+# Because the bridge fabricates any attribute, calling one raises
+# "TypeError: 'NoneType' object is not callable", and there is no global
+# exception wrapper on tool bodies, so these surfaced as raw tracebacks rather
+# than error envelopes (#142 finding 1). There is no rename that fixes it — the
+# capability does not exist on this object — so the tools refuse explicitly.
+_KEYFRAME_METHODS = (
+    "GetKeyframeCount",
+    "GetKeyframeAtIndex",
+    "GetPropertyAtKeyframeIndex",
+    "AddKeyframe",
+    "ModifyKeyframe",
+    "DeleteKeyframe",
+    "SetKeyframeInterpolation",
+)
+
+
+# _copy_keyframes reads from the source and writes to the duplicate, so the two
+# objects need different halves of the surface. The dispatch actions likewise
+# check only what they call, so a build that ships part of the API is not
+# refused wholesale.
+_KEYFRAME_READ_METHODS = (
+    "GetKeyframeCount",
+    "GetKeyframeAtIndex",
+    "GetPropertyAtKeyframeIndex",
+)
+_KEYFRAME_WRITE_METHODS = ("AddKeyframe",)
+
+# action -> the methods its body actually calls.
+_KEYFRAME_ACTION_METHODS = {
+    "get_keyframes": ("GetKeyframeCount", "GetKeyframeAtIndex", "GetPropertyAtKeyframeIndex"),
+    "add_keyframe": ("AddKeyframe",),
+    "modify_keyframe": ("ModifyKeyframe",),
+    "delete_keyframe": ("DeleteKeyframe",),
+    "set_keyframe_interpolation": ("SetKeyframeInterpolation",),
+}
+
+
+def _keyframe_api_available(item, names=_KEYFRAME_METHODS) -> bool:
+    """dir()-based check for part of the TimelineItem keyframe surface.
+
+    Written as a probe rather than a hard-coded False so a future Resolve that
+    ships the API starts working without a code change. On 21.x every name in
+    _KEYFRAME_METHODS is absent.
+    """
+    return all(_has_method(item, name) for name in names)
+
+
+def _keyframes_unsupported(action: str):
+    missing = list(_KEYFRAME_ACTION_METHODS.get(action, _KEYFRAME_METHODS))
+    return _err(
+        f"{action}: TimelineItem exposes no keyframe API on this Resolve build.",
+        code="KEYFRAMES_UNSUPPORTED",
+        category="unsupported",
+        reason=(
+            "GetKeyframeCount/GetKeyframeAtIndex/GetPropertyAtKeyframeIndex/"
+            "AddKeyframe/ModifyKeyframe/DeleteKeyframe/SetKeyframeInterpolation "
+            "are all absent from dir(TimelineItem) (verified on Studio 21.0.2.4)."
+        ),
+        remediation=(
+            "Author keyframe animation in the Resolve UI, or in a Fusion "
+            "composition via the fusion_comp tool."
+        ),
+        state={"missing_methods": missing},
+    )
+
+
 def _copy_keyframes(source_item, duplicate_item, properties: Optional[List[str]] = None):
     properties = properties or list(_DUPLICATE_KEYFRAME_PROPERTIES)
     copied = 0
     failed = []
     unavailable = []
+    if (not _keyframe_api_available(source_item, _KEYFRAME_READ_METHODS)
+            or not _keyframe_api_available(duplicate_item, _KEYFRAME_WRITE_METHODS)):
+        # Previously every property failed at GetKeyframeCount, landed in
+        # `unavailable`, and the loop continued — so `failed` stayed empty and
+        # the return was {"success": True} having copied nothing.
+        # duplicate_clips(copy_properties=["keyframes"]) silently dropped them
+        # all (#142 finding 1, same family as #141 finding 4).
+        return {
+            "success": False,
+            "copied": 0,
+            "failed": [],
+            "unavailable": [
+                {"property": prop, "error": "TimelineItem exposes no keyframe API on this Resolve build"}
+                for prop in properties
+            ],
+            "code": "KEYFRAMES_UNSUPPORTED",
+        }
     for prop in properties:
         try:
             count = int(source_item.GetKeyframeCount(prop) or 0)
@@ -3510,6 +3601,7 @@ def _safe_place_overlay(tl, p):
 
 @mcp.tool()
 @_destructive_op("timeline")
+@_missing_param_envelope
 def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Timeline operations: tracks, clips, import/export, generators, titles.
 
@@ -3752,7 +3844,7 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
     from src.domains.auto_edit.actions import _apply_cuts_skip_reason
     from src.domains.audio_fairlight.actions import _audio_capabilities, _audio_mapping_report, _audio_mix_capability_report, _audio_track_probe, _fairlight_boundary_report, _probe_audio_item, _safe_auto_sync_audio, _safe_set_audio_properties, _subtitle_generation_probe, _timeline_set_clip_pan_impl, _timeline_set_clip_volume_impl, _timeline_transcript, _transcription_capabilities, _voice_isolation_capabilities
     from src.domains.timeline_conform_interchange.actions import _build_relink_plan, _compare_timelines, _conform_boundary_report, _conform_capabilities, _detect_gaps_overlaps_from_snapshot, _detect_missing_media, _export_timeline_checked, _import_from_drp, _import_timeline_checked, _probe_interchange_roundtrip, _source_ranges_from_snapshot, _timeline_conform_snapshot, _timeline_export_spec
-    p = params or {}
+    p = _tool_params(params)
     # action_help is pull-on-demand metadata; no Resolve connection needed.
     if action == "action_help":
         return _action_help("timeline", p)
@@ -4184,7 +4276,7 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
             result["ignored_state_keys"] = ignored_state
         return result
     elif action == "extract_source_frame_ranges":
-        p = params or {}
+        p = _tool_params(params)
         handles = int(p.get("handles", 24))
         gap_max = int(p.get("gap_max", 30))
         audio_ext = tuple(
@@ -4367,6 +4459,7 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
 
 @mcp.tool()
 @_destructive_op("timeline_ai")
+@_missing_param_envelope
 def timeline_ai(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """AI and analysis operations on the current timeline.
 
@@ -4380,7 +4473,7 @@ def timeline_ai(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
       grab_all_stills(source?) -> {count}
     """
     from src.domains.audio_fairlight.actions import _safe_create_subtitles
-    p = params or {}
+    p = _tool_params(params)
     _, tl, err = _get_tl()
     if err:
         return err
@@ -4417,6 +4510,7 @@ def timeline_ai(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
 
 @mcp.tool()
 @_destructive_op("timeline_item")
+@_missing_param_envelope
 def timeline_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Properties, transforms, speed, keyframes, and metadata for a timeline item.
     Identify by track_type, track_index, item_index (item_index is 0-BASED: 0 = first clip; track_index is 1-based).
@@ -4465,9 +4559,14 @@ def timeline_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[
       delete_keyframe(property, frame, ...) -> {success}
       set_keyframe_interpolation(property, frame, interpolation, ...) -> {success}  — Linear, Bezier, EaseIn, EaseOut, EaseInOut
 
+    NOTE: the five keyframe actions above are UNSUPPORTED on Resolve 21.x —
+    TimelineItem exposes no keyframe API at all (live-verified; see
+    src/core/api_truth.py). They return a KEYFRAMES_UNSUPPORTED envelope rather
+    than crashing. Animate in the Resolve UI, or via fusion_comp.
+
     Default: track_type="video", track_index=1, item_index=0
     """
-    p = params or {}
+    p = _tool_params(params)
     tl, item, err = _get_item(p)
     if err:
         return err
@@ -4610,6 +4709,9 @@ def timeline_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[
         return _ok(**results) if results else _err(f"Specify one or more of: {', '.join(sorted(valid))}")
 
     # ── Keyframes ──
+    elif action in _KEYFRAME_ACTION_METHODS and not _keyframe_api_available(
+            item, _KEYFRAME_ACTION_METHODS[action]):
+        return _keyframes_unsupported(action)
     elif action == "get_keyframes":
         prop = p["property"]
         count = item.GetKeyframeCount(prop)
@@ -4642,6 +4744,7 @@ def timeline_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[
 
 @mcp.tool()
 @_destructive_op("timeline_item_takes")
+@_missing_param_envelope
 def timeline_item_takes(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Take management on timeline items. Identify by track_type, track_index, item_index (item_index is 0-BASED: 0 = first clip; track_index is 1-based).
 
@@ -4656,7 +4759,7 @@ def timeline_item_takes(action: str, params: Optional[Dict[str, Any]] = None) ->
 
     Default: track_type="video", track_index=1, item_index=0
     """
-    p = params or {}
+    p = _tool_params(params)
     _, item, err = _get_item(p)
     if err:
         return err

@@ -256,6 +256,10 @@ from src.core.live_connection import (
     get_resolve,
     _destructive_versioning_provider,
 )
+from src.core.params import (
+    missing_param_envelope as _missing_param_envelope,
+    tool_params as _tool_params,
+)
 
 
 def _coerce_marker_number(value, field_name):
@@ -717,6 +721,7 @@ def _timeline_marker_rows_from_snapshot(snapshot: Dict[str, Any]) -> List[Dict[s
 
 
 @mcp.tool()
+@_missing_param_envelope
 def media_pool_item_markers(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Markers and flags on media pool clips. Identify clip by clip_id.
 
@@ -737,7 +742,7 @@ def media_pool_item_markers(action: str, params: Optional[Dict[str, Any]] = None
       monitor_growing_file(clip_id) -> {success}
       replace_clip_preserve_sub_clip(clip_id, path) -> {success}
     """
-    p = params or {}
+    p = _tool_params(params)
     _, _, mp, err = _get_mp()
     if err:
         return err
@@ -799,6 +804,7 @@ def media_pool_item_markers(action: str, params: Optional[Dict[str, Any]] = None
 
 @mcp.tool()
 @_destructive_op("timeline_markers")
+@_missing_param_envelope
 def timeline_markers(action: str, params: Optional[Dict[str, Any]] = None) -> Any:
     """Markers and playhead operations on the current timeline.
 
@@ -833,7 +839,7 @@ def timeline_markers(action: str, params: Optional[Dict[str, Any]] = None) -> An
       export_review_report(scope?, include_capabilities?) -> {title, annotations, capabilities?}
       annotation_boundary_report(scope?) -> {capabilities, annotations}
     """
-    p = params or {}
+    p = _tool_params(params)
     _, tl, err = _get_tl()
     if err:
         return err
@@ -914,6 +920,7 @@ def timeline_markers(action: str, params: Optional[Dict[str, Any]] = None) -> An
 
 @mcp.tool()
 @_destructive_op("timeline_item_markers")
+@_missing_param_envelope
 def timeline_item_markers(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Markers, flags, and clip color on timeline items. Identify by track_type, track_index, item_index (item_index is 0-BASED: 0 = first clip; track_index is 1-based).
 
@@ -935,7 +942,7 @@ def timeline_item_markers(action: str, params: Optional[Dict[str, Any]] = None) 
 
     Default: track_type="video", track_index=1, item_index=0
     """
-    p = params or {}
+    p = _tool_params(params)
     _, item, err = _get_item(p)
     if err:
         return err

@@ -362,6 +362,40 @@ def get_resolve():
     _launch_resolve()
     return resolve
 
+def timeline_item_kind(item):
+    """"Video" or "Audio" for a TimelineItem; None when it can't be determined.
+
+    `TimelineItem.GetType()` and `TimelineItem.GetMediaType()` DO NOT EXIST on
+    Resolve 21.x — both are absent from `dir(TimelineItem)`, live-verified on
+    Studio 21.0.2.4 (see `src/core/api_truth.py`). Because the bridge fabricates
+    any attribute, calling them raised "TypeError: 'NoneType' object is not
+    callable", which the broad `except Exception` around each call site turned
+    into a permanent error string — eight granular entry points were dead on
+    arrival (#142 finding 2).
+
+    `GetTrackTypeAndIndex()` IS present and carries the same information; it is
+    what `src/core/timeline_lookup.py:_timeline_item_track_info` already uses.
+    """
+    if item is None:
+        return None
+    try:
+        track_info = item.GetTrackTypeAndIndex()
+    except Exception:
+        return None
+    if not track_info:
+        return None
+    try:
+        track_type = str(track_info[0]).strip().lower()
+    except (TypeError, IndexError, ValueError):
+        return None
+    if track_type.startswith("video"):
+        return "Video"
+    if track_type.startswith("audio"):
+        return "Audio"
+    if track_type.startswith("subtitle"):
+        return "Subtitle"
+    return None
+
 def get_project_manager():
     """Get ProjectManager with lazy connection and null guard."""
     r = get_resolve()

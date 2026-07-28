@@ -12,7 +12,7 @@ that none exists).
 
 **Verified on:** DaVinci Resolve Studio 21.0.0
 
-**Totals:** 18 missing capabilities, 13 bugs / unreliable behaviors.
+**Totals:** 20 missing capabilities, 13 bugs / unreliable behaviors.
 
 The authoritative source is the runtime-queryable `api_truth` ledger
 (`resolve_control api_truth "<query>"`); this document is generated from
@@ -171,6 +171,22 @@ equivalent, blocking full automation.
 - **Workaround / current handling:** Two workarounds shipped (issue #23, 3.3.3). LOSSLESS (preferred): close Resolve and rename offline via the advanced server's project_db rename_folder — a direct Sm2MpFolder.Name UPDATE (backup + schema guard). LIVE fallback: media_pool rename_folder does a delete-recreate that PRESERVES clips + subfolders but LOSES the ColorTag, the folder UniqueId (references break) and manual clip ordering — confirm-gated, with a dry_run preview. Both live-verified on 21.0.2.4 (tests/domains/color_grade/live_folder_rename_probe.py, test/project-db-rename-roundtrip.test.mjs).
 - **Reference:** [issue #23](https://github.com/samuelgursky/davinci-resolve-mcp/issues/23)
 - **Tags:** missing-method, media-pool, folder
+
+### TimelineItem keyframe API (GetKeyframeCount, AddKeyframe, ...)
+
+- **Object:** `TimelineItem`
+- **Behavior:** There is NO keyframe read/write surface on TimelineItem. All seven of GetKeyframeCount, GetKeyframeAtIndex, GetPropertyAtKeyframeIndex, AddKeyframe, ModifyKeyframe, DeleteKeyframe and SetKeyframeInterpolation are absent from dir(TimelineItem) on Resolve Studio 21.0.2.4 (88 entries) — each getattr() returns None and callable() is False. Per the attribute-fabrication entry below, calling one raises TypeError: 'NoneType' object is not callable, so these read as runtime crashes rather than 'unsupported'. Verified live 2026-07-27 (issue #142 finding 1).
+- **Workaround / current handling:** Do not call them. The tools that did are now guarded and return an explicit KEYFRAMES_UNSUPPORTED envelope. There is no rename that fixes this — the capability does not exist on this object in 21.x. Copying 'keyframes' as a clip property is likewise impossible, and must be reported as unavailable rather than counted as a success.
+- **Reference:** [issue #142](https://github.com/samuelgursky/davinci-resolve-mcp/issues/142)
+- **Tags:** missing-method, timeline-item, keyframes
+
+### TimelineItem.GetType() / TimelineItem.GetMediaType()
+
+- **Object:** `TimelineItem`
+- **Behavior:** Both are absent from dir(TimelineItem) on Resolve Studio 21.0.2.4; getattr() returns None, callable() is False. Call sites wrapped in a broad `except Exception` therefore return a permanent "'NoneType' object is not callable" error string instead of a value. Verified live 2026-07-27 (issue #142 finding 2).
+- **Workaround / current handling:** Use GetTrackTypeAndIndex(), which IS present and returns (track_type, track_index) — the same information the GetType/GetMediaType call sites wanted. src/core/timeline_lookup.py:_timeline_item_track_info is the shared helper.
+- **Reference:** [issue #142](https://github.com/samuelgursky/davinci-resolve-mcp/issues/142)
+- **Tags:** missing-method, timeline-item
 
 ## Bugs / Unreliable Behavior (please fix)
 

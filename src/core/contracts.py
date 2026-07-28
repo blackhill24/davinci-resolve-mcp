@@ -83,6 +83,12 @@ def validate(
             return f"'{name}' must be one of: {', '.join(map(str, rule['enum']))}", None
         if rule.get("non_empty") and isinstance(val, str) and not val.strip():
             return f"'{name}' must be non-empty", None
+        # min/max are compared AFTER type coercion above, but a rule may carry
+        # a bound without a "type" — then `val` is whatever the caller sent and
+        # `val < rule["min"]` raises TypeError on a string. No such rule exists
+        # in the repo today; this keeps it that way (#142, latent finding).
+        if ("min" in rule or "max" in rule) and not isinstance(val, (int, float)):
+            return f"'{name}' must be numeric", None
         if "min" in rule and val < rule["min"]:
             return f"'{name}' must be >= {rule['min']}", None
         if "max" in rule and val > rule["max"]:

@@ -254,6 +254,10 @@ from src.core.live_connection import (
     get_resolve,
     _destructive_versioning_provider,
 )
+from src.core.params import (
+    missing_param_envelope as _missing_param_envelope,
+    tool_params as _tool_params,
+)
 
 def _orchestrate_project_context(p: Dict[str, Any], *, need_resolve: bool = False):
     """(resolve, proj, project_root, err) — same contract as auto_edit's.
@@ -982,6 +986,7 @@ def _orchestrate_resolve_fingerprint(p: Dict[str, Any], proj):
     return _orchestrate_capture_fingerprint(proj), None
 
 @mcp.tool()
+@_missing_param_envelope
 async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Resumable ingest-to-deliver post-production conductor.
 
@@ -1084,7 +1089,7 @@ async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> D
         `keep_snapshots=true` opts out of the purge.
     """
     from src.domains.auto_edit.actions import auto_edit
-    p = params or {}
+    p = _tool_params(params)
 
     def _job_id_param() -> str:
         return str(p.get("job_id") or p.get("jobId") or "")

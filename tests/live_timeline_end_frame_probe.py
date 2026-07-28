@@ -15,8 +15,7 @@ deletes nothing and changes no setting. It needs a project with a CURRENT
 TIMELINE whose length you can corroborate, so it cannot run unattended — hence a
 probe rather than a `live_*` assertion harness.
 
-Run:
-    .venv/bin/python tests/preflight.py --require timeline || exit
+Run (it gates through preflight itself):
     .venv/bin/python tests/live_timeline_end_frame_probe.py
 
 Exit codes follow the preflight contract: 0 measured, 2 environment not ready,
@@ -47,11 +46,14 @@ EXIT_NO_SCRIPTING = 3
 
 
 def main() -> int:
-    try:
-        from src.core.live_connection import get_resolve
-    except ImportError as exc:
-        print(f"scripting unavailable: {exc}")
-        return EXIT_NO_SCRIPTING
+    from tests.preflight import gate
+
+    # Per tests/GUARDS.md every live_* __main__ gates through preflight, which
+    # prints the status line, exits 2/3 (never 1) when the environment is not
+    # ready, and sets DAVINCI_MCP_NO_AUTOLAUNCH so nothing is launched.
+    gate("timeline")
+
+    from src.core.live_connection import get_resolve
 
     resolve = get_resolve()
     if resolve is None:

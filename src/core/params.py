@@ -29,6 +29,9 @@ from typing import Any, Dict, Mapping, Optional
 from src.core.envelope import _err
 
 
+_UNSET = object()
+
+
 class MissingParam(KeyError):
     """A required caller-supplied param was not provided.
 
@@ -44,11 +47,65 @@ class MissingParam(KeyError):
         return str(self.key)
 
 
+class InvalidParam(ValueError):
+    """A caller-supplied param was present but not usable as the wanted type.
+
+    Subclasses ValueError so an existing ``except ValueError`` around a
+    coercion keeps working.
+    """
+
+    def __init__(self, key: str, value: Any, wanted: str) -> None:
+        super().__init__(f"'{key}' must be {wanted}, got {value!r}")
+        self.key = key
+        self.value = value
+        self.wanted = wanted
+
+
 class ToolParams(Dict[str, Any]):
     """The caller's params dict; a missing key is a MissingParam."""
 
     def __missing__(self, key):
         raise MissingParam(key)
+
+    def as_int(self, key: str, default: Any = _UNSET) -> Any:
+        """See :func:`as_int`."""
+        return as_int(self, key, default)
+
+    def as_float(self, key: str, default: Any = _UNSET) -> Any:
+        """See :func:`as_float`."""
+        return as_float(self, key, default)
+
+
+def _coerce(params: Mapping[str, Any], key, default, caster, wanted):
+    value = params.get(key) if params else None
+    if value is None:
+        if default is _UNSET:
+            raise MissingParam(key)
+        return default
+    if isinstance(value, bool):
+        # bool is an int subclass; a track index of True is never meant.
+        raise InvalidParam(key, value, wanted)
+    try:
+        return caster(value)
+    except (TypeError, ValueError):
+        raise InvalidParam(key, value, wanted) from None
+
+
+def as_int(params: Mapping[str, Any], key: str, default: Any = _UNSET) -> Any:
+    """``int(params.get(key))`` that fails as an envelope, not a traceback.
+
+    ``int(p.get("index"))`` on non-numeric caller input raises a bare
+    ValueError/TypeError out of the tool body, degrading the error contract the
+    rest of the codebase maintains (#141 minor bucket). Use this at any site not
+    already inside a try. Takes any mapping, so internal helpers that receive a
+    plain dict can use it too.
+    """
+    return _coerce(params, key, default, int, "an integer")
+
+
+def as_float(params: Mapping[str, Any], key: str, default: Any = _UNSET) -> Any:
+    """``float(params.get(key))`` that fails as an envelope. See :func:`as_int`."""
+    return _coerce(params, key, default, float, "a number")
 
 
 def tool_params(params: Optional[Mapping[str, Any]]) -> ToolParams:
@@ -56,6 +113,15 @@ def tool_params(params: Optional[Mapping[str, Any]]) -> ToolParams:
     if params is None:
         return ToolParams()
     return ToolParams(params)
+
+
+def invalid_param_error(exc: "InvalidParam") -> Dict[str, Any]:
+    return _err(
+        str(exc),
+        code="INVALID_PARAM",
+        category="invalid_input",
+        state={"param": exc.key, "expected": exc.wanted},
+    )
 
 
 def missing_param_error(key: str) -> Dict[str, Any]:
@@ -69,7 +135,7 @@ def missing_param_error(key: str) -> Dict[str, Any]:
 
 
 def missing_param_envelope(fn):
-    """Turn a MissingParam raised inside ``fn`` into an invalid_input envelope.
+    """Turn a MissingParam/InvalidParam inside ``fn`` into an invalid_input envelope.
 
     Apply as the INNERMOST decorator on a compound tool, below @mcp.tool and any
     governance decorator, so the envelope it returns still passes through those
@@ -82,5 +148,7 @@ def missing_param_envelope(fn):
             return fn(*args, **kwargs)
         except MissingParam as exc:
             return missing_param_error(exc.key)
+        except InvalidParam as exc:
+            return invalid_param_error(exc)
 
     return wrapper

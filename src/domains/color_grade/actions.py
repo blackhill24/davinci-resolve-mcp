@@ -555,7 +555,7 @@ def _timeline_items_for_grade_copy(tl, target_ids):
     missing = set(target_ids or [])
     if not target_ids:
         return targets, []
-    for track_index in range(1, tl.GetTrackCount("video") + 1):
+    for track_index in range(1, (tl.GetTrackCount("video") or 0) + 1):
         for candidate in (tl.GetItemListInTrack("video", track_index) or []):
             item_id = candidate.GetUniqueId()
             if item_id in missing:
@@ -765,7 +765,7 @@ def _bulk_match_to_hero(proj, p: Dict[str, Any]) -> Dict[str, Any]:
     targets: List[Any] = []
     blocked: List[Dict[str, Any]] = []
     found_ids = set()
-    for track_index in range(1, tl.GetTrackCount("video") + 1):
+    for track_index in range(1, (tl.GetTrackCount("video") or 0) + 1):
         for it in (tl.GetItemListInTrack("video", track_index) or []):
             try:
                 uid = it.GetUniqueId()

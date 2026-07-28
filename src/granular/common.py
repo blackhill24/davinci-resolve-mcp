@@ -444,17 +444,19 @@ def get_all_media_pool_clips(media_pool):
     return list(iter_all_media_pool_clips(media_pool))
 
 def get_all_media_pool_folders(media_pool):
-    """Get all folders from media pool recursively."""
+    """Get all folders from media pool recursively. Empty list if unavailable."""
     folders = []
-    root_folder = media_pool.GetRootFolder()
-    
+    # GetRootFolder() can return None; the sibling iterator has always guarded
+    # it, this one recursed straight into None (#141 minor bucket).
+    root_folder = media_pool.GetRootFolder() if media_pool else None
+    if not root_folder:
+        return folders
+
     def process_folder(folder):
         folders.append(folder)
-        
-        sub_folders = folder.GetSubFolderList()
-        for sub_folder in sub_folders:
+        for sub_folder in (folder.GetSubFolderList() or []):
             process_folder(sub_folder)
-    
+
     process_folder(root_folder)
     return folders
 

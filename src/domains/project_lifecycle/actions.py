@@ -254,6 +254,8 @@ from src.core.live_connection import (
     _destructive_versioning_provider,
 )
 from src.core.params import (
+    as_float as _as_float,
+    as_int as _as_int,
     missing_param_envelope as _missing_param_envelope,
     tool_params as _tool_params,
 )
@@ -1268,7 +1270,7 @@ def project_settings(action: str, params: Optional[Dict[str, Any]] = None) -> Di
         return _project_summary(
             proj,
             include_clips=bool(p.get("include_clips")),
-            clip_limit=int(p.get("clip_limit", 50)),
+            clip_limit=_as_int(p, "clip_limit", 50),
         )
     elif action == "load_burnin_preset":
         return {"success": bool(proj.LoadBurnInPreset(p["name"]))}

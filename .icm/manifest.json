@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "5d358db8b9b8543e",
+      "fingerprint": "8e3872e4e1ff6c6f",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -691,7 +691,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "9427c8fa1d0d8031",
+      "fingerprint": "76dd15c08e69db09",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -712,6 +712,7 @@
         "tests/core/test_background_jobs.py",
         "tests/core/test_brain_edits.py",
         "tests/core/test_brain_edits_registry_writer.py",
+        "tests/core/test_bridge_and_db_concurrency.py",
         "tests/core/test_bridge_double_fidelity.py",
         "tests/core/test_bridge_helper_identity.py",
         "tests/core/test_bridge_metrics.py",
@@ -915,12 +916,14 @@
         "tests/live_enum_settings_check.py",
         "tests/live_resolve20_api.py",
         "tests/live_resolve21_stage2_validation.py",
+        "tests/live_timeline_end_frame_probe.py",
         "tests/live_v233_validation.py",
         "tests/preflight.py",
         "tests/render_scratch.py",
         "tests/test_action_help.py",
         "tests/test_action_list_drift.py",
         "tests/test_agent_rules_drift.py",
+        "tests/test_audit_minor_bucket.py",
         "tests/test_batch_cli.py",
         "tests/test_claude_skills.py",
         "tests/test_compound_disconnected_smoke.py",
@@ -932,6 +935,7 @@
         "tests/test_entrypoints_and_audits.py",
         "tests/test_env_leak_guard.py",
         "tests/test_exhaustive_wave_a.py",
+        "tests/test_granular_api_signatures.py",
         "tests/test_granular_disconnected_smoke.py",
         "tests/test_granular_guard_drift.py",
         "tests/test_granular_guards.py",

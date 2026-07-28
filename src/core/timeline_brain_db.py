@@ -15,13 +15,17 @@ a dedicated standalone store.
 Concurrency: WAL mode is enabled so reads from the control panel are
 non-blocking against writes from the MCP server. Cross-process write contention
 is absorbed by `busy_timeout` plus the retry loop in `transaction()`.
-*In-process* contention is handled separately: `connect()` hands every thread
-the same `sqlite3.Connection` (`check_same_thread=False`), so two threads
-issuing `BEGIN IMMEDIATE` on it would raise "cannot start a transaction within
-a transaction" and interleave their writes into one another's transaction.
-`transaction()` therefore serializes on a per-database `threading.RLock`, and
-tracks nesting depth per thread so a nested `transaction()` joins the
-outer one instead of attempting a second `BEGIN`.
+
+*In-process*, `connect()` hands each THREAD its own `sqlite3.Connection`. It used
+to cache one connection per database and share it across every thread, which
+covered writer-vs-writer contention (that is what `transaction()`'s per-database
+`RLock` is for) but not readers: a read issued on another thread ran on the very
+connection that had an open `BEGIN IMMEDIATE`, so it executed *inside* that
+transaction and could observe uncommitted rows (#141 finding 9). Per-thread
+connections give readers snapshot isolation via WAL, and remove the "cannot start
+a transaction within a transaction" hazard the shared connection created. The
+write lock still serializes writers, and the per-thread depth map still lets a
+nested `transaction()` join the outer one instead of issuing a second `BEGIN`.
 """
 
 from __future__ import annotations
@@ -49,7 +53,13 @@ BUSY_TIMEOUT_MS = 5000
 _BUSY_RETRY_BACKOFF_SECONDS = (0.1, 0.3, 0.5)
 
 _CONNECTION_LOCK = threading.Lock()
-_CONNECTIONS: Dict[str, sqlite3.Connection] = {}
+# Per-thread {db_path: connection}. Never share a connection across threads: a
+# read on one thread would otherwise execute inside another thread's open
+# transaction (#141 finding 9).
+_THREAD_CONNECTIONS = threading.local()
+# Every live connection, for close_all()/reset_for_test(), which must reach the
+# ones other threads opened. Keyed by (thread ident, db path).
+_ALL_CONNECTIONS: Dict[tuple, sqlite3.Connection] = {}
 
 # One write lock per database file. Guards the shared cached connection so only
 # one thread of this process is ever inside a BEGIN…COMMIT on it. Reentrant so a
@@ -241,29 +251,41 @@ def connect(project_root: str) -> sqlite3.Connection:
     if not project_root:
         raise ValueError("project_root is required")
     path = db_path_for_project(project_root)
+    per_thread = getattr(_THREAD_CONNECTIONS, "by_path", None)
+    if per_thread is None:
+        per_thread = {}
+        _THREAD_CONNECTIONS.by_path = per_thread
+    existing = per_thread.get(path)
+    if existing is not None:
+        return existing
     with _CONNECTION_LOCK:
-        existing = _CONNECTIONS.get(path)
-        if existing is not None:
-            return existing
         _ensure_parent_dir(path)
+        # check_same_thread stays False only because close_all() closes
+        # connections owned by other threads; each connection is otherwise used
+        # by exactly the thread that opened it.
         conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         conn.row_factory = sqlite3.Row
         _init_pragmas(conn)
         _create_schema(conn)
         _run_pending_migrations(conn)
-        _CONNECTIONS[path] = conn
+        per_thread[path] = conn
+        _ALL_CONNECTIONS[(threading.get_ident(), path)] = conn
         return conn
 
 
 def close_all() -> None:
-    """Close every cached connection. Intended for tests + shutdown."""
+    """Close every cached connection, on every thread. Tests + shutdown."""
     with _CONNECTION_LOCK:
-        for conn in _CONNECTIONS.values():
+        for conn in _ALL_CONNECTIONS.values():
             try:
                 conn.close()
             except sqlite3.Error:
                 pass
-        _CONNECTIONS.clear()
+        _ALL_CONNECTIONS.clear()
+    # This thread's map; other threads re-open lazily against the cleared
+    # registry, which is the same contract as before.
+    if getattr(_THREAD_CONNECTIONS, "by_path", None) is not None:
+        _THREAD_CONNECTIONS.by_path.clear()
 
 
 def _write_lock_for(path: str) -> threading.RLock:
@@ -353,12 +375,15 @@ def reset_for_test(project_root: str) -> None:
     """Drop + recreate every table. Tests only."""
     path = db_path_for_project(project_root)
     with _CONNECTION_LOCK:
-        conn = _CONNECTIONS.pop(path, None)
-        if conn is not None:
+        for key in [k for k in _ALL_CONNECTIONS if k[1] == path]:
+            conn = _ALL_CONNECTIONS.pop(key)
             try:
                 conn.close()
             except sqlite3.Error:
                 pass
+    per_thread = getattr(_THREAD_CONNECTIONS, "by_path", None)
+    if per_thread is not None:
+        per_thread.pop(path, None)
     for suffix in ("", "-wal", "-shm"):
         try:
             os.remove(path + suffix)

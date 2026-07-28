@@ -433,7 +433,9 @@ def _collect_timeline_items_in_range(tl, p: Dict[str, Any]):
     for track_type in _range_track_types(p):
         if track_type not in {"video", "audio"}:
             return None, None, None, _err(f"Range actions support video/audio tracks, got {track_type!r}")
-        indices = _range_track_indices(p, track_type)
+        indices, indices_err = _range_track_indices(p, track_type)
+        if indices_err:
+            return None, None, None, indices_err
         if indices is None:
             indices = list(range(1, _timeline_track_count(tl, track_type) + 1))
         for track_index in indices:
@@ -702,12 +704,29 @@ def _clip_summaries(clips):
 def _range_frames_from_params(tl, p: Dict[str, Any]):
     if p.get("use_mark_in_out", p.get("useMarkInOut", False)):
         mark = tl.GetMarkInOut() or {}
+        if not isinstance(mark, dict):
+            return None, None, _err(
+                f"GetMarkInOut returned {type(mark).__name__}, expected a dict of "
+                "{'video'|'audio': {'in': int, 'out': int}}")
         mark_type = p.get("mark_type", p.get("markType", "video"))
         if mark_type not in mark:
             mark_type = "video" if "video" in mark else "audio" if "audio" in mark else None
         if not mark_type:
             return None, None, _err("No timeline mark in/out is set")
-        return _frame_int(mark[mark_type].get("in")), _frame_int(mark[mark_type].get("out")), None
+        # Shape check before .get(): the dict-of-dicts layout was assumed with
+        # no verification, so an unexpected payload raised AttributeError out of
+        # the tool (#142 finding 4).
+        marks = mark.get(mark_type)
+        if not isinstance(marks, dict):
+            return None, None, _err(
+                f"GetMarkInOut()[{mark_type!r}] is {type(marks).__name__}, expected "
+                "a dict with 'in' and 'out'")
+        start = _frame_int(marks.get("in"))
+        end = _frame_int(marks.get("out"))
+        if start is None or end is None:
+            return None, None, _err(
+                f"GetMarkInOut()[{mark_type!r}] has no numeric 'in'/'out'")
+        return start, end, None
     start = p.get("start_frame", p.get("startFrame"))
     end = p.get("end_frame", p.get("endFrame"))
     if start is None or end is None:
@@ -733,15 +752,59 @@ def _range_track_types(p: Dict[str, Any]):
 
 
 def _range_track_indices(p: Dict[str, Any], track_type: str):
+    """Parse the caller's track-index selector. Returns ``(indices, err)``.
+
+    ``indices`` is None when the caller didn't specify any (meaning "all
+    tracks"); ``err`` is an error envelope when what they did specify cannot be
+    read as track indices.
+
+    This used to be a bare comprehension over ``int(...)``, so ordinary caller
+    input escaped as a raw traceback (#142 finding 4): ``track_indices="V1"``
+    raised ValueError, and ``track_indices=2.0`` raised "TypeError: 'float'
+    object is not iterable". It sits on the path of every copy_range /
+    duplicate_range / overwrite_range / lift_range via
+    _collect_timeline_items_in_range.
+    """
     key = f"{track_type}_track_indices"
     raw = p.get(key, p.get(f"{track_type}TrackIndices", p.get("track_indices", p.get("trackIndices"))))
     if raw is None:
-        return None
+        return None, None
+    # bool is an int subclass, and track 'True' is not a thing.
+    if isinstance(raw, bool):
+        return None, _err(f"{key} must be a track index or a list of them, got {raw!r}",
+                          code="INVALID_TRACK_INDICES", category="invalid_input")
     if isinstance(raw, int):
-        return [raw]
-    if isinstance(raw, str):
-        return [int(part.strip()) for part in raw.split(",") if part.strip()]
-    return [int(part) for part in raw]
+        parts = [raw]
+    elif isinstance(raw, float):
+        # A whole-number float is an obvious "2.0 meant track 2"; anything else
+        # is a mistake worth naming rather than truncating.
+        parts = [raw]
+    elif isinstance(raw, str):
+        parts = [part.strip() for part in raw.split(",") if part.strip()]
+    elif isinstance(raw, (list, tuple)):
+        parts = list(raw)
+    else:
+        return None, _err(
+            f"{key} must be a track index, a comma-separated string, or a list; "
+            f"got {type(raw).__name__}",
+            code="INVALID_TRACK_INDICES", category="invalid_input")
+
+    indices = []
+    for part in parts:
+        index = _frame_int(part)
+        if index is None:
+            return None, _err(
+                f"{key} entry {part!r} is not a track index. Use numbers "
+                "(1, \"1,2\", [1, 2]), not track names like \"V1\".",
+                code="INVALID_TRACK_INDICES", category="invalid_input")
+        if index < 1:
+            return None, _err(
+                f"{key} entry {part!r} is out of range — Resolve track indices start at 1.",
+                code="INVALID_TRACK_INDICES", category="invalid_input")
+        indices.append(index)
+    if not indices:
+        return None, None
+    return indices, None
 
 
 def _safe_media_pool_item_id(mpi):

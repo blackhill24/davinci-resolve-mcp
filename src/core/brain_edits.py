@@ -21,6 +21,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -93,14 +95,34 @@ def _now_iso() -> str:
 # ── Metric capture helpers ────────────────────────────────────────────────────
 
 
+# Resolve's "timelineFrameRate" setting is not reliably a bare numeral — it can
+# carry suffixes/formatting, which is why src/core/timeline_lookup.py:_timeline_fps
+# regex-extracts rather than float()-ing it. Both sites below used float()
+# directly, so a ValueError was swallowed by the enclosing `except Exception` and
+# the metric silently recorded nothing: capture_timeline_duration_seconds
+# returned None and total_gap_seconds stayed None (#142 finding 6). One
+# convention, shared.
+def _timeline_fps_or_default(timeline: Any, default: float = 24.0) -> Optional[float]:
+    """Frame rate from a Timeline handle, or ``default``; None if unusable."""
+    try:
+        setting = timeline.GetSetting("timelineFrameRate")
+    except Exception as exc:  # pragma: no cover — Resolve API surface
+        logger.debug("GetSetting(timelineFrameRate) failed: %s", exc)
+        return default
+    match = re.search(r"\d+(?:\.\d+)?", str(setting or ""))
+    if not match:
+        return default
+    fps = float(match.group(0))
+    return fps if fps > 0 else None
+
+
 def capture_timeline_duration_seconds(timeline: Any) -> Optional[float]:
     """Compute duration in seconds from a Resolve Timeline handle."""
     try:
         start = int(timeline.GetStartFrame())
         end = int(timeline.GetEndFrame())
-        fps_setting = timeline.GetSetting("timelineFrameRate")
-        fps = float(fps_setting) if fps_setting else 24.0
-        if fps <= 0:
+        fps = _timeline_fps_or_default(timeline)
+        if not fps or fps <= 0:
             return None
         return max(0.0, (end - start) / fps)
     except Exception as exc:  # pragma: no cover — Resolve API surface
@@ -134,8 +156,7 @@ def capture_timeline_gap_stats(timeline: Any, *, track_types=("video",)) -> Dict
     """
     out = {"gap_count": 0, "total_gap_frames": 0, "total_gap_seconds": None}
     try:
-        fps_setting = timeline.GetSetting("timelineFrameRate")
-        fps = float(fps_setting) if fps_setting else 24.0
+        fps = _timeline_fps_or_default(timeline) or 24.0
         for tt in track_types:
             count = timeline.GetTrackCount(tt)
             if not count:
@@ -343,7 +364,13 @@ def update_brain_edits_registry(
     if not project_root:
         return {"success": False, "error": "project_root required"}
     path = _registry_path_for(project_root)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    # _registry_path_for takes dirname() of the project root, so a
+    # single-component relative root yields "" — and makedirs("") raises
+    # FileNotFoundError, which the `if not project_root` guard above does not
+    # cover (#142 finding 5).
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
 
     payload: Dict[str, Any]
     if os.path.isfile(path):
@@ -355,7 +382,16 @@ def update_brain_edits_registry(
     else:
         payload = {"entries": []}
 
-    entries = payload.setdefault("entries", [])
+    # A registry file that is valid JSON but not an object (a list, a scalar)
+    # would make setdefault/assignment below raise AttributeError/TypeError,
+    # which the except above does not catch. Treat it like corruption.
+    if not isinstance(payload, dict):
+        payload = {"entries": []}
+
+    entries = payload.get("entries")
+    if not isinstance(entries, list):
+        entries = []
+    payload["entries"] = entries
     entry = {
         "project_root": project_root,
         "project_name": project_name or os.path.basename(project_root.rstrip("/")),
@@ -367,10 +403,22 @@ def update_brain_edits_registry(
     payload["entries"] = entries
     payload["updated_at"] = _now_iso()
 
-    tmp_path = path + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2, default=str)
-    os.replace(tmp_path, path)
+    # Unique temp name per writer. The MCP server and the dashboard are separate
+    # processes that both write this file, and log_brain_edit fires on every
+    # destructive op, so a fixed "<path>.tmp" let two writers interleave on the
+    # same temp path and os.replace publish a half-merged payload (#142 finding
+    # 5). src/core/tool_kernel.py:_write_media_analysis_preferences already
+    # solved this the same way.
+    tmp_path = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2, default=str)
+        os.replace(tmp_path, path)
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
     return {"success": True, "registry_path": path, "entry_count": len(entries)}
 
 
@@ -382,6 +430,8 @@ def read_brain_edits_registry(project_root: str) -> Dict[str, Any]:
         with open(path, "r", encoding="utf-8") as fh:
             payload = json.load(fh)
     except (OSError, json.JSONDecodeError):
+        return {"entries": [], "registry_path": path}
+    if not isinstance(payload, dict):
         return {"entries": [], "registry_path": path}
     payload["registry_path"] = path
     return payload

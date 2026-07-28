@@ -86,7 +86,8 @@ def get_gallery_still_albums() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     gallery = project.GetGallery()
@@ -102,7 +103,8 @@ def get_gallery_power_grade_albums() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     gallery = project.GetGallery()
@@ -118,7 +120,8 @@ def get_current_still_album() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     gallery = project.GetGallery()
@@ -138,7 +141,8 @@ def set_current_still_album(album_index: int) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     gallery = project.GetGallery()
@@ -161,7 +165,8 @@ def create_gallery_still_album(album_name: str = "") -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     gallery = project.GetGallery()
@@ -194,7 +199,8 @@ def create_gallery_power_grade_album(album_name: str = "") -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     gallery = project.GetGallery()
@@ -227,7 +233,8 @@ def get_album_stills(album_index: int = 0) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     gallery = project.GetGallery()
@@ -251,7 +258,8 @@ def get_still_label(album_index: int, still_index: int) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     gallery = project.GetGallery()
@@ -277,7 +285,8 @@ def set_still_label(album_index: int, still_index: int, label: str) -> Dict[str,
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     gallery = project.GetGallery()
@@ -302,7 +311,8 @@ def import_stills_to_album(album_index: int, file_paths: List[str]) -> Dict[str,
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     gallery = project.GetGallery()
@@ -326,7 +336,8 @@ def export_stills_from_album(album_index: int, folder_path: str, file_prefix: st
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     gallery = project.GetGallery()
@@ -351,7 +362,8 @@ def delete_stills_from_album(album_index: int, still_indices: List[int]) -> Dict
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     gallery = project.GetGallery()

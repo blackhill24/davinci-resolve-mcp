@@ -944,6 +944,29 @@ API_TRUTH: List[Dict[str, Any]] = [
         "issue": 142,
     },
     {
+        "symbol": "Timeline.GetEndFrame() inclusivity",
+        "object": "Timeline",
+        "signature": "() -> int",
+        "reality": "UNSETTLED. Whether the returned frame is the last frame of "
+                   "the timeline or one past it has not been measured against a "
+                   "running Resolve. This repo had THREE conventions for the same "
+                   "call - `end - start` and `end - start + 1` in two places - so "
+                   "at most one was right and the others reported a duration off "
+                   "by one frame (#141 finding 6). Note this is a different method "
+                   "from TimelineItem.GetEnd(), which IS exclusive.",
+        "recommended": "All callers now share "
+                       "src/core/timeline_lookup.py:timeline_frame_duration, which "
+                       "assumes INCLUSIVE (the convention two of the three sites "
+                       "and both user-facing 'duration' fields already used, so "
+                       "unifying changed no user-visible output). "
+                       "tests/live_timeline_end_frame_probe.py settles it in one "
+                       "read-only run against a timeline that ends on a clip; if "
+                       "it reports EXCLUSIVE, drop the single `+ 1` in that helper "
+                       "and update this entry.",
+        "tags": ["semantics", "timeline", "unverified"],
+        "issue": 141,
+    },
+    {
         "symbol": "hasattr() / getattr() on Resolve API objects (attribute fabrication)",
         "object": "(all Resolve scripting objects)",
         "reality": "getattr(obj, name) returns None (not an AttributeError) for ANY "

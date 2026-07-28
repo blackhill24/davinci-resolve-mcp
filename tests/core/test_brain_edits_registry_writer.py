@@ -179,8 +179,11 @@ class TimelineFpsConventionTest(unittest.TestCase):
                 self.assertGreater(fps, 0)
 
     def test_duration_is_computed_rather_than_silently_dropped(self):
+        # 49 frames (0..48 inclusive) at 24 fps - the shared, end-inclusive
+        # timeline_frame_duration (#141 finding 6). What matters here is that a
+        # formatted fps setting yields a NUMBER at all rather than None.
         duration = brain_edits.capture_timeline_duration_seconds(_FpsTimeline("24 fps"))
-        self.assertEqual(2.0, duration)
+        self.assertAlmostEqual(49 / 24.0, duration)
 
     def test_an_unreadable_setting_falls_back_to_the_default(self):
         self.assertEqual(24.0, brain_edits._timeline_fps_or_default(_FpsTimeline(None)))

@@ -2082,7 +2082,8 @@ def ti_assign_to_color_group(group_name: str, item_index: int = 0, track_type: s
     item, err = _get_timeline_item(track_type, track_index, item_index)
     if err:
         return err
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     groups = project.GetColorGroupsList()
     target = None
     if groups:

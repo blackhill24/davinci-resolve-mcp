@@ -1344,17 +1344,24 @@ def timeline_item_color(action: str, params: Optional[Dict[str, Any]] = None) ->
             return err
         return {"success": bool(item.SetCDL(_normalize_cdl(validation["cdl"])))}
     elif action == "copy_grades":
-        # Find target items by IDs
+        # Find target items by IDs. An all-stale id list used to leave `targets`
+        # empty, and CopyGrades([]) returns truthy — so the response was
+        # {"success": true} with nothing graded and no `missing` list (#141
+        # finding 4). safe_copy_grade above has always reported both.
         _, tl, _ = _get_tl()
-        targets = []
-        target_ids = set(p["target_ids"])
-        if tl:
-            for tt in ["video"]:
-                for ti in range(1, tl.GetTrackCount(tt) + 1):
-                    for it in (tl.GetItemListInTrack(tt, ti) or []):
-                        if it.GetUniqueId() in target_ids:
-                            targets.append(it)
-        return {"success": bool(item.CopyGrades(targets))}
+        if not tl:
+            return _err("No current timeline")
+        targets, missing = _timeline_items_by_ids_report(
+            tl, list(p["target_ids"]), track_types=("video",))
+        if missing:
+            return {
+                "success": False,
+                "copied": 0,
+                "missing": missing,
+                "error": f"{len(missing)} target id(s) not found on this timeline",
+            }
+        return {"success": bool(item.CopyGrades(targets)),
+                "copied": len(targets), "missing": missing}
     elif action == "add_version":
         return {"success": bool(item.AddVersion(p["name"], p.get("type", 0)))}
     elif action == "get_current_version":

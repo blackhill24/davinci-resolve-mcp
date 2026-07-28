@@ -10,10 +10,16 @@ from typing import Any, Dict, Optional, Tuple
 
 from src.core.platform import setup_environment
 from src.core import locale_guard as _locale_guard
+from src.core.envelope import _has_method
 
 
 def _safe_call(obj: Any, method_name: str, *args: Any) -> Tuple[Any, Optional[str]]:
-    if obj is None or not hasattr(obj, method_name):
+    # dir(), not hasattr(): the Resolve bridge fabricates every attribute, so
+    # hasattr is always True and this guard could never report "unavailable".
+    # Worse, it then fell through to getattr(obj, name)(...) and surfaced
+    # "'NoneType' object is not callable" as the error instead of the
+    # "<method> unavailable" this code was written to produce (#141 finding 7).
+    if obj is None or not _has_method(obj, method_name):
         return None, f"{method_name} unavailable"
     try:
         return getattr(obj, method_name)(*args), None

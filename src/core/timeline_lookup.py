@@ -291,6 +291,32 @@ def _timeline_item_duration(item, start: Optional[int] = None, end: Optional[int
         return end - start
     return None
 
+def timeline_frame_duration(tl, start=None, end=None):
+    """Timeline duration in frames, or None.
+
+    ONE definition, because the repo had three: `end - start` in
+    core/brain_edits.py and `end - start + 1` in both granular/timeline.py and
+    project_lifecycle/utils/project_properties.py. At most one could be right;
+    the others reported a duration off by one frame (#141 finding 6).
+
+    NOTE — `Timeline.GetEndFrame()` inclusivity is NOT yet catalogued in
+    src/core/api_truth.py. It is a different method from `TimelineItem.GetEnd()`
+    (which IS exclusive, hence the `end - start` in _timeline_item_duration
+    above) and has not been settled against a running Resolve: doing so needs a
+    project with an open timeline of known length, which a read-only probe on an
+    arbitrary user machine cannot assume. `tests/live_timeline_end_frame_probe.py`
+    settles it in one run; until then this keeps the +1 convention that two of
+    the three call sites — and both user-facing "duration" fields — already
+    reported, so unifying changed no user-visible output.
+    """
+    if start is None:
+        start = _frame_int(tl.GetStartFrame())
+    if end is None:
+        end = _frame_int(tl.GetEndFrame())
+    if start is None or end is None:
+        return None
+    return max(0, end - start + 1)
+
 def _timeline_item_track_info(item):
     try:
         track_info = item.GetTrackTypeAndIndex()

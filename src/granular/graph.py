@@ -47,7 +47,8 @@ def graph_set_lut(node_index: int, lut_path: str, item_index: int = 0, track_typ
         relocated = ensure_lut_in_master(lut_path)
         if relocated:
             try:
-                project = resolve.GetProjectManager().GetCurrentProject()
+                _pm = resolve.GetProjectManager()
+                project = _pm.GetCurrentProject() if _pm else None
                 if project:
                     project.RefreshLUTList()
             except Exception:
@@ -266,7 +267,8 @@ def get_color_group_clips(group_name: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     groups = project.GetColorGroupsList()
@@ -294,7 +296,8 @@ def get_color_group_pre_clip_node_graph(group_name: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     groups = project.GetColorGroupsList()
@@ -322,7 +325,8 @@ def get_color_group_post_clip_node_graph(group_name: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project open"}
     groups = project.GetColorGroupsList()

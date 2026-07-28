@@ -766,6 +766,8 @@ def archive_project(project_name: str, archive_path: str, archive_src_media: boo
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     result = pm.ArchiveProject(project_name, archive_path, archive_src_media, archive_render_cache, archive_proxy_media)
     return {"success": bool(result), "project_name": project_name, "archive_path": archive_path}
 
@@ -781,6 +783,8 @@ def delete_project(project_name: str) -> Dict[str, Any]:
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     # DeleteProject is flaky (silently returns False when the target is/was
     # current, transient first-attempt failures); route through the retry+switch
     # guard (#19).
@@ -800,6 +804,8 @@ def create_project_folder(folder_name: str) -> Dict[str, Any]:
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     result = pm.CreateFolder(folder_name)
     return {"success": bool(result), "folder_name": folder_name}
 
@@ -815,6 +821,8 @@ def delete_project_folder(folder_name: str) -> Dict[str, Any]:
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     result = pm.DeleteFolder(folder_name)
     return {"success": bool(result), "folder_name": folder_name}
 
@@ -826,6 +834,8 @@ def get_project_folder_list() -> Dict[str, Any]:
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     folders = pm.GetFolderListInCurrentFolder()
     return {"folders": folders if folders else []}
 
@@ -837,6 +847,8 @@ def goto_root_project_folder() -> Dict[str, Any]:
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     result = pm.GotoRootFolder()
     return {"success": bool(result)}
 
@@ -848,6 +860,8 @@ def goto_parent_project_folder() -> Dict[str, Any]:
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     result = pm.GotoParentFolder()
     return {"success": bool(result)}
 
@@ -859,6 +873,8 @@ def get_current_project_folder() -> Dict[str, Any]:
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     folder = pm.GetCurrentFolder()
     return {"current_folder": folder}
 
@@ -874,6 +890,8 @@ def open_project_folder(folder_name: str) -> Dict[str, Any]:
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     result = pm.OpenFolder(folder_name)
     return {"success": bool(result), "folder_name": folder_name}
 
@@ -889,6 +907,8 @@ def import_project_from_file(file_path: str) -> Dict[str, Any]:
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     result = pm.ImportProject(file_path)
     return {"success": bool(result), "file_path": file_path}
 
@@ -906,6 +926,8 @@ def export_project_to_file(project_name: str, file_path: str, with_stills_and_lu
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     result = pm.ExportProject(project_name, file_path, with_stills_and_luts)
     return {"success": bool(result), "project_name": project_name, "file_path": file_path}
 
@@ -921,6 +943,8 @@ def restore_project(file_path: str) -> Dict[str, Any]:
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     result = pm.RestoreProject(file_path)
     return {"success": bool(result), "file_path": file_path}
 
@@ -932,6 +956,8 @@ def get_current_database() -> Dict[str, Any]:
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     db = pm.GetCurrentDatabase()
     return db if db else {"error": "Failed to get current database"}
 
@@ -943,6 +969,8 @@ def get_database_list() -> Dict[str, Any]:
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     dbs = pm.GetDatabaseList()
     return {"databases": dbs if dbs else []}
 
@@ -958,6 +986,8 @@ def set_current_database(db_info: Dict[str, str]) -> Dict[str, Any]:
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
     pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"error": "Failed to get Project Manager"}
     result = pm.SetCurrentDatabase(db_info)
     return {"success": bool(result), "database": db_info}
 
@@ -972,7 +1002,8 @@ def set_project_name(name: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.SetName(name)
@@ -989,7 +1020,8 @@ def get_timeline_by_index(index: int) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     tl = project.GetTimelineByIndex(index)
@@ -1004,7 +1036,8 @@ def get_project_preset_list() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     presets = project.GetPresetList()
@@ -1021,7 +1054,8 @@ def set_project_preset(preset_name: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.SetPreset(preset_name)
@@ -1038,7 +1072,8 @@ def delete_render_job(job_id: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.DeleteRenderJob(job_id)
@@ -1051,7 +1086,8 @@ def get_render_job_list() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     jobs = project.GetRenderJobList()
@@ -1069,7 +1105,8 @@ def start_rendering_jobs(job_ids: Optional[List[str]] = None, is_interactive_mod
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     if job_ids:
@@ -1085,7 +1122,8 @@ def stop_rendering() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     project.StopRendering()
@@ -1098,7 +1136,8 @@ def is_rendering_in_progress() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.IsRenderingInProgress()
@@ -1115,7 +1154,8 @@ def load_render_preset(preset_name: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.LoadRenderPreset(preset_name)
@@ -1132,7 +1172,8 @@ def save_as_new_render_preset(preset_name: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.SaveAsNewRenderPreset(preset_name)
@@ -1149,7 +1190,8 @@ def delete_render_preset(preset_name: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.DeleteRenderPreset(preset_name)
@@ -1178,7 +1220,8 @@ def set_render_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.SetRenderSettings(settings)
@@ -1195,7 +1238,8 @@ def get_render_job_status(job_id: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     status = project.GetRenderJobStatus(job_id)
@@ -1208,7 +1252,8 @@ def get_render_formats() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     formats = project.GetRenderFormats()
@@ -1225,7 +1270,8 @@ def get_render_codecs(format_name: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     codecs = project.GetRenderCodecs(format_name)
@@ -1238,7 +1284,8 @@ def get_current_render_format_and_codec() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.GetCurrentRenderFormatAndCodec()
@@ -1256,7 +1303,8 @@ def set_current_render_format_and_codec(format_name: str, codec_name: str) -> Di
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.SetCurrentRenderFormatAndCodec(format_name, codec_name)
@@ -1269,7 +1317,8 @@ def get_current_render_mode() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     mode = project.GetCurrentRenderMode()
@@ -1286,7 +1335,8 @@ def set_current_render_mode(mode: int) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.SetCurrentRenderMode(mode)
@@ -1304,7 +1354,8 @@ def get_render_resolutions(format_name: str, codec_name: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     resolutions = project.GetRenderResolutions(format_name, codec_name)
@@ -1317,7 +1368,8 @@ def refresh_lut_list() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.RefreshLUTList()
@@ -1338,7 +1390,8 @@ def reset_intellisearch_analysis(confirm_token: Optional[str] = None) -> Dict[st
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     if not _has_method(project, "ResetIntellisearchAnalysis"):
@@ -1368,7 +1421,8 @@ def get_project_unique_id() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     uid = project.GetUniqueId()
@@ -1385,7 +1439,8 @@ def insert_audio_to_current_track(file_path: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.InsertAudioToCurrentTrackAtPlayhead(file_path)
@@ -1402,7 +1457,8 @@ def load_burn_in_preset(preset_name: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.LoadBurnInPreset(preset_name)
@@ -1419,7 +1475,8 @@ def export_current_frame_as_still(file_path: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.ExportCurrentFrameAsStill(file_path)
@@ -1432,7 +1489,8 @@ def get_color_groups_list() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     groups = project.GetColorGroupsList()
@@ -1451,7 +1509,8 @@ def add_color_group(group_name: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.AddColorGroup(group_name)
@@ -1468,7 +1527,8 @@ def delete_color_group(group_name: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     # Find the group by name
@@ -1498,7 +1558,8 @@ def rename_color_group(group_name: str, new_name: str) -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     groups = project.GetColorGroupsList() or []
@@ -1518,7 +1579,8 @@ def apply_fairlight_preset_to_current_timeline(preset_name: str) -> Dict[str, An
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     result = project.ApplyFairlightPresetToCurrentTimeline(preset_name)
@@ -1531,7 +1593,8 @@ def get_quick_export_render_presets() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     presets = project.GetQuickExportRenderPresets()
@@ -1560,7 +1623,8 @@ def render_with_quick_export(
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     param_dict: Dict[str, Any] = {}
@@ -1593,7 +1657,8 @@ def add_render_job() -> Dict[str, Any]:
     resolve = get_resolve()
     if resolve is None:
         return {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     job_id = project.AddRenderJob()

@@ -29,7 +29,7 @@ from src.core import locale_guard as _locale_guard
 # #113 Tier 1: read-back-verified current-timeline switch, shared with the
 # compound server rather than reimplemented here. Re-exported via __all__ below
 # (which excludes only dunders), so `from src.granular.common import *` picks it up.
-from src.core.timeline_lookup import _set_current_timeline, _set_start_timecode
+from src.core.timeline_lookup import _set_current_timeline, _set_start_timecode, timeline_frame_duration
 # #119 task 6: _has_method / _api_constant used to be COPIES of the originals in
 # src/core/envelope, and the copy is the one the export path actually binds —
 # src/granular/timeline.py does `from src.granular.common import *`, so
@@ -462,7 +462,8 @@ def _get_mp():
     resolve = get_resolve()
     if resolve is None:
         return None, None, {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return None, None, {"error": "No project currently open"}
     mp = project.GetMediaPool()
@@ -745,7 +746,8 @@ def _get_timeline():
     resolve = get_resolve()
     if resolve is None:
         return None, None, {"error": "Not connected to DaVinci Resolve"}
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return None, None, {"error": "No project currently open"}
     tl = project.GetCurrentTimeline()
@@ -758,7 +760,13 @@ def _get_timeline_item(track_type="video", track_index=1, item_index=0):
     if err:
         return None, err
     items = tl.GetItemListInTrack(track_type, track_index)
-    if not items or item_index >= len(items):
+    # Reject negatives explicitly: Python's reverse-indexing would otherwise
+    # silently read/mutate the LAST clip on the track for item_index < 0, and
+    # every granular tool takes `item_index: int = 0` straight from the caller.
+    # The compound path fixed exactly this (timeline_lookup.py, "EX5"); the
+    # granular surface never got it (#141 finding 2).
+    if (not items or not isinstance(item_index, int) or isinstance(item_index, bool)
+            or item_index < 0 or item_index >= len(items)):
         return None, {"error": f"No item at index {item_index} on {track_type} track {track_index}"}
     return items[item_index], None
 

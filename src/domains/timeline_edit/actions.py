@@ -3992,14 +3992,9 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         items = tl.GetItemListInTrack(track_type, track_index)
         return {"items": [{"name": it.GetName(), "id": it.GetUniqueId(), "start": it.GetStart(), "end": it.GetEnd(), "duration": it.GetDuration()} for it in (items or [])]}
     elif action == "delete_clips":
-        # Find timeline items by unique IDs
-        ids_set = set(p["clip_ids"])
-        found = []
-        for tt in ["video", "audio", "subtitle"]:
-            for ti in range(1, tl.GetTrackCount(tt) + 1):
-                for it in (tl.GetItemListInTrack(tt, ti) or []):
-                    if it.GetUniqueId() in ids_set:
-                        found.append(it)
+        # Find timeline items by unique IDs, and report the ones that missed.
+        found, missing = _timeline_items_by_ids_report(
+            tl, list(p["clip_ids"]), track_types=("video", "audio", "subtitle"))
         # B2 — ripple=True is catastrophic; require confirmation.
         ripple = bool(p.get("ripple", False))
         if ripple:
@@ -4016,16 +4011,32 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
             blocked = _consume_confirm_token(action="timeline.delete_clips_ripple", params=p)
             if blocked:
                 return blocked
-        return {"success": bool(tl.DeleteClips(found, ripple))}
+        # `found` is built by scanning tracks for the caller's ids. If every id
+        # is wrong or stale the list is empty, DeleteClips([]) returns truthy,
+        # and the response was {"success": true} with nothing deleted and no
+        # `missing` list (#141 finding 4). _timeline_items_by_ids_report exists
+        # for exactly this and is used by safe_copy_grade already.
+        if missing:
+            return {
+                "success": False,
+                "deleted": 0,
+                "missing": missing,
+                "error": f"{len(missing)} clip id(s) not found on this timeline",
+            }
+        return {"success": bool(tl.DeleteClips(found, ripple)), "deleted": len(found), "missing": missing}
     elif action == "set_clips_linked":
-        ids_set = set(p["clip_ids"])
-        found = []
-        for tt in ["video", "audio"]:
-            for ti in range(1, tl.GetTrackCount(tt) + 1):
-                for it in (tl.GetItemListInTrack(tt, ti) or []):
-                    if it.GetUniqueId() in ids_set:
-                        found.append(it)
-        return {"success": bool(tl.SetClipsLinked(found, p["linked"]))}
+        # Same silent-no-op as delete_clips above: an all-stale id list gave
+        # {"success": true} having linked nothing (#141 finding 4).
+        found, missing = _timeline_items_by_ids_report(tl, list(p["clip_ids"]))
+        if missing:
+            return {
+                "success": False,
+                "linked": 0,
+                "missing": missing,
+                "error": f"{len(missing)} clip id(s) not found on this timeline",
+            }
+        return {"success": bool(tl.SetClipsLinked(found, p["linked"])),
+                "linked": len(found), "missing": missing}
     elif action == "duplicate":
         dup = tl.DuplicateTimeline(p.get("name", tl.GetName() + " Copy"))
         return _ok(name=dup.GetName()) if dup else _err("Failed to duplicate")

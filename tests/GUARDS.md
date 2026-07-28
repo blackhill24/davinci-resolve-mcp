@@ -65,6 +65,15 @@ module object — the mutation then survives silently.
 - `preflight.py` — pre-run Resolve status gate (closed / open_no_project / open_project);
   `--require open|project|timeline`, `--json`; exit 0 ready, 2 not ready, 3 no scripting.
   Every `live_*` `__main__` calls `gate()` — new harnesses must too.
+- `scripts/run_live_suite.py` runs the whole set. Never sweep them with a hand-rolled shell
+  loop: harnesses that pass alone fail back-to-back because each inherits the project the
+  last one left behind, and a harness reading stdin eats the rest of the work list (#151).
+  The runner re-establishes a scratch project + timeline between harnesses, gives each
+  `stdin=DEVNULL`, and names the harness that leaked a disposable project.
+- A harness exercising a **confirm-gated** op must send the token AND assert the refusal:
+  asserting only the confirmed call passes on an ungated build, and asserting only the
+  refusal never reaches Resolve. `live_resolve21_stage2_render_validation.py` is the
+  worked example; it was always-fail for want of the token (#150).
 - `live_*` are kept out of offline CI **by filename alone** (pytest's `test_*.py` glob), so
   a misnamed harness is collected and run. Live-validation process:
   `docs/process/release-process.md`.

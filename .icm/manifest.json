@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "782b2eea47ec4f3c",
+      "fingerprint": "c19b7b86f1f66794",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -618,7 +618,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "2e10529bda4b9b8b",
+      "fingerprint": "7d8efeafad64c8ef",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -691,7 +691,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "724aef7d24880d03",
+      "fingerprint": "ffbaf9876e9c7c27",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -976,7 +976,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "5c0b0605b7e94cec",
+      "fingerprint": "9ad53810983600ad",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",
@@ -988,7 +988,8 @@
         "scripts/live_media_analysis_polish_probe.py",
         "scripts/measure_bridge_cost.py",
         "scripts/mutation_gate.py",
-        "scripts/regen_panel_screenshots.py"
+        "scripts/regen_panel_screenshots.py",
+        "scripts/run_live_suite.py"
       ]
     }
   },

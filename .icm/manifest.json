@@ -691,7 +691,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "23ed8075e931a524",
+      "fingerprint": "956df791170f4e24",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -919,6 +919,7 @@
         "tests/live_timeline_end_frame_probe.py",
         "tests/live_v233_validation.py",
         "tests/preflight.py",
+        "tests/probe_phases.py",
         "tests/render_scratch.py",
         "tests/test_action_help.py",
         "tests/test_action_list_drift.py",
@@ -948,6 +949,7 @@
         "tests/test_launch_shim.py",
         "tests/test_live_harness_exit_codes.py",
         "tests/test_live_harness_naming.py",
+        "tests/test_live_probe_phases.py",
         "tests/test_locale_guard.py",
         "tests/test_mcp_prompts.py",
         "tests/test_mcp_resources.py",

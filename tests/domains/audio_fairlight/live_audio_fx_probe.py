@@ -13,6 +13,10 @@ Resolve stays up and the disposable project stays current:
   diff     - export the (by-then hand-edited) timeline again, diff against the
              baseline, print the significant delta.
   cleanup  - delete the disposable project, restore whatever was current before.
+  sweep    - the default when invoked with no phase, i.e. by
+             `scripts/run_live_suite.py`: setup then cleanup, because in a sweep
+             the manual GUI step is never going to happen and `setup` alone
+             would leave the project behind on every run (#154).
 
 Run once per experiment (add an EQ, export/diff/cleanup; then re-run setup for
 a Compressor, etc.) — each run is a fresh disposable project so experiments
@@ -36,6 +40,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from src.domains.timeline_conform_interchange.utils import drt_diff  # noqa: E402
+
+from tests.probe_phases import delete_probe_project, run_sweep  # noqa: E402
 
 STATE_FILE = os.path.join(tempfile.gettempdir(), "drm-audio-fx-probe-state.json")
 _DNXHR = ["-c:v", "dnxhd", "-profile:v", "dnxhr_lb", "-pix_fmt", "yuv422p"]
@@ -90,6 +96,11 @@ def phase_setup(s) -> int:
     if proj is None:
         print("could not create disposable project — exit 1")
         return 1
+    # Record the disposable project the instant it exists. Everything below can
+    # still fail, and until #154 those failures returned before any state was
+    # written — leaving cleanup with no name to delete (#154).
+    _save_state({"probe_name": probe_name, "previous": previous,
+                 "scratch": scratch, "media_dir": media_dir})
 
     mp = proj.GetMediaPool()
     clips = mp.ImportMedia([video, music]) or []
@@ -176,22 +187,34 @@ def phase_diff(s) -> int:
     return 0
 
 
+def _save_state(state: dict) -> None:
+    """Persist what cleanup needs to know, called as soon as each fact is true.
+
+    Writing the whole dict once at the end of setup meant a setup that failed
+    *after* creating the project returned with nothing recorded, so its cleanup
+    had no project name to delete — a failing run leaked where a passing one
+    would not (#154)."""
+    with open(STATE_FILE, "w") as fh:
+        json.dump(state, fh)
+
+
 def phase_cleanup(s) -> int:
-    with open(STATE_FILE) as fh:
-        state = json.load(fh)
+    state = {}
+    try:
+        with open(STATE_FILE) as fh:
+            state = json.load(fh)
+    except (OSError, ValueError):
+        print("no probe state recorded — nothing to clean up")
     r = s.get_resolve()
     if r is None:
         print("Resolve not available — exit 2")
         return 2
-    pm = r.GetProjectManager()
     try:
-        if state.get("previous"):
-            pm.LoadProject(state["previous"])
-        pm.DeleteProject(state["probe_name"])
-        print(f"deleted project {state['probe_name']}")
+        delete_probe_project(r, state.get("probe_name"), state.get("previous"))
     finally:
         import shutil
-        shutil.rmtree(state["media_dir"], ignore_errors=True)
+        if state.get("media_dir"):
+            shutil.rmtree(state["media_dir"], ignore_errors=True)
         try:
             os.remove(STATE_FILE)
         except OSError:
@@ -201,14 +224,20 @@ def phase_cleanup(s) -> int:
 
 def main() -> int:
     import src.server as s
-    phase = sys.argv[1] if len(sys.argv) > 1 else "setup"
+    # No phase argument means nobody is at the keyboard — the sweep's calling
+    # convention. The manual GUI step this probe is built around cannot happen,
+    # so build the fixture and take it down again rather than leaving it
+    # standing for a human who is not coming (#154).
+    phase = sys.argv[1] if len(sys.argv) > 1 else "sweep"
+    if phase == "sweep":
+        return run_sweep(lambda: phase_setup(s), lambda: phase_cleanup(s))
     if phase == "setup":
         return phase_setup(s)
     if phase == "diff":
         return phase_diff(s)
     if phase == "cleanup":
         return phase_cleanup(s)
-    print(f"unknown phase {phase!r} (setup|diff|cleanup)")
+    print(f"unknown phase {phase!r} (sweep|setup|diff|cleanup)")
     return 1
 
 

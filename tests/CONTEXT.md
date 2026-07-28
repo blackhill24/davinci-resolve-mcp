@@ -24,6 +24,9 @@ stay flat in `tests/`. `test_*` run offline; `live_*` need Resolve (often Studio
   Every root-level guard and `live_*` convention is documented there, not here.
 - `conftest.py` (root) — repo root on `sys.path`, `bridge_double` / `resolve_double`
   fixtures, autouse env-leak guard. Collection rules are in `pytest.ini` at the repo root.
+- `probe_phases.py` (root) — `run_sweep` / `delete_probe_project` for the two-phase GUI
+  probes. Named without the `live_` prefix on purpose: that glob is what the runner sweeps
+  and what the preflight-gate guard enforces, and this is a support module, not a harness.
 - `_error_envelope_helpers.py` (root) — shared assertions for the action-dispatch error
   envelope; `assert_error_mentions` pins one to the SPECIFIC cause. Reuse when asserting
   tool responses.

@@ -31,6 +31,7 @@ scan result (`assertGreater(len(files), N)`) and earns a mutation here.
 | Guard | Catches |
 |---|---|
 | `test_live_harness_exit_codes.py` | a `live_*.py` that can only exit 0 — status discarded, no reachable nonzero exit, unguarded `input()` (#119 §5 found two) |
+| `test_live_probe_phases.py` | a two-phase GUI probe whose no-argument invocation runs the interactive `setup` phase. The sweep calls every harness with no arguments, so such a probe builds its disposable project, reports PASS, and never reaches the `cleanup` that would delete it — five did, on every run, for months (#154). Nothing fails; the only evidence is a project list nobody reads |
 | `test_live_harness_naming.py` | a live harness named `test_*` (breaks pytest at COLLECTION on Resolve-less CI, so publish never ran the suite — #111), and any `test_*.py` importing `DaVinciResolveScript` |
 | `test_hand_rolled_double_audit.py` | a new double re-implementing `bridge_double`'s fabrication |
 | `test_vacuous_assertion_audit.py` | the three shapes swept in #121 §3 — assert-on-a-self-configured-mock, error-envelope-passes-for-the-wrong-reason, swallowed exception |
@@ -81,6 +82,15 @@ module object — the mutation then survives silently.
   asserting only the confirmed call passes on an ungated build, and asserting only the
   refusal never reaches Resolve. `live_resolve21_stage2_render_validation.py` is the
   worked example; it was always-fail for want of the token (#150).
+- A **two-phase GUI probe** (`setup` → a human edits something in Resolve → `diff` →
+  `cleanup`) must default its no-argument invocation to a `sweep` phase — `setup` then
+  `cleanup` via `tests/probe_phases.run_sweep` — never to `setup`. The sweep passes no
+  arguments and no human is there to do the GUI step, so defaulting to `setup` leaks the
+  disposable project every run while still reporting PASS (#154). Record the project name
+  the moment it exists, not at the end of setup, or a setup that fails midway leaks harder
+  than one that succeeds. Delete through `probe_phases.delete_probe_project`, which is the
+  only caller shape that cannot forget `resolve=` — without it the helper never parks off
+  the Fusion page, where a delete terminates Resolve outright (#153/#157).
 - `live_*` are kept out of offline CI **by filename alone** (pytest's `test_*.py` glob), so
   a misnamed harness is collected and run. Live-validation process:
   `docs/process/release-process.md`.

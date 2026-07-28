@@ -18,6 +18,10 @@ Phases (the multicam conversion itself is the manual GUI step in between):
             the multicam-bearing regions (new SeqContainers / MpClip entries /
             changed folders) so the encoding is visible.
   cleanup - delete the disposable project.
+  sweep   - the default when invoked with no phase, i.e. by
+            `scripts/run_live_suite.py`: setup then cleanup, because in a sweep
+            the manual GUI step is never going to happen and `setup` alone
+            would leave the project behind on every run (#154).
 
 Run: .venv/bin/python tests/live_multicam_drt_probe.py setup
      ... (manual GUI: create the multicam clip) ...
@@ -39,6 +43,8 @@ import zipfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from src.domains.timeline_conform_interchange.utils import drt_diff  # noqa: E402
+
+from tests.probe_phases import delete_probe_project, run_sweep  # noqa: E402
 
 STATE_FILE = os.path.join(tempfile.gettempdir(), "drm-multicam-probe-state.json")
 
@@ -76,11 +82,17 @@ def phase_setup() -> int:
         return 2
     pm = r.GetProjectManager()
     name = f"multicam_probe_{int(time.time())}"
+    previous = pm.GetCurrentProject().GetName() if pm.GetCurrentProject() else None
     proj = pm.CreateProject(name)
     if proj is None:
         print("project create failed")
         return 1
     work = tempfile.mkdtemp(prefix="drm-multicam-probe-")
+    # Written the instant the project exists: every step below can still fail,
+    # and until #154 those failures returned before any state was recorded, so
+    # cleanup had no project name to delete.
+    json.dump({"project": name, "previous": previous, "work": work},
+              open(STATE_FILE, "w"))
     mp = proj.GetMediaPool()
     imported = mp.ImportMedia(_make_angles(work))
     print(f"imported {len(imported or [])} angle clips")
@@ -89,8 +101,8 @@ def phase_setup() -> int:
     if not pm.ExportProject(name, baseline, False):
         print("baseline .drp export failed")
         return 1
-    json.dump({"project": name, "work": work, "baseline": baseline},
-              open(STATE_FILE, "w"))
+    json.dump({"project": name, "previous": previous, "work": work,
+               "baseline": baseline}, open(STATE_FILE, "w"))
     print(f"baseline exported: {baseline}")
     print("\nNOW (manual GUI step): select cam_a + cam_b in the Media Pool ->\n"
           "  right-click -> 'New Multicam Clip Using Selected Clips...' -> sync\n"
@@ -139,24 +151,42 @@ def phase_diff() -> int:
 
 def phase_cleanup() -> int:
     import src.server as s
-    from src.domains.project_lifecycle.utils.project_cleanup import delete_project_safely
     st = _state()
     r = s.get_resolve()
-    delete_project_safely(r.GetProjectManager(), st["project"])
-    print(f"deleted {st['project']} (work dir kept: {st['work']})")
-    os.remove(STATE_FILE)
+    if r is None:
+        print("Resolve not available — exit 2")
+        return 2
+    # `resolve=` is not optional in practice: deleting while the UI sits on the
+    # Fusion page terminates Resolve outright (#153/#157), and the helper only
+    # parks off it when given the handle.
+    delete_probe_project(r, st.get("project"), st.get("previous"))
+    print(f"work dir kept: {st.get('work')}")
+    try:
+        os.remove(STATE_FILE)
+    except OSError:
+        pass
     return 0
 
 
 def main() -> int:
-    phase = sys.argv[1] if len(sys.argv) > 1 else "setup"
+    # No phase argument means nobody is at the keyboard — the sweep's calling
+    # convention. The manual GUI step this probe is built around cannot happen,
+    # so build the fixture and take it down again rather than leaving it
+    # standing for a human who is not coming (#154).
+    phase = sys.argv[1] if len(sys.argv) > 1 else "sweep"
+    if phase == "sweep":
+        # Guarded on the state file because `_state()` exits 2 when it is
+        # missing — correct for `diff`, but inside a teardown it would rewrite
+        # a failing setup's exit code into "environment not ready".
+        return run_sweep(phase_setup,
+                         lambda: phase_cleanup() if os.path.exists(STATE_FILE) else None)
     if phase == "setup":
         return phase_setup()
     if phase == "diff":
         return phase_diff()
     if phase == "cleanup":
         return phase_cleanup()
-    print(f"unknown phase {phase!r} (setup|diff|cleanup)")
+    print(f"unknown phase {phase!r} (sweep|setup|diff|cleanup)")
     return 1
 
 

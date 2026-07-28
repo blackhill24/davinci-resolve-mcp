@@ -52,7 +52,9 @@ function decodeVarint(buf, offset) {
     shift += 7;
   }
 
-  return { value, bytesRead: pos - offset };
+  // `>>> 0`: `<<` is a SIGNED shift, so a 5-byte varint with bit 31 set decoded
+  // NEGATIVE and callers doing `offset += length` walked BACKWARDS — an endless loop.
+  return { value: value >>> 0, bytesRead: pos - offset };
 }
 
 /**

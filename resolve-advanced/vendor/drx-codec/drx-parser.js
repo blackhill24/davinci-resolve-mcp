@@ -316,6 +316,28 @@ const POLYGON_NAME_BY_ID = {
   147849233: 'polygonWindow.param11', // 0x08D00011
 };
 
+// Bounded varint read for the hand-rolled byte walkers below.
+//
+// They used to inline `do { b = buf[p++]; len |= (b & 0x7f) << s; s += 7; } while (b & 0x80)`.
+// `<<` is a SIGNED 32-bit shift, so a 5-byte length varint with bit 31 set decodes to a
+// NEGATIVE length — `p += len` then walks BACKWARDS and the enclosing `while (p < buf.length)`
+// spins forever. A single corrupt/misidentified blob (`0a fa ff ff ff 0f`) wedges the whole
+// Node process, exactly like the wedged `unzip` that UNZIP_TIMEOUT_MS was added for.
+// Returns [value, nextPos]; value is always a non-negative Number, matching
+// ProtobufParser.readVarint's `>>> 0`.
+function readVarintAt(buf, p) {
+  let value = 0;
+  let shift = 0;
+  while (p < buf.length) {
+    const b = buf[p++];
+    value |= (b & 0x7f) << shift;
+    if ((b & 0x80) === 0) break;
+    shift += 7;
+    if (shift > 35) return [0, buf.length]; // malformed — stop the walk
+  }
+  return [value >>> 0, p];
+}
+
 // The per-vector "Center" values live in GRID_DATA_2 (0x86000607) as a PACKED float32
 // array — structure F12{F1{<packed 7×float32>}} — which is NOT valid nested protobuf
 // (the generic parser misreads the packed bytes), so read it from the raw F2 bytes.
@@ -329,11 +351,11 @@ function decodeColorSliceCenters(f2Bytes) {
     while (p < end) {
       const tag = buf[p++]; const fnum = tag >>> 3; const wt = tag & 7;
       if (wt === 2) {
-        let len = 0, s = 0, b;
-        do { b = buf[p++]; len |= (b & 0x7f) << s; s += 7; } while (b & 0x80);
+        let len; [len, p] = readVarintAt(buf, p);
         const cs = p; p += len;
+        if (cs + len > end) return null; // truncated field — nothing trustworthy past here
         if (fnum === target) return [cs, cs + len];
-      } else if (wt === 0) { while (buf[p] & 0x80) p++; p++; }
+      } else if (wt === 0) { [, p] = readVarintAt(buf, p); }
       else if (wt === 5) { p += 4; } else if (wt === 1) { p += 8; } else return null;
     }
     return null;
@@ -385,16 +407,17 @@ function parseHdrZone(raw) {
   while (p < buf.length) {
     const tag = buf[p++]; const fnum = tag >>> 3; const wt = tag & 7;
     if (wt === 2) {
-      let len = 0, s = 0, b; do { b = buf[p++]; len |= (b & 0x7f) << s; s += 7; } while (b & 0x80);
+      let len; [len, p] = readVarintAt(buf, p);
       if (fnum === 1) z.name = buf.toString('utf8', p, p + len);
       p += len;
     } else if (wt === 5) {
+      if (p + 4 > buf.length) break; // truncated fixed32 — readFloatLE would throw
       const f = buf.readFloatLE(p); p += 4;
       if (fnum === 2) z.exposure = f;
       else if (fnum === 3) z.colorBalanceY = f;
       else if (fnum === 4) z.colorBalanceX = f;
       else if (fnum === 7) z.saturation = f;
-    } else if (wt === 0) { while (buf[p] & 0x80) p++; p++; }
+    } else if (wt === 0) { [, p] = readVarintAt(buf, p); }
     else if (wt === 1) { p += 8; }
     else break;
   }
@@ -477,9 +500,11 @@ function parseSplinePoint(raw) {
   let p = 0; let x, y;
   while (p < buf.length) {
     const tag = buf[p++]; const fnum = tag >>> 3; const wt = tag & 7;
-    if (wt === 5) { const f = buf.readFloatLE(p); p += 4; if (fnum === 1) x = f; else if (fnum === 2) y = f; }
-    else if (wt === 2) { let len = 0, s = 0, b; do { b = buf[p++]; len |= (b & 0x7f) << s; s += 7; } while (b & 0x80); p += len; }
-    else if (wt === 0) { while (buf[p] & 0x80) p++; p++; }
+    if (wt === 5) {
+      if (p + 4 > buf.length) break; // truncated fixed32 — readFloatLE would throw
+      const f = buf.readFloatLE(p); p += 4; if (fnum === 1) x = f; else if (fnum === 2) y = f;
+    } else if (wt === 2) { let len; [len, p] = readVarintAt(buf, p); p += len; }
+    else if (wt === 0) { [, p] = readVarintAt(buf, p); }
     else if (wt === 1) { p += 8; } else break;
   }
   return (x !== undefined || y !== undefined) ? { x: x ?? 0, y: y ?? 0 } : null;
@@ -1788,6 +1813,7 @@ module.exports = {
   extractConnections,
   extractMetadata,
   ProtobufParser,
+  readVarintAt, // exported for the malformed-varint regression test
   PARAM_IDS,
   CORRECTOR_TYPES,
   DEFAULT_PARAMS,

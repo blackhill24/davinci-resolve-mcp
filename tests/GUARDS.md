@@ -70,6 +70,12 @@ module object — the mutation then survives silently.
   last one left behind, and a harness reading stdin eats the rest of the work list (#151).
   The runner re-establishes a scratch project + timeline between harnesses, gives each
   `stdin=DEVNULL`, and names the harness that leaked a disposable project.
+- `--vitals` samples Resolve's `/proc` vitals between harnesses via
+  `scripts/resolve_vitals.py`, for the Resolve that terminates by itself mid-sweep with no
+  OOM and no segfault (#153). Use it on any sweep meant to be diagnostic, not just green:
+  once the process is gone there is nothing left to read, so an un-instrumented sweep that
+  hits the exit costs a full re-run and yields nothing. `tests/test_resolve_vitals.py` pins
+  the sampler against a synthetic `/proc` tree.
 - A harness exercising a **confirm-gated** op must send the token AND assert the refusal:
   asserting only the confirmed call passes on an ungated build, and asserting only the
   refusal never reaches Resolve. `live_resolve21_stage2_render_validation.py` is the

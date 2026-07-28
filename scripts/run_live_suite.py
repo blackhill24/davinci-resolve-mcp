@@ -23,6 +23,15 @@ It also diffs the project list around each harness, so a disposable project left
 behind is reported against the harness that leaked it instead of accumulating
 unattributed (14 of 25 projects were probe leftovers when #151 was filed).
 
+`--vitals` adds the other half of that accounting. Resolve on this box
+terminates by itself ~20 harnesses into a sweep, leaving no crash dialog, no
+core dump and nothing in the journal (#153), so the only evidence available is
+what its resource usage was doing on the way there. With the flag, a `/proc`
+sample is taken between harnesses and recorded per harness in the results file,
+the summary prints the growth curve and the harnesses that grew RSS the most,
+and the abort path samples one last time — which is what distinguishes "the
+process exited" from "the process is up but no longer answering".
+
 Exit codes follow `tests/preflight.py`: **0** all green, **1** at least one
 harness failed, **2** the environment was not ready to start. A harness exiting
 2/3 is recorded as SKIP, never as a failure — that is the contract that keeps
@@ -33,6 +42,7 @@ Usage:
     .venv/bin/python scripts/run_live_suite.py --cold        # Resolve QUIT first
     .venv/bin/python scripts/run_live_suite.py -k timeline   # substring filter
     .venv/bin/python scripts/run_live_suite.py --clean-leaks # delete leftovers
+    .venv/bin/python scripts/run_live_suite.py --vitals      # + resource curve (#153)
 """
 
 from __future__ import annotations
@@ -46,8 +56,12 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SCRIPTS = Path(__file__).resolve().parent
+for _path in (str(ROOT), str(SCRIPTS)):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
+
+import resolve_vitals  # noqa: E402 — needs SCRIPTS on the path first
 
 SCRATCH_PROJECT = "ZZ_live_suite_scratch"
 SCRATCH_TIMELINE = "live_suite_scratch_tl"
@@ -97,12 +111,28 @@ def build_env() -> dict:
 # runner survives both and keeps reporting.
 
 def resolve_op(op: str, env: dict, timeout: int = 180) -> dict:
-    """Run one internal op in a subprocess and return its JSON result."""
-    proc = subprocess.run(
-        [sys.executable, str(Path(__file__).resolve()), "--internal-op", op],
-        env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-        timeout=timeout, cwd=str(ROOT),
-    )
+    """Run one internal op in a subprocess and return its JSON result.
+
+    A timeout is reported as `RESOLVE_GONE`, not raised. Resolve has two ways of
+    failing here and only one of them is an exit: it can also **wedge** — stay
+    up, hold its scripting socket open, and never answer — in which case this
+    op's child blocks in `futex_wait` until the timeout. Letting that
+    `TimeoutExpired` propagate killed the whole run mid-sweep and took the
+    results file with it, which is the same false-reporting family as #151:
+    a sweep that hit the bug produced no report at all rather than an honest
+    one. Observed in the #153 bisect, on the same harness that elsewhere makes
+    Resolve exit outright.
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), "--internal-op", op],
+            env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            timeout=timeout, cwd=str(ROOT),
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": RESOLVE_GONE,
+                "detail": f"op {op!r} did not answer within {timeout}s — Resolve is "
+                          f"wedged (still up, no longer serving the scripting API)."}
     for line in reversed(proc.stdout.splitlines()):
         if line.startswith("{"):
             try:
@@ -298,9 +328,24 @@ def run_harness(path: Path, env: dict, timeout: int, quiet: bool) -> dict:
             "seconds": round(elapsed, 1), "output": output}
 
 
-def sweep(harnesses: list, env: dict, args) -> list:
+def take_vitals(enabled: bool) -> dict | None:
+    """One `/proc` sample of the Resolve process, or None when not asked for.
+
+    Read from `/proc`, never through the scripting API: the sample has to
+    survive the moment it exists to describe (#153), and a bridge call into a
+    dying Resolve takes its caller down with it.
+    """
+    if not enabled:
+        return None
+    return resolve_vitals.sample()
+
+
+def sweep(harnesses: list, env: dict, args) -> tuple:
     results = []
     before_all = resolve_op("projects", env).get("projects", []) if not args.cold else []
+    baseline = take_vitals(args.vitals)
+    if baseline:
+        print(f"[vitals] baseline  {resolve_vitals.format_sample(baseline)}", flush=True)
 
     for index, path in enumerate(harnesses, 1):
         rel = str(path.relative_to(ROOT))
@@ -316,9 +361,23 @@ def sweep(harnesses: list, env: dict, args) -> list:
                 # validated nothing. Stop and say so instead.
                 print(f"      ! Resolve is no longer responding — aborting with "
                       f"{len(harnesses) - index + 1} harness(es) unrun.")
+                # The sample at the abort point is the one that matters: it says
+                # whether the process is gone outright or still up but no longer
+                # answering, which are different bugs (#153) — and it is always
+                # taken here, not only under --vitals, because one `/proc` read
+                # is free and the distinction is the whole diagnosis.
+                dying = take_vitals(True)
+                mode = ("EXITED — no Resolve process remains"
+                        if not dying.get("alive")
+                        else "WEDGED — the process is still up but no longer "
+                             "serving the scripting API")
+                print(f"      ! Resolve {mode}")
+                print(f"      ! vitals at abort: {resolve_vitals.format_sample(dying)}")
                 results.append({"harness": rel, "status": ABORTED, "returncode": None,
-                                "seconds": 0.0, "output": "Resolve stopped responding "
-                                                          "before this harness ran."})
+                                "seconds": 0.0, "vitals": dying,
+                                "output": f"Resolve stopped responding before this "
+                                          f"harness ran. {mode}. "
+                                          f"{scratch.get('detail', '')}"})
                 break
             before = resolve_op("projects", env).get("projects", [])
         else:
@@ -326,14 +385,40 @@ def sweep(harnesses: list, env: dict, args) -> list:
 
         result = run_harness(path, env, args.timeout, args.quiet)
 
+        died_after = False
         if not args.cold:
-            after = resolve_op("projects", env).get("projects", [])
+            after_op = resolve_op("projects", env)
+            # Resolve can go down *during* the harness that just ran — which is
+            # exactly what #153 does, and the harness still exits 0 because its
+            # assertions had already passed and only its cleanup hit the dead
+            # bridge. Catch it here rather than on the next iteration, or the
+            # last harness in a run would end the sweep looking green.
+            died_after = after_op.get("error") == RESOLVE_GONE
+            after = after_op.get("projects", [])
             leaked = [p for p in after if p not in before and p != SCRATCH_PROJECT]
             result["leaked_projects"] = leaked
             if leaked:
                 print(f"      ! leaked projects: {', '.join(leaked)}")
+        result["vitals"] = take_vitals(args.vitals or died_after)
         results.append(result)
         print(f"      {result['status']} in {result['seconds']}s", flush=True)
+        if result["vitals"] and args.vitals:
+            growth = resolve_vitals.delta(baseline or {}, result["vitals"])
+            print(f"      vitals {resolve_vitals.format_sample(result['vitals'])}"
+                  f"{f'  since baseline: {growth}' if growth else ''}", flush=True)
+
+        if died_after:
+            alive = (result["vitals"] or {}).get("alive")
+            mode = ("WEDGED — still up, no longer serving the scripting API"
+                    if alive else "EXITED — no Resolve process remains")
+            print(f"      ! Resolve went down DURING this harness: {mode}")
+            print(f"      ! aborting with {len(harnesses) - index} harness(es) unrun.")
+            result["resolve_went_down"] = mode
+            results.append({"harness": "(sweep aborted)", "status": ABORTED,
+                            "returncode": None, "seconds": 0.0,
+                            "vitals": result["vitals"],
+                            "output": f"Resolve went down during {rel}. {mode}."})
+            break
 
     if not args.cold and args.clean_leaks:
         after_all = resolve_op("projects", env).get("projects", [])
@@ -342,12 +427,57 @@ def sweep(harnesses: list, env: dict, args) -> list:
             deleted = resolve_op("delete:" + ",".join(leftovers), env)
             print(f"Deleted {len(deleted.get('deleted', []))} leaked project(s): "
                   f"{', '.join(deleted.get('deleted', []))}")
-    return results
+    return results, baseline
 
 
 # ── reporting ─────────────────────────────────────────────────────────────────
 
-def summarize(results: list, out_path: Path, started_at: float) -> int:
+def vitals_report(results: list, baseline: dict | None) -> str:
+    """Resolve's resource curve across the sweep, or "" when --vitals was off.
+
+    Prints the growth from the baseline to the last live sample plus the three
+    harnesses that grew RSS the most, because #153's question is not "did it
+    grow" — a video app's RSS always grows — but "does anything grow without
+    bound, and which harness is doing it".
+    """
+    samples = [(r["harness"], r["vitals"]) for r in results if r.get("vitals")]
+    if baseline is None and not samples:
+        return ""
+    lines = ["  Resolve vitals:\n"]
+    # The baseline counts as a sample for liveness: a sweep whose every
+    # per-harness reading is dead but whose baseline was alive is the exit
+    # happening during harness 1, not "Resolve was never there".
+    live = [(harness, v) for harness, v in samples if v.get("alive")]
+    if not live and not (baseline and baseline.get("alive")):
+        lines.append("    no live sample — Resolve was already gone when the "
+                     "sweep started sampling.\n")
+        return "".join(lines)
+    first = baseline if baseline and baseline.get("alive") else live[0][1]
+    if not live:
+        live = [("(baseline)", first)]
+    lines.append(f"    first  {resolve_vitals.format_sample(first)}\n")
+    lines.append(f"    last   {resolve_vitals.format_sample(live[-1][1])}\n")
+    lines.append(f"    growth {resolve_vitals.delta(first, live[-1][1])}\n")
+    fds, limit = live[-1][1].get("fds"), live[-1][1].get("fd_limit")
+    if fds and limit and fds > limit * 0.8:
+        lines.append(f"    ! fd table is {round(100 * fds / limit)}% of the soft "
+                     f"limit — exhaustion is a live theory for this run.\n")
+    steps, previous = [], first
+    for harness, reading in live:
+        grew = resolve_vitals.delta(previous, reading).get("rss_kb", 0)
+        steps.append((grew, harness))
+        previous = reading
+    for grew, harness in sorted(steps, reverse=True)[:3]:
+        if grew > 0:
+            lines.append(f"    +{grew // 1024}M RSS  {harness}\n")
+    if any(not v.get("alive") for _, v in samples):
+        lines.append("    ! a sample found no Resolve process at all — it exited, "
+                     "it did not merely stop answering.\n")
+    return "".join(lines)
+
+
+def summarize(results: list, out_path: Path, started_at: float,
+              baseline: dict | None = None) -> int:
     counts = {status: sum(1 for r in results if r["status"] == status)
               for status in (PASS, FAIL, SKIP, TIMEOUT, ABORTED)}
     print()
@@ -366,6 +496,7 @@ def summarize(results: list, out_path: Path, started_at: float) -> int:
     if counts[ABORTED]:
         print("  RUN INCOMPLETE — Resolve stopped responding; the harnesses after "
               "the abort did not run.")
+    print(vitals_report(results, baseline), end="")
     print("=" * 72)
 
     payload = {
@@ -373,6 +504,9 @@ def summarize(results: list, out_path: Path, started_at: float) -> int:
         "duration_seconds": round(time.time() - started_at),
         "counts": counts,
         "leaked_projects": leaks,
+        # Only present with --vitals; the per-harness readings ride along inside
+        # each result, so a sweep that aborted still carries the whole curve.
+        "vitals_baseline": baseline,
         # The full harness output is the point of a results file: a sweep-only
         # failure is only diagnosable from what the harness printed at the time.
         "results": results,
@@ -438,6 +572,9 @@ def main() -> int:
                         help=f"Per-harness timeout in seconds (default {DEFAULT_TIMEOUT}).")
     parser.add_argument("--clean-leaks", action="store_true",
                         help="Delete disposable projects the sweep left behind (asks nothing).")
+    parser.add_argument("--vitals", action="store_true",
+                        help="Sample Resolve's RSS/fds/threads/GPU between harnesses "
+                             "and report the growth curve (issue #153).")
     parser.add_argument("--quiet", action="store_true",
                         help="Do not print the output tail of failing harnesses.")
     parser.add_argument("--out", type=Path,
@@ -473,8 +610,8 @@ def main() -> int:
 
     started_at = time.time()
     print(f"[runner] {len(harnesses)} harness(es), {args.timeout}s timeout each")
-    results = sweep(harnesses, env, args)
-    return summarize(results, args.out, started_at)
+    results, baseline = sweep(harnesses, env, args)
+    return summarize(results, args.out, started_at, baseline)
 
 
 if __name__ == "__main__":

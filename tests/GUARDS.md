@@ -70,6 +70,10 @@ module object — the mutation then survives silently.
   `docs/process/release-process.md`.
 - `live_api_probe.py` is a read-only API-surface probe (`--allow-mutation` opts into a
   scratch timeline); `live_resolve20_api.py` mutates unconditionally.
+- `live_timeline_end_frame_probe.py` — read-only; settles whether
+  `Timeline.GetEndFrame()` is inclusive, the one open question behind
+  `core/timeline_lookup.timeline_frame_duration` (#141 finding 6). Needs a
+  current timeline that ends on a clip, so it gates `--require timeline`.
 
 ## Coverage
 

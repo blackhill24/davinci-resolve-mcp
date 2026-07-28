@@ -186,9 +186,15 @@ def inspect_custom_object(object_path: str) -> Dict[str, Any]:
                 else:
                     return {"error": f"Method '{method_name}' not found or not callable"}
             else:
-                # It's an attribute access
-                if hasattr(obj, part):
-                    obj = getattr(obj, part)
+                # It's an attribute access. `hasattr` was always True on the
+                # bridge, so a genuinely-absent name set obj = None and was then
+                # reported as a found VALUE rather than "Attribute not found"
+                # (#141 finding 7). Both probes are needed and they are
+                # opposites: METHODS appear in dir() but CONSTANTS (EXPORT_DRT,
+                # AUDIO_*) do not, while a fabricated name getattrs to None.
+                value = getattr(obj, part, None)
+                if part in dir(obj) or value is not None:
+                    obj = value
                 else:
                     return {"error": f"Attribute '{part}' not found"}
         

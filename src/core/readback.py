@@ -12,6 +12,7 @@ mutation that reports success while the readback disagrees is a *contradiction*
 — the single most valuable reliability signal — and is logged.
 """
 import logging
+import threading
 from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger("davinci-resolve-mcp")
@@ -20,16 +21,22 @@ logger = logging.getLogger("davinci-resolve-mcp")
 # how often the Resolve API's self-reported success matches reality. A rising
 # `contradicted` count is the signal worth watching.
 _STATS = {"total": 0, "verified": 0, "contradicted": 0, "unverified": 0}
+# `_STATS[k] += 1` is a read-modify-write. It is atomic enough under the GIL
+# today, but not under a free-threaded build, and this module is reached from
+# the dispatch worker threads and the dashboard alike (#141 minor bucket).
+_STATS_LOCK = threading.Lock()
 
 
 def verification_stats():
     """Return a copy of the process-level verification tally."""
-    return dict(_STATS)
+    with _STATS_LOCK:
+        return dict(_STATS)
 
 
 def reset_verification_stats():
-    for k in _STATS:
-        _STATS[k] = 0
+    with _STATS_LOCK:
+        for k in _STATS:
+            _STATS[k] = 0
 
 
 def verify_by_readback(
@@ -71,19 +78,20 @@ def verify_by_readback(
 
     # A contradiction — reported success but the readback disagrees — is the
     # signal worth surfacing loudly.
-    _STATS["total"] += 1
-    if result.get("success_raw") and not result.get("verified"):
+    contradicted = bool(result.get("success_raw")) and not result.get("verified")
+    if contradicted:
         logger.warning(
             "readback contradiction%s: API reported success but post-state "
             "verification failed%s",
             f" [{label}]" if label else "",
             f" (intent={intent})" if intent else "",
         )
-        result["contradiction"] = True
-        _STATS["contradicted"] += 1
-    else:
-        result["contradiction"] = False
-        if result.get("verified"):
+    result["contradiction"] = contradicted
+    with _STATS_LOCK:
+        _STATS["total"] += 1
+        if contradicted:
+            _STATS["contradicted"] += 1
+        elif result.get("verified"):
             _STATS["verified"] += 1
         else:
             _STATS["unverified"] += 1

@@ -290,6 +290,8 @@ from src.core.timeline_lookup import (
     _track_selector,
 )
 from src.core.params import (
+    as_float as _as_float,
+    as_int as _as_int,
     missing_param_envelope as _missing_param_envelope,
     tool_params as _tool_params,
 )
@@ -2974,7 +2976,7 @@ def resolve_control(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
     if action == "mcp_update_status":
         return _mcp_update_status_payload(
             force=_media_analysis_bool(p.get("force_check", p.get("forceCheck")), False),
-            timeout=float(p.get("timeout", 3.0)),
+            timeout=_as_float(p, "timeout", 3.0),
         )
     elif action == "set_mcp_update_policy":
         mode = str(p.get("mode") or "").strip().lower()

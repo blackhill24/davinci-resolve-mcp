@@ -11,6 +11,9 @@ This module provides functions for working with DaVinci Resolve project properti
 import logging
 from typing import Dict, Any
 
+from src.core.envelope import _has_method
+from src.core.timeline_lookup import timeline_frame_duration
+
 # Configure logging
 logger = logging.getLogger("davinci-resolve-mcp.project_properties")
 
@@ -518,8 +521,18 @@ def get_project_metadata(project_obj) -> Dict[str, Any]:
         # Add basic project info
         metadata["name"] = project_obj.GetName()
         
-        # Add project path if available
-        if hasattr(project_obj, "GetPath"):
+        # Add project path if available.
+        # hasattr() can NEVER report a Resolve method as absent — the bridge
+        # fabricates any attribute — so this guard always passed and
+        # project_obj.GetPath() raised "TypeError: 'NoneType' object is not
+        # callable", which the except below swallowed into an error return for
+        # the WHOLE function: name, current timeline, timeline count, format,
+        # color and SuperScale settings were all dropped on every live call.
+        # GetPath is genuinely absent from dir(Project) (49 entries,
+        # live-verified on Studio 21.0.2.4), so in practice this branch is now
+        # simply skipped — but it stays a probe so a build that adds the method
+        # starts reporting the path (#141 finding 1).
+        if _has_method(project_obj, "GetPath"):
             metadata["path"] = project_obj.GetPath()
         
         # Get current timeline
@@ -588,7 +601,7 @@ def get_project_info(project_obj) -> Dict[str, Any]:
                 timeline_info = {
                     "name": timeline.GetName(),
                     "isCurrent": timeline.GetName() == current_timeline_name,
-                    "duration": timeline.GetEndFrame() - timeline.GetStartFrame() + 1
+                    "duration": timeline_frame_duration(timeline)
                 }
                 project_info["timelines"].append(timeline_info)
         

@@ -261,6 +261,8 @@ from src.core.tool_kernel import (
     _TIMELINE_ACTIONS,
 )
 from src.core.params import (
+    as_float as _as_float,
+    as_int as _as_int,
     missing_param_envelope as _missing_param_envelope,
     tool_params as _tool_params,
 )
@@ -2015,7 +2017,7 @@ def _timeline_create_variant_from_ranges(proj, source_tl, p: Dict[str, Any]) -> 
 def _timeline_contact_sheet_samples(tl, p: Dict[str, Any]) -> Tuple[Optional[List[Dict[str, Any]]], Optional[Dict[str, Any]]]:
     from src.domains.timeline_conform_interchange.actions import _timeline_conform_snapshot
     from src.domains.review_annotation.actions import _timeline_marker_rows_from_snapshot
-    max_samples = max(1, int(p.get("max_samples", p.get("maxSamples", 12))))
+    max_samples = max(1, _as_int(p, "max_samples", _as_int(p, "maxSamples", 12)))
     frames = p.get("frames")
     samples = []
     if frames is not None:
@@ -3992,14 +3994,9 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         items = tl.GetItemListInTrack(track_type, track_index)
         return {"items": [{"name": it.GetName(), "id": it.GetUniqueId(), "start": it.GetStart(), "end": it.GetEnd(), "duration": it.GetDuration()} for it in (items or [])]}
     elif action == "delete_clips":
-        # Find timeline items by unique IDs
-        ids_set = set(p["clip_ids"])
-        found = []
-        for tt in ["video", "audio", "subtitle"]:
-            for ti in range(1, tl.GetTrackCount(tt) + 1):
-                for it in (tl.GetItemListInTrack(tt, ti) or []):
-                    if it.GetUniqueId() in ids_set:
-                        found.append(it)
+        # Find timeline items by unique IDs, and report the ones that missed.
+        found, missing = _timeline_items_by_ids_report(
+            tl, list(p["clip_ids"]), track_types=("video", "audio", "subtitle"))
         # B2 — ripple=True is catastrophic; require confirmation.
         ripple = bool(p.get("ripple", False))
         if ripple:
@@ -4016,16 +4013,32 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
             blocked = _consume_confirm_token(action="timeline.delete_clips_ripple", params=p)
             if blocked:
                 return blocked
-        return {"success": bool(tl.DeleteClips(found, ripple))}
+        # `found` is built by scanning tracks for the caller's ids. If every id
+        # is wrong or stale the list is empty, DeleteClips([]) returns truthy,
+        # and the response was {"success": true} with nothing deleted and no
+        # `missing` list (#141 finding 4). _timeline_items_by_ids_report exists
+        # for exactly this and is used by safe_copy_grade already.
+        if missing:
+            return {
+                "success": False,
+                "deleted": 0,
+                "missing": missing,
+                "error": f"{len(missing)} clip id(s) not found on this timeline",
+            }
+        return {"success": bool(tl.DeleteClips(found, ripple)), "deleted": len(found), "missing": missing}
     elif action == "set_clips_linked":
-        ids_set = set(p["clip_ids"])
-        found = []
-        for tt in ["video", "audio"]:
-            for ti in range(1, tl.GetTrackCount(tt) + 1):
-                for it in (tl.GetItemListInTrack(tt, ti) or []):
-                    if it.GetUniqueId() in ids_set:
-                        found.append(it)
-        return {"success": bool(tl.SetClipsLinked(found, p["linked"]))}
+        # Same silent-no-op as delete_clips above: an all-stale id list gave
+        # {"success": true} having linked nothing (#141 finding 4).
+        found, missing = _timeline_items_by_ids_report(tl, list(p["clip_ids"]))
+        if missing:
+            return {
+                "success": False,
+                "linked": 0,
+                "missing": missing,
+                "error": f"{len(missing)} clip id(s) not found on this timeline",
+            }
+        return {"success": bool(tl.SetClipsLinked(found, p["linked"])),
+                "linked": len(found), "missing": missing}
     elif action == "duplicate":
         dup = tl.DuplicateTimeline(p.get("name", tl.GetName() + " Copy"))
         return _ok(name=dup.GetName()) if dup else _err("Failed to duplicate")
@@ -4085,8 +4098,6 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         return _timeline_thumbnail_contact_sheet(proj, tl, p)
     elif action == "marker_thumbnail_review":
         return _timeline_marker_thumbnail_review(proj, tl, p)
-    elif action == "edit_kernel_capabilities":
-        return _timeline_edit_kernel_capabilities()
     elif action == "probe_edit_kernel_item":
         return _timeline_probe_edit_kernel_item(tl, p)
     elif action == "title_property_scan":
@@ -4390,8 +4401,6 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
                 "current timeline). frame_ranges lists can be merged/overlapped per clip name."
             ),
         )
-    elif action == "conform_capabilities":
-        return _conform_capabilities()
     elif action == "probe_timeline_structure":
         return _timeline_conform_snapshot(tl, p)
     elif action == "detect_gaps_overlaps":
@@ -4400,11 +4409,6 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         return _source_ranges_from_snapshot(_timeline_conform_snapshot(tl, p), p)
     elif action == "export_timeline_checked":
         return _export_timeline_checked(tl, p)
-    elif action == "import_timeline_checked":
-        _, _, mp, mp_err = _get_mp()
-        if mp_err:
-            return mp_err
-        return _import_timeline_checked(proj, mp, p)
     elif action == "compare_timelines":
         return _compare_timelines(proj, tl, p)
     elif action == "probe_interchange_roundtrip":
@@ -4418,8 +4422,6 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         return _build_relink_plan(tl, p)
     elif action == "conform_boundary_report":
         return _conform_boundary_report(tl, p)
-    elif action == "audio_capabilities":
-        return _audio_capabilities()
     elif action == "probe_audio_item":
         return _probe_audio_item(tl, p)
     elif action == "probe_audio_track":
@@ -4438,16 +4440,6 @@ def timeline(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, 
         if mp_err:
             return mp_err
         return _audio_mapping_report(mp, tl, p)
-    elif action == "safe_auto_sync_audio":
-        _, _, mp, mp_err = _get_mp()
-        if mp_err:
-            return mp_err
-        return _safe_auto_sync_audio(mp, p)
-    elif action == "transcription_capabilities":
-        _, _, mp, mp_err = _get_mp()
-        if mp_err:
-            return mp_err
-        return _transcription_capabilities(mp, p)
     elif action == "subtitle_generation_probe":
         return _subtitle_generation_probe(tl, p)
     elif action == "fairlight_boundary_report":
@@ -4491,7 +4483,7 @@ def timeline_ai(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[st
         items = []
         if clip_ids:
             for tt in ["video"]:
-                for ti in range(1, tl.GetTrackCount(tt) + 1):
+                for ti in range(1, (tl.GetTrackCount(tt) or 0) + 1):
                     for it in (tl.GetItemListInTrack(tt, ti) or []):
                         if it.GetUniqueId() in clip_ids:
                             items.append(it)

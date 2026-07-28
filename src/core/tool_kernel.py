@@ -184,9 +184,20 @@ _TINY_FONT = {
 }
 
 def _resolve_audio_constant(resolve_obj, name: str, fallback):
-    if resolve_obj is not None and hasattr(resolve_obj, name):
-        return getattr(resolve_obj, name)
-    return fallback
+    """A Resolve enum constant by name, or ``fallback``.
+
+    Constants need the OPPOSITE probe to methods: they are real attributes that
+    do NOT appear in dir(), so getattr is the test and dir() is not. What is
+    never a test is hasattr — the bridge fabricates every name, so it was
+    always True and an unknown constant returned the fabricated None instead of
+    the fallback. That made key_fallback unreachable in live mode, and a None
+    dict key makes Resolve silently reject the ENTIRE settings dict — the exact
+    failure _resolve_enum_settings documents below (#141 finding 7).
+    """
+    if resolve_obj is None:
+        return fallback
+    value = getattr(resolve_obj, name, None)
+    return fallback if value is None else value
 
 _MEDIA_ANALYSIS_PREFS_ENV = "DAVINCI_RESOLVE_MCP_MEDIA_ANALYSIS_PREFS"
 _SETUP_CHOICE_CLEAR_VALUES = {"", "ask", "prompt", "clear", "default", "none", "null", "unset"}
@@ -1050,30 +1061,55 @@ def _contact_sheet_png_bytes(samples: List[Dict[str, Any]], columns: int = 4, pa
     thumbs = [sample for sample in samples if sample.get("thumbnail_rgb")]
     if not thumbs:
         raise ValueError("No thumbnails available for contact sheet")
-    thumb_w, thumb_h = thumbs[0]["thumbnail_rgb"][0], thumbs[0]["thumbnail_rgb"][1]
+    # One cell size for the whole sheet, sized to the LARGEST thumbnail, with
+    # each frame letterboxed into it.
+    #
+    # Previously the canvas was sized from thumbs[0] while the loop rebound
+    # thumb_w/thumb_h per sample. Bytearray slice assignment with a length
+    # mismatch RESIZES the buffer, and GetCurrentClipThumbnailImage() returns
+    # per-clip dimensions, so any timeline mixing 16:9 + vertical + graphics
+    # wrote past its cell, grew the canvas, and emitted a garbled PNG with no
+    # error raised. The per-sample rebind also poisoned the column origin and
+    # the label strip, not just the row copy, so normalizing the copy alone
+    # would still have laid cells out at the wrong offsets (#141 finding 5,
+    # with the addendum from #142).
+    cell_w = max(int(sample["thumbnail_rgb"][0]) for sample in thumbs)
+    cell_img_h = max(int(sample["thumbnail_rgb"][1]) for sample in thumbs)
     columns = max(1, min(columns, len(thumbs)))
     rows = int(math.ceil(len(thumbs) / columns))
     label_height = max(0, int(label_height or 0))
-    cell_h = thumb_h + label_height
-    width = columns * thumb_w + (columns + 1) * padding
+    cell_h = cell_img_h + label_height
+    width = columns * cell_w + (columns + 1) * padding
     height = rows * cell_h + (rows + 1) * padding
     canvas = bytearray([24, 24, 24] * width * height)
     for sample_index, sample in enumerate(thumbs):
         thumb_w, thumb_h, raw = sample["thumbnail_rgb"]
+        thumb_w, thumb_h = int(thumb_w), int(thumb_h)
         col = sample_index % columns
         row = sample_index // columns
-        x0 = padding + col * (thumb_w + padding)
+        # Cell origin comes from the CELL size, never the sample's own size.
+        x0 = padding + col * (cell_w + padding)
         y0 = padding + row * (cell_h + padding)
-        for y in range(thumb_h):
+        # Centre the frame in its cell; the surrounding canvas stays background.
+        off_x = (cell_w - thumb_w) // 2
+        off_y = (cell_img_h - thumb_h) // 2
+        copy_w = max(0, min(thumb_w, cell_w))
+        copy_h = max(0, min(thumb_h, cell_img_h))
+        row_bytes = copy_w * 3
+        for y in range(copy_h):
             src = y * thumb_w * 3
-            dst = ((y0 + y) * width + x0) * 3
-            canvas[dst:dst + thumb_w * 3] = raw[src:src + thumb_w * 3]
+            dst = ((y0 + off_y + y) * width + x0 + off_x) * 3
+            chunk = raw[src:src + row_bytes]
+            if len(chunk) != row_bytes:
+                # Never let a short/oversized source row resize the canvas.
+                chunk = bytes(chunk).ljust(row_bytes, b"\x18")[:row_bytes]
+            canvas[dst:dst + row_bytes] = chunk
         if label_height:
             label = sample.get("label") or _contact_sheet_sample_label(sample, sample_index + 1)
             sample["label"] = label
-            _draw_rect_rgb(canvas, width, height, x0, y0 + thumb_h, thumb_w, label_height, (12, 12, 12))
-            max_chars = max(4, (thumb_w - 8) // 8)
-            _draw_tiny_text_rgb(canvas, width, height, x0 + 4, y0 + thumb_h + 5, label[:max_chars], scale=2)
+            _draw_rect_rgb(canvas, width, height, x0, y0 + cell_img_h, cell_w, label_height, (12, 12, 12))
+            max_chars = max(4, (cell_w - 8) // 8)
+            _draw_tiny_text_rgb(canvas, width, height, x0 + 4, y0 + cell_img_h + 5, label[:max_chars], scale=2)
     return width, height, _rgb_to_png_bytes(width, height, bytes(canvas))
 
 def _resolve_enum_settings(resolve_obj, settings, field_specs):

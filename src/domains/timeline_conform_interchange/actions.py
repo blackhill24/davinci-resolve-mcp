@@ -254,6 +254,7 @@ from src.core.live_connection import (
     get_resolve,
     _destructive_versioning_provider,
 )
+from src.core.params import as_float as _as_float, as_int as _as_int
 
 def _timeline_media_type(track_type: str):
     if track_type == "video":
@@ -383,7 +384,7 @@ def _timeline_conform_snapshot(tl, p: Optional[Dict[str, Any]] = None):
 def _detect_gaps_overlaps_from_snapshot(snapshot: Dict[str, Any], p: Optional[Dict[str, Any]] = None):
     p = p or {}
     track_types = p.get("track_types") or ["video", "audio"]
-    min_gap = int(p.get("min_gap", 1))
+    min_gap = _as_int(p, "min_gap", 1)
     gaps = []
     overlaps = []
     tracks = snapshot.get("tracks", {})
@@ -420,7 +421,7 @@ def _detect_gaps_overlaps_from_snapshot(snapshot: Dict[str, Any], p: Optional[Di
 
 def _source_ranges_from_snapshot(snapshot: Dict[str, Any], p: Optional[Dict[str, Any]] = None):
     p = p or {}
-    handles = int(p.get("handles", 0))
+    handles = _as_int(p, "handles", 0)
     merge = bool(p.get("merge", True))
     ranges: Dict[str, List[List[int]]] = {}
     occurrences = []

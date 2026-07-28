@@ -121,7 +121,8 @@ def add_clip_mattes_to_media_pool(media_pool_item_id: str, matte_paths: List[str
         return {"error": "Failed to get MediaStorage"}
 
     # Find the media pool item by ID
-    project = resolve.GetProjectManager().GetCurrentProject()
+    _pm = resolve.GetProjectManager()
+    project = _pm.GetCurrentProject() if _pm else None
     if not project:
         return {"error": "No project currently open"}
     mp = project.GetMediaPool()

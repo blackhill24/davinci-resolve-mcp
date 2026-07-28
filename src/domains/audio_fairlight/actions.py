@@ -261,6 +261,7 @@ from src.core.live_connection import (
 from src.core.tool_kernel import (
     _resolve_audio_constant,
 )
+from src.core.params import as_float as _as_float, as_int as _as_int
 
 def _timeline_transcript(tl, *, with_timecodes=False):
     """Read a timeline's subtitle track(s) as transcript text."""
@@ -444,7 +445,7 @@ def _audio_capabilities():
     }
 
 def _audio_track_probe(tl, p: Dict[str, Any]):
-    track_index = int(p.get("track_index", 1))
+    track_index = _as_int(p, "track_index", 1)
     track_count = int(tl.GetTrackCount("audio") or 0)
     # Resolve audio tracks are 1-indexed; track_index < 1 is invalid (EX11 — the
     # old `track_index <= track_count` reported available:true for index 0).
@@ -475,8 +476,8 @@ def _audio_track_probe(tl, p: Dict[str, Any]):
 
 def _audio_item_from_params(tl, p: Dict[str, Any]):
     track_type = p.get("track_type", "audio")
-    track_index = int(p.get("track_index", 1))
-    item_index = int(p.get("item_index", 0))
+    track_index = _as_int(p, "track_index", 1)
+    item_index = _as_int(p, "item_index", 0)
     items = tl.GetItemListInTrack(track_type, track_index) or []
     if item_index < 0 or item_index >= len(items):  # reject negatives (EX5)
         return None, _err(f"No item at index {item_index} on {track_type} track {track_index}")

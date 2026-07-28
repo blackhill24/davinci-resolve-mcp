@@ -119,12 +119,14 @@ def _timeline_fps_or_default(timeline: Any, default: float = 24.0) -> Optional[f
 def capture_timeline_duration_seconds(timeline: Any) -> Optional[float]:
     """Compute duration in seconds from a Resolve Timeline handle."""
     try:
-        start = int(timeline.GetStartFrame())
-        end = int(timeline.GetEndFrame())
+        from src.core.timeline_lookup import timeline_frame_duration
+        frames = timeline_frame_duration(timeline)
+        if frames is None:
+            return None
         fps = _timeline_fps_or_default(timeline)
         if not fps or fps <= 0:
             return None
-        return max(0.0, (end - start) / fps)
+        return max(0.0, frames / fps)
     except Exception as exc:  # pragma: no cover — Resolve API surface
         logger.debug("capture_timeline_duration_seconds failed: %s", exc)
         return None

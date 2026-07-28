@@ -6,12 +6,24 @@ client's tool-window timeout. start_job runs such a call on a daemon thread and
 returns a short id immediately; the caller polls job_status until the job
 reports "done" (with its result) or "error" (with the message).
 
-The worker runs fn inside resolve_busy.long_resolve_op(label) so another
-Resolve-touching tool call meets the advisory "busy" answer instead of colliding
-on the single-threaded scripting bridge (job_status / list_jobs are
-connection-free and never contend). Serialization comes from that preflight, not
-from the bridge itself; the busy record tracks a single owner, so two jobs
-started in quick succession have a brief window before the first's record shows.
+The worker holds the same `_bridge_lock` that synchronous tool bodies take, so a
+background job and a sync tool can never be inside the single-threaded scripting
+bridge at once. That used to be untrue: `_run` wrapped only
+`resolve_busy.long_resolve_op(label)`, which is an ADVISORY registration, not a
+mutex — and its one enforcement point, `wait_until_free()`, is called from
+`envelope._check()`, which 32 `get_resolve()` call sites across the compound
+domains never reach (the granular server and the dashboard process never consult
+the sidecar at all). So `background=true` plus any of those put two threads into
+fusionscript, which per `src/core/resolve_busy.py` "simply hangs with no
+feedback" (#141 finding 8).
+
+The advisory record is kept on top of the lock: it is what makes a colliding
+caller get a "busy" ANSWER rather than blocking, and it names the owner.
+
+Ordering note: a tool body that starts a job is itself already holding
+`_bridge_lock` (the threaded-dispatch wrapper takes it). There is no deadlock
+because `start_job` returns immediately without waiting on the worker — the
+parent releases the lock as it returns, and the worker then acquires it.
 
 Finished jobs are pruned once older than MAX_JOB_AGE_SECONDS on any access, so
 the registry cannot grow without bound.
@@ -23,6 +35,7 @@ import time
 import uuid
 from typing import Any, Callable, Dict, List, Optional
 
+from src.core.live_connection import _bridge_lock
 from src.core.resolve_busy import long_resolve_op
 
 # A finished job is dropped from the registry this long after it ended.
@@ -46,7 +59,10 @@ def _prune_locked(now: float) -> None:
 
 def _run(job_id: str, label: str, fn: Callable[[], Any]) -> None:
     try:
-        with long_resolve_op(label):
+        # _bridge_lock FIRST, then the advisory record: the lock is the real
+        # mutual exclusion, and publishing "busy" only once we actually hold the
+        # bridge keeps the record honest.
+        with _bridge_lock, long_resolve_op(label):
             result = fn()
     except Exception as exc:
         with _lock:

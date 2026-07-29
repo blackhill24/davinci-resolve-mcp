@@ -2,7 +2,7 @@
   "version": 2,
   "layers": 3,
   "root_nav": "CLAUDE.md",
-  "synced": "2026-07-28",
+  "synced": "2026-07-29",
   "_root_structure": "4c31c2025e3cd06d",
   "workspaces": {
     "live-server": {
@@ -619,7 +619,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "49d158596b88043c",
+      "fingerprint": "23b1f1c1aa86c3dc",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -692,7 +692,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "bad00ca7556327f5",
+      "fingerprint": "34320d6dfdd04762",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",

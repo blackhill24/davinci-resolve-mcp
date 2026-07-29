@@ -74,6 +74,45 @@ class ToolRegistrationTest(unittest.TestCase):
             f"{MIN_TOOL_COUNT} — tools were unregistered. Registered: {self.names}",
         )
 
+    def test_no_tool_hides_an_async_body_behind_a_sync_wrapper(self):
+        """A sync decorator wrapped around an ``async def`` tool hands FastMCP the
+        un-awaited coroutine.
+
+        FastMCP dispatches on the OUTERMOST callable: a plain ``def wrapper`` that
+        returns ``fn(*args, **kwargs)`` is not awaited, so the tool's declared
+        dict output is a coroutine object and every call dies with
+        ``Input should be a valid dictionary [type=dict_type,
+        input_value=<coroutine object ...>]`` — the tool is dead for every action.
+
+        This shipped for ``auto_edit`` and ``orchestrate``: both are ``async def``
+        and both were decorated with the then sync-only
+        ``core.params.missing_param_envelope``. Nothing caught it, because the
+        tests call the tool function directly and ``await`` whatever comes back,
+        which papers over exactly this mismatch. Assert against the decorator
+        chain instead: if any layer under a tool is a coroutine function, the
+        outermost callable must be one too.
+        """
+        import inspect
+
+        import src.server as server
+
+        broken = []
+        for tool in server.mcp._tool_manager.list_tools():
+            name, fn = tool.name, tool.fn
+            inner, seen = fn, set()
+            while hasattr(inner, "__wrapped__") and id(inner) not in seen:
+                seen.add(id(inner))
+                inner = inner.__wrapped__
+                if inspect.iscoroutinefunction(inner) and not inspect.iscoroutinefunction(fn):
+                    broken.append(f"{name} (async {inner.__qualname__} behind sync wrapper)")
+                    break
+        self.assertEqual(
+            broken,
+            [],
+            "tool(s) expose a sync wrapper over an async body — FastMCP will "
+            f"return the un-awaited coroutine and every call fails: {broken}",
+        )
+
     def test_runtime_registry_matches_source_decorators(self):
         """The number of tools the server registers at runtime must equal the
         number of ``@mcp.tool()`` decorators in the source. A mismatch means a

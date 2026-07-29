@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sqlite3
+import threading
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -667,12 +668,26 @@ def build_analysis_index(project_root: str, *, index_path: Optional[Any] = None)
         return {"success": False, "error": err}
 
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    tmp_path = f"{db_path}.tmp"
-    for suffix in ("", "-wal", "-shm"):
-        try:
-            os.remove(f"{tmp_path}{suffix}")
-        except OSError:
-            pass
+    # Unique temp name. With a shared "<db>.tmp" two concurrent builds open the
+    # same SQLite file — and the cleanup loop below would delete a build already
+    # in progress. POST /api/index/build serializes within the dashboard, but the
+    # media_analysis tool reaches the same builder from a separate process.
+    tmp_path = f"{db_path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
+
+    def _discard_tmp() -> None:
+        # The unique name is what makes this necessary. The shared "<db>.tmp"
+        # this replaced was self-healing: a build that died before os.replace
+        # left a stale temp DB, and the NEXT build's pre-clean removed it. A
+        # unique name can never be pre-cleaned by a later run, so a failed build
+        # would strand a full-size index here forever. Cleaning by glob instead
+        # is not an option — that is precisely the "delete a build already in
+        # progress" hazard the unique name exists to remove. So each build
+        # reclaims its own, and only its own.
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                os.remove(f"{tmp_path}{suffix}")
+            except OSError:
+                pass
 
     counts = {
         "clips": 0,
@@ -742,15 +757,26 @@ def build_analysis_index(project_root: str, *, index_path: Optional[Any] = None)
         for key, value in counts.items():
             conn.execute("INSERT INTO index_metadata (key, value) VALUES (?, ?)", (f"count.{key}", str(value)))
         conn.commit()
+    except BaseException:
+        # Close before unlinking (Windows refuses to remove an open file), then
+        # drop this build's temp DB rather than stranding it. sqlite3's close()
+        # is idempotent, so the finally below is still safe.
+        conn.close()
+        _discard_tmp()
+        raise
     finally:
         conn.close()
 
-    for suffix in ("-wal", "-shm"):
-        try:
-            os.remove(f"{db_path}{suffix}")
-        except OSError:
-            pass
-    os.replace(tmp_path, db_path)
+    try:
+        for suffix in ("-wal", "-shm"):
+            try:
+                os.remove(f"{db_path}{suffix}")
+            except OSError:
+                pass
+        os.replace(tmp_path, db_path)
+    except BaseException:
+        _discard_tmp()
+        raise
     try:
         final_conn = sqlite3.connect(db_path)
         final_conn.execute("PRAGMA journal_mode=WAL")

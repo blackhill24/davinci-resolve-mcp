@@ -757,10 +757,21 @@ def preserve_human_corrections(
         metrics["changelog_added"] = len(new_changelog_entries)
         try:
             os.makedirs(os.path.dirname(corrections_path), exist_ok=True)
-            tmp_path = corrections_path + ".tmp"
-            with open(tmp_path, "w", encoding="utf-8") as handle:
-                json.dump(data, handle, indent=2, sort_keys=True, default=str)
-            os.replace(tmp_path, corrections_path)
+            # Same corrections.json the panel writes via _v2_update_field, and
+            # the same reason for a unique temp name: a shared "<path>.tmp" lets
+            # two concurrent writers share one buffer, so os.replace publishes a
+            # spliced file — which _v2_read_corrections(strict=True) then refuses
+            # to overwrite, freezing that clip's corrections permanently.
+            tmp_path = f"{corrections_path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
+            try:
+                with open(tmp_path, "w", encoding="utf-8") as handle:
+                    json.dump(data, handle, indent=2, sort_keys=True, default=str)
+                os.replace(tmp_path, corrections_path)
+            finally:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
         except OSError as exc:
             metrics["error"] = f"Failed to write corrections.json: {exc}"
 

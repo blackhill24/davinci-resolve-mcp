@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "8a1596a50a175696",
+      "fingerprint": "ebea4a529f445e48",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -692,7 +692,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "34320d6dfdd04762",
+      "fingerprint": "7a593e3d2ba17580",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -930,6 +930,7 @@
         "tests/test_batch_cli.py",
         "tests/test_claude_skills.py",
         "tests/test_compound_disconnected_smoke.py",
+        "tests/test_concurrent_state_writes.py",
         "tests/test_description_xml_shape.py",
         "tests/test_destructive_decorator_coverage.py",
         "tests/test_destructive_registry_drift.py",

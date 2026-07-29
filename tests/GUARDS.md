@@ -49,6 +49,16 @@ cause. A bare "it returned an error" passes for the wrong reason: two such tests
 `src.server._check`, which stopped owning the dispatch in the #52 restructure, so they were
 reaching a **running Resolve** and asserting on whatever it happened to return (#121 §3).
 
+## Concurrency guards run real threads
+
+`test_concurrent_state_writes.py` drives real threads at the two unlocked
+read-modify-writes behind the panel (`corrections.json`, `panel_state.json`) and asserts the
+**invariant** — nothing lost, always parseable, no stray temp files — never a particular
+interleaving. Do not "stabilise" it by dropping to one thread or by mocking the writer: the
+threads ARE the guard. The lost-update cases fail deterministically on the pre-fix code; the
+splice case is probabilistic (it reproduced ~1 run in 8) and is documented as such in the
+module docstring.
+
 ## Test isolation
 
 `conftest.py` carries an autouse guard that **fails** (never warns) any test leaking an

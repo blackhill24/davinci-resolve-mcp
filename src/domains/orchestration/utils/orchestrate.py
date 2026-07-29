@@ -32,6 +32,7 @@ import calendar
 import hashlib
 import json
 import os
+import threading
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -234,10 +235,18 @@ def save_job(project_root: str, job: Dict[str, Any], *, analysis_base_root: Opti
     job["updated_at"] = _now()
     job["fingerprint"] = _job_fingerprint(job)
     path = os.path.join(_jobs_dir(project_root), f"{job['job_id']}.json")
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(job, handle, indent=2, default=str)
-    os.replace(tmp, path)
+    # Unique temp name: a shared "<path>.tmp" lets two concurrent writers share
+    # one buffer, so os.replace publishes a spliced, unparseable file.
+    tmp = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(job, handle, indent=2, default=str)
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
     # Index lags, never leads: the record above is durable before we touch the
     # cache. Best-effort — a failed index write just means the next
     # list_jobs(rebuild=True) (or the next successful save) repairs it.
@@ -404,10 +413,18 @@ def update_global_index(analysis_base_root: str, job: Dict[str, Any], project_ro
         return {"success": False, "error": "job has no job_id"}
     index[job_id] = _index_stub(job, project_root)
     path = _global_index_path(analysis_base_root)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(index, handle, indent=2, sort_keys=True, default=str)
-    os.replace(tmp, path)
+    # Unique temp name: a shared "<path>.tmp" lets two concurrent writers share
+    # one buffer, so os.replace publishes a spliced, unparseable file.
+    tmp = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(index, handle, indent=2, sort_keys=True, default=str)
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
     return {"success": True, "path": path}
 
 
@@ -432,10 +449,18 @@ def rebuild_global_index(analysis_base_root: str) -> Dict[str, Any]:
                 index[job["job_id"]] = _index_stub(job, project_root)
     os.makedirs(_global_index_dir(analysis_base_root), exist_ok=True)
     path = _global_index_path(analysis_base_root)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(index, handle, indent=2, sort_keys=True, default=str)
-    os.replace(tmp, path)
+    # Unique temp name: a shared "<path>.tmp" lets two concurrent writers share
+    # one buffer, so os.replace publishes a spliced, unparseable file.
+    tmp = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(index, handle, indent=2, sort_keys=True, default=str)
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
     return {"success": True, "path": path, "count": len(index), "jobs_scanned": scanned}
 
 

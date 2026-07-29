@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -39,6 +40,11 @@ DECISIONS_FILENAME = "decisions.md"
 # write; both read at session start. Single-user model, last-write-wins.
 PANEL_STATE_FILENAME = "panel_state.json"
 PANEL_STATE_SCHEMA_VERSION = "2.0"
+# "Last-write-wins" above is the intended model for a whole state document, not
+# licence to lose a partial update: write_panel_state(merge=True) is a
+# read-modify-write, so without this two concurrent panel POSTs each drop the
+# other's fields rather than both landing.
+_PANEL_STATE_LOCK = threading.Lock()
 
 HEARTBEAT_SCHEMA_VERSION = "2.0"
 
@@ -131,7 +137,9 @@ def write_heartbeat(project_root: str, payload: Dict[str, Any]) -> Dict[str, Any
     payload.setdefault("schema_version", HEARTBEAT_SCHEMA_VERSION)
     payload["updated_at"] = _now_iso()
     path = heartbeat_path(project_root)
-    tmp_path = path + ".tmp"
+    # Unique temp name: a shared "<path>.tmp" lets two concurrent writers share
+    # one buffer, so os.replace publishes a spliced, unparseable file.
+    tmp_path = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
     try:
         with open(tmp_path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)
@@ -359,7 +367,9 @@ def regenerate_bin_summary_from_manifest(
     path = bin_summary_path(project_root)
     # Atomic write (temp + os.replace): a crash mid-write must not truncate the
     # bin summary that session_start_context reads at startup (PS4).
-    tmp_path = path + ".tmp"
+    # Unique temp name: a shared "<path>.tmp" lets two concurrent writers share
+    # one buffer, so os.replace publishes a spliced, unparseable file.
+    tmp_path = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
     try:
         with open(tmp_path, "w", encoding="utf-8") as handle:
             handle.writelines(lines)
@@ -553,17 +563,28 @@ def write_panel_state(
     """
     ensure_memory_structure(project_root)
     path = panel_state_path(project_root)
-    if merge:
-        existing = read_panel_state(project_root) or {}
-        payload = dict(existing)
-        payload.update(updates)
-    else:
-        payload = dict(updates)
-    payload["schema_version"] = PANEL_STATE_SCHEMA_VERSION
-    payload["updated_at"] = _now_iso()
-    if written_by:
-        payload["last_written_by"] = written_by
-    tmp_path = path + ".tmp"
+    # merge=True is a read-modify-write, and POST /api/panel_state runs it on a
+    # ThreadingHTTPServer with no lock of its own, so two concurrent partial
+    # updates both read the pre-change state and the last writer drops the
+    # other's fields. Held across the write, not just the read.
+    with _PANEL_STATE_LOCK:
+        if merge:
+            existing = read_panel_state(project_root) or {}
+            payload = dict(existing)
+            payload.update(updates)
+        else:
+            payload = dict(updates)
+        payload["schema_version"] = PANEL_STATE_SCHEMA_VERSION
+        payload["updated_at"] = _now_iso()
+        if written_by:
+            payload["last_written_by"] = written_by
+        return _write_panel_state_file(path, payload)
+
+
+def _write_panel_state_file(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    # Unique temp name: a shared "<path>.tmp" lets two concurrent writers share
+    # one buffer, so os.replace publishes a spliced, unparseable file.
+    tmp_path = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
     try:
         with open(tmp_path, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2, sort_keys=True)

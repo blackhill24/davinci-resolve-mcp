@@ -694,10 +694,24 @@ def build_advanced_entry(server_path, python_path=None):
     pyaaf2). We pin AAF_PROBE_PYTHON to the project venv's interpreter — the same
     venv install.py installs pyaaf2 into — so AAF preview works out of the box
     instead of depending on whatever `python3` happens to be on PATH.
+
+    Which form we emit depends on whether the advanced server's code is actually
+    next to the bin. `bin/davinci-resolve-advanced-mcp.mjs` imports
+    `../resolve-advanced/server/index.mjs` relative to ITSELF, and it needs the
+    package's `node_modules` above it. A managed install (npx → the launcher's
+    syncManagedInstall) copies only SYNC_ITEMS — no `resolve-advanced/`, no
+    `node_modules` — so a config entry pointing at the managed copy of the bin
+    dies at startup with ERR_MODULE_NOT_FOUND. There, name the published bin and
+    let npx resolve the real package. A git clone / dev tree has the sibling tree
+    in place, so keep the direct path: it works offline and pins this checkout.
     """
     project_dir = Path(server_path).resolve().parents[1]  # .../src/server.py -> repo root
     advanced_bin = project_dir / "bin" / "davinci-resolve-advanced-mcp.mjs"
-    entry = {"command": "node", "args": [str(advanced_bin)]}
+    server_tree = project_dir / "resolve-advanced" / "server" / "index.mjs"
+    if server_tree.exists():
+        entry = {"command": "node", "args": [str(advanced_bin)]}
+    else:
+        entry = {"command": "npx", "args": ["-y", "davinci-resolve-advanced-mcp"]}
     if python_path:
         entry["env"] = {"AAF_PROBE_PYTHON": str(python_path)}
     return entry

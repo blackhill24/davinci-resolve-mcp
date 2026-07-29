@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -75,6 +76,43 @@ class InstallConfigTests(unittest.TestCase):
             },
         )
 
+    def test_advanced_entry_uses_npx_when_the_server_tree_is_absent(self):
+        """A managed install (npx) copies SYNC_ITEMS only — no ``resolve-advanced/``
+        and no ``node_modules``.
+
+        ``bin/davinci-resolve-advanced-mcp.mjs`` imports
+        ``../resolve-advanced/server/index.mjs`` relative to itself, so a config
+        entry pointing at the managed copy of that bin dies at startup with
+        ERR_MODULE_NOT_FOUND — the advanced MCP server could never connect from
+        an npm install. When the sibling tree is missing, name the published bin
+        and let npx resolve the real package instead.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "src").mkdir()
+            (root / "bin").mkdir()
+            entry = install.build_advanced_entry(root / "src" / "server.py",
+                                                 Path("/venv/bin/python"))
+        self.assertEqual(entry["command"], "npx")
+        self.assertEqual(entry["args"], ["-y", "davinci-resolve-advanced-mcp"])
+        self.assertEqual(entry["env"], {"AAF_PROBE_PYTHON": "/venv/bin/python"})
+
+    def test_advanced_entry_keeps_the_direct_path_in_a_checkout(self):
+        """A git clone / dev tree does have the sibling server tree, so keep the
+        absolute path: it works offline and pins this checkout."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "src").mkdir()
+            (root / "bin").mkdir()
+            (root / "resolve-advanced" / "server").mkdir(parents=True)
+            (root / "resolve-advanced" / "server" / "index.mjs").write_text("")
+            entry = install.build_advanced_entry(root / "src" / "server.py", None)
+            self.assertEqual(entry["command"], "node")
+            self.assertEqual(
+                entry["args"],
+                [str(root / "bin" / "davinci-resolve-advanced-mcp.mjs")],
+            )
+
     def test_windows_entry_adds_pythonhome(self):
         entry = install.build_server_entry(
             Path(r"C:\venv\Scripts\python.exe"),
@@ -117,13 +155,15 @@ class InstallConfigTests(unittest.TestCase):
         # The advanced (Node) server pins AAF_PROBE_PYTHON to the venv interpreter so the
         # offline AAF reader (pyaaf2, installed into that venv) works out of the box.
         advanced = standard_json["mcpServers"]["davinci-resolve-advanced"]
-        self.assertEqual(advanced["command"], "node")
+        # /tmp has no sibling resolve-advanced/ tree, so this is the managed-install
+        # branch — see test_advanced_entry_uses_npx_when_the_server_tree_is_absent.
+        # The env pin is what this test is about and holds either way.
+        self.assertEqual(advanced["command"], "npx")
         self.assertEqual(advanced["env"]["AAF_PROBE_PYTHON"], "/tmp/python")
 
     def test_advanced_entry_omits_env_without_python_path(self):
         # No interpreter known → no AAF_PROBE_PYTHON pin (falls back to `python3` on PATH).
         entry = install.build_advanced_entry(Path("/tmp/server.py"))
-        self.assertEqual(entry["command"], "node")
         self.assertNotIn("env", entry)
 
     def test_build_opencode_entry_uses_opencode_schema(self):

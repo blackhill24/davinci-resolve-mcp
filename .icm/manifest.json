@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "ebea4a529f445e48",
+      "fingerprint": "11fec84a96f48f85",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -692,7 +692,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "7a593e3d2ba17580",
+      "fingerprint": "6a2da0c205678053",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -959,6 +959,7 @@
         "tests/test_mcp_resources.py",
         "tests/test_missing_param_envelope.py",
         "tests/test_mutation_gate.py",
+        "tests/test_no_shared_temp_writers.py",
         "tests/test_p1_param_validation.py",
         "tests/test_p1_whitelist_and_delete.py",
         "tests/test_persistence_safety.py",

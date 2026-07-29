@@ -4,6 +4,41 @@ from src.granular.common import *  # noqa: F401,F403
 
 resolve = ResolveProxy()
 
+# TimelineItem exposes NO keyframe surface on Resolve 21.x — all seven of
+# GetKeyframeCount / GetKeyframeAtIndex / GetPropertyAtKeyframeIndex /
+# AddKeyframe / ModifyKeyframe / DeleteKeyframe / SetKeyframeInterpolation are
+# absent from dir(TimelineItem) (live-verified on Studio 21.0.2.4; see
+# src/core/api_truth.py). The bridge fabricates any attribute, so calling one
+# raises "'NoneType' object is not callable" and these tools reported that raw
+# Python message to the caller. The compound surface already refuses explicitly
+# (_keyframes_unsupported in src/domains/timeline_edit/actions.py, #142 finding
+# 1); granular is a different SHAPE, not a guardrail opt-out (#138/#139), so it
+# refuses the same way. Probed rather than hard-coded False, so a future Resolve
+# that ships the API starts working with no code change.
+_KEYFRAME_TOOL_METHODS = {
+    "get_keyframes": ("GetKeyframeCount", "GetKeyframeAtIndex", "GetPropertyAtKeyframeIndex"),
+    "add_keyframe": ("AddKeyframe",),
+    "modify_keyframe": ("GetKeyframeCount", "GetKeyframeAtIndex",
+                        "GetPropertyAtKeyframeIndex", "DeleteKeyframe", "AddKeyframe"),
+    "delete_keyframe": ("GetKeyframeCount", "GetKeyframeAtIndex", "DeleteKeyframe"),
+    "set_keyframe_interpolation": ("GetKeyframeCount", "GetKeyframeAtIndex",
+                                   "GetPropertyAtKeyframeIndex", "DeleteKeyframe",
+                                   "AddKeyframe"),
+}
+
+
+def _keyframes_unsupported(item, tool_name: str):
+    """Return the refusal string when this build lacks the methods ``tool_name``
+    calls, else None."""
+    missing = [m for m in _KEYFRAME_TOOL_METHODS[tool_name] if not _has_method(item, m)]
+    if not missing:
+        return None
+    return (
+        f"Error: {tool_name} is unsupported on this Resolve build — TimelineItem "
+        f"exposes no keyframe API (missing: {', '.join(missing)}). Author keyframe "
+        "animation in the Resolve UI, or in a Fusion composition via fusion_comp."
+    )
+
 @mcp.resource("resolve://timeline-item/{timeline_item_id}")
 def get_timeline_item_properties(timeline_item_id: str) -> Dict[str, Any]:
     """Get properties of a specific timeline item by ID.
@@ -735,6 +770,10 @@ def get_timeline_item_keyframes(timeline_item_id: str, property_name: str) -> Di
         # Audio-specific keyframeable properties
         audio_properties = ['Volume', 'Pan']
         
+        unsupported = _keyframes_unsupported(timeline_item, "get_keyframes")
+        if unsupported:
+            return {"error": unsupported}
+
         # Check if it's a video item
         if timeline_item_kind(timeline_item) == "Video":
             # Check each property to see if it has keyframes
@@ -886,6 +925,10 @@ def add_keyframe(timeline_item_id: str, property_name: str, frame: int, value: f
         if frame < start_frame or frame > end_frame:
             return f"Error: Frame {frame} is outside the item's range ({start_frame} to {end_frame})"
         
+        unsupported = _keyframes_unsupported(timeline_item, "add_keyframe")
+        if unsupported:
+            return unsupported
+
         # Add the keyframe
         result = timeline_item.AddKeyframe(property_name, frame, value)
         
@@ -953,11 +996,15 @@ def modify_keyframe(timeline_item_id: str, property_name: str, frame: int, new_v
         if not timeline_item:
             return f"Error: Timeline item with ID '{timeline_item_id}' not found"
         
+        unsupported = _keyframes_unsupported(timeline_item, "modify_keyframe")
+        if unsupported:
+            return unsupported
+
         # Check if the property has keyframes
         keyframe_count = timeline_item.GetKeyframeCount(property_name)
         if keyframe_count == 0:
             return f"Error: No keyframes found for property '{property_name}'"
-        
+
         # Find the keyframe at the specified frame
         keyframe_index = -1
         for i in range(keyframe_count):
@@ -1075,11 +1122,15 @@ def delete_keyframe(timeline_item_id: str, property_name: str, frame: int) -> st
         if not timeline_item:
             return f"Error: Timeline item with ID '{timeline_item_id}' not found"
         
+        unsupported = _keyframes_unsupported(timeline_item, "delete_keyframe")
+        if unsupported:
+            return unsupported
+
         # Check if the property has keyframes
         keyframe_count = timeline_item.GetKeyframeCount(property_name)
         if keyframe_count == 0:
             return f"Error: No keyframes found for property '{property_name}'"
-        
+
         # Check if there's a keyframe at the specified frame
         keyframe_exists = False
         for i in range(keyframe_count):
@@ -1087,10 +1138,10 @@ def delete_keyframe(timeline_item_id: str, property_name: str, frame: int) -> st
             if kf["frame"] == frame:
                 keyframe_exists = True
                 break
-        
+
         if not keyframe_exists:
             return f"Error: No keyframe found at frame {frame} for property '{property_name}'"
-        
+
         # Delete the keyframe
         result = timeline_item.DeleteKeyframe(property_name, frame)
         
@@ -1159,11 +1210,15 @@ def set_keyframe_interpolation(timeline_item_id: str, property_name: str, frame:
         if not timeline_item:
             return f"Error: Timeline item with ID '{timeline_item_id}' not found"
         
+        unsupported = _keyframes_unsupported(timeline_item, "set_keyframe_interpolation")
+        if unsupported:
+            return unsupported
+
         # Check if the property has keyframes
         keyframe_count = timeline_item.GetKeyframeCount(property_name)
         if keyframe_count == 0:
             return f"Error: No keyframes found for property '{property_name}'"
-        
+
         # Check if there's a keyframe at the specified frame
         keyframe_exists = False
         for i in range(keyframe_count):

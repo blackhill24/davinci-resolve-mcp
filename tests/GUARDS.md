@@ -59,6 +59,18 @@ threads ARE the guard. The lost-update cases fail deterministically on the pre-f
 splice case is probabilistic (it reproduced ~1 run in 8) and is documented as such in the
 module docstring.
 
+## The temp-name guard walks the AST, not a grep
+
+`test_no_shared_temp_writers.py` refuses any temp path ending in the literal `.tmp`, because
+a name a second writer could also pick defeats the atomicity `os.replace` provides. It is an
+AST walk on purpose: #169 swept thirteen sites with a grep matching `path + ".tmp"` and
+`f"{path}.tmp"`, and #170 then found two more it structurally could not see — the subscript
+form `f"{paths['progress_json']}.tmp"`. **A twin search written from the one example you have
+will miss the variants.** Do not relax the rule to unblock a new writer; give that writer the
+unique name (`f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"`) and
+reclaim it on the failure path — a unique name is never pre-cleaned by a later run, so
+whatever creates it must also remove it.
+
 ## Test isolation
 
 `conftest.py` carries an autouse guard that **fails** (never warns) any test leaking an

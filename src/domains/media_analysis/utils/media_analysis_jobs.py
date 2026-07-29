@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -244,15 +245,36 @@ def _job_paths(project_root: str, job_id: str) -> Dict[str, str]:
     }
 
 
+def _unique_tmp(path: str) -> str:
+    """Per-writer temp path for a temp-then-os.replace write.
+
+    The repo idiom (src/server.py, core/brain_edits.py, core/tool_kernel.py,
+    media_analysis/utils/technical_probe.py). A shared `path + ".tmp"` is what
+    defeats the atomicity os.replace provides.
+    """
+    return f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
+
+
 def _write_job_sidecars(conn: sqlite3.Connection, project_root: str, job_id: str) -> None:
     paths = _job_paths(project_root, job_id)
     os.makedirs(paths["job_dir"], exist_ok=True)
     status = batch_job_status(project_root, job_id)
-    tmp_progress = f"{paths['progress_json']}.tmp"
-    with open(tmp_progress, "w", encoding="utf-8") as handle:
-        json.dump(status, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
-    os.replace(tmp_progress, paths["progress_json"])
+    # Unique temp name: a shared "<path>.tmp" lets two concurrent writers share
+    # one buffer, so os.replace publishes a spliced, unparseable file. These two
+    # sidecars are written from every job transition, and the panel serializes
+    # only POST /api/jobs/<id>/run — a cancel or resume arriving mid-slice writes
+    # them concurrently.
+    tmp_progress = _unique_tmp(paths["progress_json"])
+    try:
+        with open(tmp_progress, "w", encoding="utf-8") as handle:
+            json.dump(status, handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+        os.replace(tmp_progress, paths["progress_json"])
+    finally:
+        try:
+            os.remove(tmp_progress)
+        except OSError:
+            pass
 
     rows = conn.execute(
         """
@@ -263,19 +285,25 @@ def _write_job_sidecars(conn: sqlite3.Connection, project_root: str, job_id: str
         """,
         (job_id,),
     ).fetchall()
-    tmp_events = f"{paths['events_jsonl']}.tmp"
-    with open(tmp_events, "w", encoding="utf-8") as handle:
-        for row in rows:
-            payload = {
-                "time": row["event_time"],
-                "level": row["level"],
-                "message": row["message"],
-            }
-            if row["payload_json"]:
-                payload["payload"] = _read_json(row["payload_json"])
-            handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True))
-            handle.write("\n")
-    os.replace(tmp_events, paths["events_jsonl"])
+    tmp_events = _unique_tmp(paths["events_jsonl"])
+    try:
+        with open(tmp_events, "w", encoding="utf-8") as handle:
+            for row in rows:
+                payload = {
+                    "time": row["event_time"],
+                    "level": row["level"],
+                    "message": row["message"],
+                }
+                if row["payload_json"]:
+                    payload["payload"] = _read_json(row["payload_json"])
+                handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                handle.write("\n")
+        os.replace(tmp_events, paths["events_jsonl"])
+    finally:
+        try:
+            os.remove(tmp_events)
+        except OSError:
+            pass
 
 
 def _job_summary_from_row(row: sqlite3.Row) -> Dict[str, Any]:

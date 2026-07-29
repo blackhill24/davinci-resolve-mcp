@@ -43,7 +43,8 @@ approval (`approve_cut`) sits between planning and execution.
    scripting API cannot do: exports the built timeline to `.drt`, runs the
    verified `drp-format` vendor ops on it in scratch (cross-dissolves at
    flagged cuts, Fusion lower-thirds on an upper track) and reimports a NEW
-   `(polished)` timeline — the built one is left intact. `options`:
+   `(polished)` timeline — the built one is left intact. Genre-agnostic: it
+   operates on the built timeline, so it works on montage plans too. `options`:
    `lower_thirds[]`, `dissolve_at_segments[]`, `dissolve_on_beat_change`,
    `dissolve_frames`, `lower_third_frames`/`_track`, `no_dissolves`,
    `no_lower_thirds`. **`finish` still targets the BUILT timeline**, not the
@@ -82,9 +83,17 @@ counterpart — `cut_ir` is an internal module, not a Node offline tool).
 
 ## Depth
 
-- Action boundary: `docs/kernels/auto-edit-kernel.md`
-- Editorial heuristics (pacing, punch-in vs b-roll, titles, music):
-  `docs/guides/editorial-decision-guide.md` → "Auto-Edit Heuristics"
+- Action boundary: `docs/kernels/auto-edit-kernel.md` (its "Montage genre"
+  section covers the genre split)
+- Editorial heuristics — **pick the section that matches the genre**, they do
+  not overlap:
+  - talking-head (pacing, punch-in vs b-roll, titles, music levels):
+    `docs/guides/editorial-decision-guide.md` → "Auto-Edit Heuristics
+    (talking head…)"
+  - montage (music-as-runtime, hook shot, select_potential tiers, onset
+    density → cut length, pacing-zone placement, onset snapping):
+    `docs/guides/editorial-decision-guide.md` → "Auto-Edit Heuristics
+    (montage…)"
 - Decision layer internals: `src/domains/auto_edit/utils/auto_edit.py` (talking-head),
   `src/domains/auto_edit/utils/montage_edit.py` (montage — genre="montage", music required,
   no ducking), `src/domains/auto_edit/utils/cut_ir.py`,

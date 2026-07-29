@@ -164,10 +164,13 @@ When reporting analysis back to the user, make it editor-usable:
 Avoid overclaiming from sparse evidence. If the tool only sampled a few frames,
 say so and recommend the specific next verification step.
 
-## Auto-Edit Heuristics (talking head, Phase 1)
+## Auto-Edit Heuristics (talking head, `genre="talking_head"`, Phase 1)
 
 The `auto_edit` pipeline applies these defaults; override them at the
 `approve_cut` checkpoint or with `revise_cut` rather than hand-editing plans.
+These are the **talking-head** heuristics — for `genre="montage"` see the
+montage section below instead; none of the speech-driven rules here apply
+there.
 
 ### Pacing
 
@@ -207,3 +210,55 @@ Every removed mid-speech region creates a jump cut that must be disguised:
 - A ducked bed is a DERIVATIVE file: it renders only with explicit checkpoint
   consent, into the analysis root. Without consent the bed keeps one static
   level — quieter is safer than pumping.
+
+## Auto-Edit Heuristics (montage, `genre="montage"`)
+
+The montage decision layer (`src/domains/auto_edit/utils/montage_edit.py`)
+replaces the talking-head heuristics above — none of the speech rules apply,
+because there is no speech. Everything downstream of the CutList
+(`approve_cut`, `build_timeline`, `polish_timeline`, `finish`, `revise_cut`)
+is genre-agnostic and behaves identically. Override at the same checkpoints:
+`approve_cut` or `revise_cut`, never by hand-editing a plan.
+
+### Runtime and music
+
+- **Music is required** — its length *is* the runtime. `target_duration_seconds`
+  is not the driver here; when given it trims the result rather than replacing
+  music length as the primary constraint.
+- There is no voiceover, so there is nothing to duck. `approve_cut` forces the
+  static bed for montage regardless of the consent flags passed — do not put a
+  music-bed consent question to the user on a montage plan.
+
+### Shot selection
+
+- Candidate shots rank by `select_potential` (the same query approach as
+  `edit_engine.plan_selects`, not its execution path).
+- The highest-ranked shot overall becomes the **hook** and is prepended
+  (~2 beats, or ~1.5s when tempo can't be estimated from fewer than 2 onsets).
+- Shots shorter than ~0.4s are not usable.
+- On exhaustion the `select_potential` floor loosens high → medium → low. If
+  even "low" runs dry the montage **truncates honestly** and says so in
+  `problems` — it never repeats a shot or fabricates coverage.
+
+### Pacing
+
+- Local onset **density** around each point (a ~4s window over
+  `music_analysis.detect_beats`' onset list — no separate DSP pass) sets the
+  target cut length: dense onsets → shorter cuts, sparse → longer holds.
+  Interpolated between ~6.0s at zero density and ~0.5s at the track's max.
+- Each shot's own `pacing` class sets **placement**, and the tag is exclusive,
+  not a tiebreaker: `still` shots only land in low-density zones, `kinetic`
+  only in high-density ones (threshold: density ratio ≥ 0.5); `moderate`,
+  `variable`, and `unknown` fit anywhere. A shot flagged for the opposite zone
+  is skipped there, not merely deprioritized.
+  Note this is the per-shot `pacing` field, **not** `energy_arc`, which is
+  clip-level only.
+- Every cut boundary snaps to the **nearest real onset** at or after the
+  minimum. Where the track has no qualifying onset (a sparse tail), the target
+  time is used as-is — a beat that isn't there is never invented.
+
+### The checkpoint summary
+
+Montage renders `render_montage_summary`, not `render_cut_summary`: role /
+description / pacing columns instead of transcript excerpt / smoothing, and no
+music-bed consent line. Relay the table you actually received.

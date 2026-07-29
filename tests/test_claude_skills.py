@@ -161,5 +161,103 @@ class ClaudeSkillsLayoutTest(unittest.TestCase):
         self.assertEqual(problems, [], "\n" + "\n".join(problems))
 
 
+class KernelDepthPathsTest(unittest.TestCase):
+    """The skills delegate depth to `docs/kernels/`. Paths cited THERE were
+    unguarded, so the restructure moved 17 test files out from under them
+    (`tests/test_montage_edit.py` -> `tests/domains/auto_edit/...`) and every
+    skill's depth pointer silently landed on a dead path."""
+
+    def test_kernel_cited_repo_paths_exist(self):
+        pattern = re.compile(
+            r"`((?:tests|src|scripts|docs|resolve-advanced)/[A-Za-z0-9_\-./]+"
+            r"\.(?:py|md|mjs|json))`"
+        )
+        problems = []
+        for kernel in sorted((ROOT / "docs" / "kernels").glob("*.md")):
+            text = kernel.read_text(encoding="utf-8")
+            for cited in sorted(set(m.group(1) for m in pattern.finditer(text))):
+                if not (ROOT / cited).exists():
+                    problems.append(
+                        f"docs/kernels/{kernel.name} cites missing path: {cited}"
+                    )
+        self.assertEqual(problems, [], "\n" + "\n".join(problems))
+
+
+class SkillToolCoverageTest(unittest.TestCase):
+    """Every registered tool must be named by at least one skill.
+
+    Without this, a tool can ship and stay invisible to the whole navigation
+    layer: an agent following the skills either drops to `--full` needlessly or
+    concludes the capability does not exist. This caught 7 compound tools
+    (`timeline_ai`, `timeline_item_markers`, `media_pool_item_markers`,
+    `timeline_item_takes`, `timeline_item_fusion`, `layout_presets`,
+    `project_manager_cloud`) plus the advanced `project_read`.
+
+    Static parse, no imports — same posture as `tests/test_doc_tool_counts.py`.
+    """
+
+    @staticmethod
+    def _compound_tool_names():
+        # `@mcp.tool()` is followed by zero or more further decorators
+        # (`@_destructive_op(...)`, `@_missing_param_envelope`) before the def,
+        # so take the FIRST `def` at column 0 after each decorator.
+        names = []
+        def_re = re.compile(r"^(?:async\s+)?def\s+([a-z_0-9]+)\s*\(", re.MULTILINE)
+        sources = [ROOT / "src" / "server.py"]
+        sources += sorted((ROOT / "src" / "domains").glob("*/actions.py"))
+        for path in sources:
+            text = path.read_text(encoding="utf-8")
+            for m in re.finditer(r"^@mcp\.tool\(", text, re.MULTILINE):
+                nxt = def_re.search(text, m.end())
+                if nxt:
+                    names.append(nxt.group(1))
+        return sorted(set(names))
+
+    @staticmethod
+    def _advanced_tool_names():
+        text = (ROOT / "resolve-advanced" / "server" / "index.mjs").read_text(encoding="utf-8")
+        m = re.search(r"const TOOLS\s*=\s*\[([^\]]+)\]", text)
+        if not m:
+            raise AssertionError("could not find the TOOLS array in resolve-advanced/server/index.mjs")
+        idents = [t.strip() for t in m.group(1).split(",") if t.strip()]
+        names = []
+        for ident in idents:
+            # `export const drpTool = { name: 'drp', ...`
+            hit = re.search(
+                rf"(?:export\s+)?const\s+{re.escape(ident)}\s*=\s*\{{\s*name:\s*'([a-z_0-9]+)'",
+                "".join(
+                    p.read_text(encoding="utf-8")
+                    for p in sorted((ROOT / "resolve-advanced" / "server" / "tools").glob("*.mjs"))
+                ),
+            )
+            if hit:
+                names.append(hit.group(1))
+        return sorted(set(names))
+
+    def _skill_corpus(self):
+        return {
+            d.name: (d / "SKILL.md").read_text(encoding="utf-8") for d in _skill_dirs()
+        }
+
+    def _assert_all_named(self, tool_names, label):
+        self.assertTrue(tool_names, f"parsed zero {label} tool names — the parser is broken")
+        corpus = self._skill_corpus()
+        orphans = [
+            name for name in tool_names
+            if not any(re.search(rf"\b{re.escape(name)}\b", text) for text in corpus.values())
+        ]
+        self.assertEqual(
+            orphans, [],
+            f"{label} tools named by no skill in .claude/skills/ — they are unreachable "
+            f"through the documented navigation path: {orphans}",
+        )
+
+    def test_every_compound_tool_is_named_by_a_skill(self):
+        self._assert_all_named(self._compound_tool_names(), "compound")
+
+    def test_every_advanced_tool_is_named_by_a_skill(self):
+        self._assert_all_named(self._advanced_tool_names(), "advanced (offline)")
+
+
 if __name__ == "__main__":
     unittest.main()

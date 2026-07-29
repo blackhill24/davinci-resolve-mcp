@@ -20,7 +20,7 @@ re-derive it here.
 
 | Job | Server | Tools |
 |---|---|---|
-| Restructure a **running** timeline | `davinci-resolve` (Python, live) | `timeline` (edit kernel), `timeline_item`, `edit_engine`, `timeline_markers` |
+| Restructure a **running** timeline | `davinci-resolve` (Python, live) | `timeline` (edit kernel), `timeline_item`, `edit_engine`, `timeline_markers`, `timeline_item_takes`, `timeline_ai` |
 | Author/diff a `.drt` **file**, or parse/compare editorial interchange with **no Resolve open** | `davinci-resolve-advanced` (Node) | `drt`, `editorial` |
 
 **Granular (`--full`) equivalents.** `src/granular/timeline.py` (track add/
@@ -47,6 +47,20 @@ servers. **Resources** — `status://current_timeline`,
 - `edit_engine` drives higher-level selects/tighten/swap flows
   (plan → confirm → execute); tighten variants can carry audio via `keep_ranges`
   mirror / `include_audio`.
+- **Takes** — `timeline_item_takes` is the take-stack tool (`add`, `get_count`,
+  `get_selected_index`, `get_by_index`, `select`, `delete`, `finalize`), keyed
+  by `track_type`/`track_index`/`item_index` (`item_index` is 0-BASED). The
+  `takes` entry in `copy_properties` only *carries* a take stack during a
+  duplicate; building or choosing one is this tool's job.
+- **Timeline-wide AI/analysis** — `timeline_ai`: `detect_scene_cuts`,
+  `analyze_dolby_vision`, `grab_still`, `grab_all_stills`, `create_subtitles`.
+  These are long ops — pass `background=true` for a `job_id` and poll
+  `resolve_control(action="job_status", params={"job_id": …})` instead of
+  blocking. **`create_subtitles` is refused on Linux**
+  (`SUBTITLE_GENERATION_CRASH_GUARD`, issue #90 — `CreateSubtitlesFromAudio`
+  kills the Resolve process); import an offline-built `.srt` via
+  `timeline(action="import_srt")` instead. `grab_all_stills` is the bulk
+  gallery-still grab the color domain builds on.
 
 ## Offline editorial (`editorial` actions)
 

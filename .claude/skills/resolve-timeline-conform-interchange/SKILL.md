@@ -13,7 +13,7 @@ Bridges online-editing / finishing *craft* to this repo's *tools*.
 - **Live tool mechanics** — `docs/kernels/timeline-conform-interchange-kernel.md`
   (the `timeline` conform/interchange boundary).
 - **Offline conform engine** — `resolve-advanced/README.md` → `conform`,
-  `color_trace`, `offline_ref`, `editorial`, `drt`, `project_db`.
+  `color_trace`, `offline_ref`, `editorial`, `drt`, `project_read`, `project_db`.
 
 ## Two servers
 
@@ -21,6 +21,16 @@ Bridges online-editing / finishing *craft* to this repo's *tools*.
 |---|---|---|
 | Import / relink / compare a **running** conform | `davinci-resolve` (Python, live) | `timeline` (conform actions), `media_pool` (`safe_relink`, `safe_import_sequence`) |
 | Conform QC math, reverse-clip repair, lineage, grade tracing, `.drt`/`.drp`/DB edits with **no Resolve open** | `davinci-resolve-advanced` (Node) | `conform`, `color_trace`, `offline_ref`, `editorial`, `drt`, `project_db` |
+| **Read** clips off any timeline — including a closed or different project — with **no Resolve open** | `davinci-resolve-advanced` (Node) | `project_read` |
+
+**Reading beats patching.** Before reaching for `project_db` (which needs the
+project closed, `iConfirmProjectClosed:true`, and a full quit/relaunch), check
+whether `project_read` answers the question: it is READ-ONLY and zero-risk.
+`project_read(action="timeline_clips")` reads a named timeline's clips even
+when that timeline lives in a closed or entirely different project — the usual
+way to compare an incoming conform against a reference cut without opening
+either. Also `introspect` (timelines + which carry an offline ref),
+`audit`, `report`, `tables`, `query`, `diff`. Needs `better-sqlite3`.
 
 **Granular (`--full`).** Unlike `resolve-color-grade`/`resolve-timeline-edit`,
 these `timeline` conform actions have **no one-per-method granular twin** —

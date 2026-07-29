@@ -97,6 +97,31 @@ def test_npm_package_metadata():
     assert (PROJECT_ROOT / "bin" / "davinci-resolve-mcp.mjs").exists()
 
 
+def test_requirements_reaches_the_managed_install():
+    """``requirements.txt`` must ship in the npm tarball AND be copied into the
+    managed install root.
+
+    ``install.py`` resolves it relative to itself (the managed root) and installs
+    it only ``if req_file.exists()``. It was absent from both the package
+    ``files`` list and the launcher's ``SYNC_ITEMS``, so that check was silently
+    false on every ``npx davinci-resolve-mcp setup``: pyaaf2 (offline AAF
+    preview) and zstandard (``timeline import_srt``) never got installed and both
+    features honest-refused for the life of the install. No error, no warning.
+    """
+    package = json.loads((PROJECT_ROOT / "package.json").read_text(encoding="utf-8"))
+    assert "requirements.txt" in package["files"], (
+        "requirements.txt missing from package.json 'files' — it will not ship "
+        "in the npm tarball and install.py will skip the dependency install"
+    )
+    launcher = (PROJECT_ROOT / "bin" / "davinci-resolve-mcp.mjs").read_text(encoding="utf-8")
+    sync_items = launcher.split("const SYNC_ITEMS = [", 1)[1].split("];", 1)[0]
+    assert '"requirements.txt"' in sync_items, (
+        "requirements.txt missing from SYNC_ITEMS in bin/davinci-resolve-mcp.mjs "
+        "— it will never reach the managed install root install.py reads from"
+    )
+    assert (PROJECT_ROOT / "requirements.txt").exists()
+
+
 def test_utils_syntax():
     utils_dir = PROJECT_ROOT / "src" / "utils"
     for py_file in utils_dir.glob("*.py"):

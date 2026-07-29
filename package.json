@@ -45,6 +45,7 @@
     "examples/**/*.md",
     "scripts/**/*.py",
     "install.py",
+    "requirements.txt",
     "README.md",
     "CHANGELOG.md",
     "LICENSE",

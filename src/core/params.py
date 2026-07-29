@@ -24,6 +24,7 @@ this cannot mask one as "bad input".
 from __future__ import annotations
 
 import functools
+import inspect
 from typing import Any, Dict, Mapping, Optional
 
 from src.core.envelope import _err
@@ -140,15 +141,35 @@ def missing_param_envelope(fn):
     Apply as the INNERMOST decorator on a compound tool, below @mcp.tool and any
     governance decorator, so the envelope it returns still passes through those
     layers like any other return value.
+
+    Sync and async tool functions are both supported — async handlers get an
+    async wrapper twin, the same way ``destructive_hook.destructive_op`` does it.
+    A sync wrapper over an ``async def`` would hand FastMCP the un-awaited
+    coroutine (killing the tool outright with an output-validation error) and
+    would never see the MissingParam, since that is raised at await time, not at
+    call time.
     """
 
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except MissingParam as exc:
-            return missing_param_error(exc.key)
-        except InvalidParam as exc:
-            return invalid_param_error(exc)
+    if inspect.iscoroutinefunction(fn):
+
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            try:
+                return await fn(*args, **kwargs)
+            except MissingParam as exc:
+                return missing_param_error(exc.key)
+            except InvalidParam as exc:
+                return invalid_param_error(exc)
+
+    else:
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except MissingParam as exc:
+                return missing_param_error(exc.key)
+            except InvalidParam as exc:
+                return invalid_param_error(exc)
 
     return wrapper

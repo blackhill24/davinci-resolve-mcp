@@ -830,6 +830,18 @@ def render(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, An
     elif action == "get_resolutions":
         return {"resolutions": _ser(proj.GetRenderResolutions(_render_format_id(proj, p["format"]), p["codec"]))}
     elif action == "get_settings":
+        # GetRenderSettings is documented but absent from the live Project on
+        # current builds (render-deliver kernel, "Version Or Page Dependent
+        # Boundaries"). The bridge hands back None for a missing attribute, so
+        # calling it unguarded raises "'NoneType' object is not callable" out of
+        # the tool — guard it like _render_settings_snapshot does.
+        if not _has_method(proj, "GetRenderSettings"):
+            return _err(
+                "GetRenderSettings is unavailable on this Resolve build — render "
+                "settings readback is version/page dependent. Settings can still "
+                "be applied via render(action='set_settings').",
+                code="GET_RENDER_SETTINGS_UNAVAILABLE", category="unsupported",
+            )
         return {"settings": _ser(proj.GetRenderSettings())}
     elif action == "set_settings":
         if "settings" not in p or not isinstance(p["settings"], dict):

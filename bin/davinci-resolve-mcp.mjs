@@ -28,6 +28,12 @@ const SYNC_ITEMS = [
   "examples",
   "scripts",
   "install.py",
+  // install.py resolves requirements.txt relative to ITSELF (the managed root),
+  // and installs it only `if req_file.exists()`. Leaving it out of the sync made
+  // that check silently false on every managed install, so pyaaf2 (offline AAF
+  // preview) and zstandard (timeline import_srt) were never installed and both
+  // features honest-refused for the life of the install.
+  "requirements.txt",
   "README.md",
   "CHANGELOG.md",
   "LICENSE",

@@ -253,6 +253,7 @@ from src.core.timeline_lookup import (
 from src.core.live_connection import (
     get_resolve,
     _destructive_versioning_provider,
+    bridge_serialized as _bridge_serialized,
 )
 from src.core.params import (
     missing_param_envelope as _missing_param_envelope,
@@ -986,6 +987,7 @@ def _orchestrate_resolve_fingerprint(p: Dict[str, Any], proj):
     return _orchestrate_capture_fingerprint(proj), None
 
 @mcp.tool()
+@_bridge_serialized
 @_missing_param_envelope
 async def orchestrate(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Resumable ingest-to-deliver post-production conductor.

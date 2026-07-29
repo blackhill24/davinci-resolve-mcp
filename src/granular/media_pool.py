@@ -89,12 +89,18 @@ def list_media_pool_clips() -> List[Dict[str, Any]]:
     if not clips:
         return [{"info": "No clips found in the root folder"}]
     
-    # Return a simplified list with basic clip info
+    # Return a simplified list with basic clip info.
+    # Duration comes from GetClipProperty, NOT GetDuration: that method is on
+    # TimelineItem only (docs/reference/resolve_scripting_api.txt lists it under
+    # TimelineItem; dir(MediaPoolItem) has no such entry, live-verified on Studio
+    # 21.0.2.4). The bridge fabricates any missing attribute, so the old
+    # clip.GetDuration() raised "'NoneType' object is not callable" out of this
+    # resource for every project whose root folder holds a clip.
     result = []
     for clip in clips:
         result.append({
             "name": clip.GetName(),
-            "duration": clip.GetDuration(),
+            "duration": clip.GetClipProperty("Duration"),
             "fps": clip.GetClipProperty("FPS")
         })
     

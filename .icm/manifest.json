@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "11fec84a96f48f85",
+      "fingerprint": "3f490eec06b0bec4",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -692,7 +692,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "6a2da0c205678053",
+      "fingerprint": "0269ed1660fafe45",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -928,6 +928,7 @@
         "tests/test_agent_rules_drift.py",
         "tests/test_audit_minor_bucket.py",
         "tests/test_batch_cli.py",
+        "tests/test_bridge_guard.py",
         "tests/test_claude_skills.py",
         "tests/test_compound_disconnected_smoke.py",
         "tests/test_concurrent_state_writes.py",
@@ -945,6 +946,7 @@
         "tests/test_granular_disconnected_smoke.py",
         "tests/test_granular_guard_drift.py",
         "tests/test_granular_guards.py",
+        "tests/test_granular_media_pool_clip_reads.py",
         "tests/test_granular_wrong_shape_tools.py",
         "tests/test_hand_rolled_double_audit.py",
         "tests/test_import.py",

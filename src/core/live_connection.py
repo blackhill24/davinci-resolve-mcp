@@ -6,10 +6,13 @@ lifecycle every domain's tool functions call through `get_resolve()`.
 """
 from __future__ import annotations
 
+import contextvars
+import functools
 import os
 import sys
 import threading
 import logging
+from contextlib import asynccontextmanager
 
 from src.core.platform import get_resolve_paths
 from src.core.resolve_launch import launch_resolve
@@ -34,11 +37,83 @@ dvr_script = None
 _resolve_lock = threading.RLock()
 # Serializes synchronous tool bodies once they run off the event loop (see
 # _install_threaded_tool_dispatch): the Resolve scripting bridge executes one
-# call at a time, so two sync tool bodies must never enter it concurrently. No
-# body re-acquires it, so a plain Lock (not RLock) states the invariant. The
-# async media_analysis tool is not wrapped and does not take this lock; it is
-# assumed not to run concurrently with another tool (true for a serial client).
+# call at a time, so two sync tool bodies must never enter it concurrently.
+#
+# This used to add "the async tools do not take this lock; they are assumed not
+# to run concurrently with another tool (true for a serial client)". That
+# precondition was never true in-process: `core/background_jobs` runs Resolve
+# work on a daemon thread holding this very lock **by design**, so a serial
+# client still produces two threads in fusionscript the moment a background job
+# overlaps an async tool — which per `core/resolve_busy` "simply hangs with no
+# feedback" (#167 finding 2). Async tool bodies now take the lock too, through
+# `bridge_guard()` below.
+#
+# Not an RLock: a plain Lock states "no holder re-acquires", and it is also what
+# lets `bridge_guard()` acquire in a worker thread and release from the event
+# loop (an RLock forbids that cross-thread release). Re-entrancy is handled a
+# layer up, by the context variable below, because the nesting we actually have
+# is logical (orchestrate -> auto_edit) rather than same-thread.
 _bridge_lock = threading.Lock()
+
+# True while the current async task (and any thread it offloads to, since the
+# context is copied) already holds `_bridge_lock`. `orchestrate` delegates to
+# `auto_edit`, and both are guarded, so without this the inner guard would block
+# forever on the lock its own caller is holding.
+_bridge_held = contextvars.ContextVar("_bridge_held", default=False)
+
+
+@asynccontextmanager
+async def bridge_guard():
+    """Hold `_bridge_lock` across an async tool body, without stalling the loop.
+
+    Two distinct hazards, both of which this closes for the async tools that the
+    `_install_threaded_tool_dispatch` wrapper skips (it wraps sync bodies only):
+
+    * **No mutex.** An async body entering the bridge while a sync body — or a
+      background job — is inside it puts two threads in fusionscript.
+    * **Blocking the event loop.** Acquiring a contended lock inline would
+      freeze the stdio read loop, which is the very thing the offload exists to
+      prevent. The acquire therefore happens in a worker thread; the loop keeps
+      turning while another caller drains the bridge.
+
+    Releasing from the event-loop thread after acquiring in a worker thread is
+    legal for `threading.Lock` (unlike `RLock`), which is why the lock stays a
+    plain Lock.
+
+    Re-entrant by task: a nested guard sees `_bridge_held` and yields straight
+    through rather than deadlocking on its own caller's lock.
+    """
+    if _bridge_held.get():
+        yield
+        return
+    import anyio
+
+    await anyio.to_thread.run_sync(_bridge_lock.acquire)
+    token = _bridge_held.set(True)
+    try:
+        yield
+    finally:
+        _bridge_held.reset(token)
+        _bridge_lock.release()
+
+
+def bridge_serialized(fn):
+    """Decorate an async tool so its whole body runs under `bridge_guard()`.
+
+    Apply it **outermost** (directly under `@mcp.tool()`), above
+    `@_destructive_op`: that hook's async wrapper runs `call.pre()`/`call.post()`
+    off-thread and, by its own docstring, they do "Resolve calls, timeline
+    archive export, prefs I/O" — with no bridge lock of their own. Decorating
+    inside the hook would leave that Resolve work unguarded.
+    """
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        async with bridge_guard():
+            return await fn(*args, **kwargs)
+
+    wrapper.__bridge_serialized__ = True  # type: ignore[attr-defined]
+    return wrapper
 
 # On Windows the fusionscript native bridge DLL must be locatable before the
 # Python import machinery attempts to load it.  Setting PYTHONHOME, prepending

@@ -254,6 +254,7 @@ from src.core.timeline_lookup import (
 from src.core.live_connection import (
     get_resolve,
     _destructive_versioning_provider,
+    bridge_serialized as _bridge_serialized,
 )
 from src.core.params import (
     missing_param_envelope as _missing_param_envelope,
@@ -1092,6 +1093,7 @@ def _is_montage_plan(plan: Dict[str, Any]) -> bool:
     )
 
 @mcp.tool()
+@_bridge_serialized
 @_destructive_op("auto_edit")
 @_missing_param_envelope
 async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

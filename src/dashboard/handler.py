@@ -247,9 +247,26 @@ class Handler(BaseHTTPRequestHandler):
             return None
         try:
             payload = json.loads(text)
-        except json.JSONDecodeError:
-            return {}
-        return payload if isinstance(payload, dict) else {}
+        except json.JSONDecodeError as exc:
+            # Same rule as the chunked/UTF-8/short-body branches above: a body we
+            # cannot read is refused, never silently downgraded to ``{}``. It used
+            # to return ``{}``, so a truncated POST ran the route with all
+            # defaults and answered 200 — and for /api/setup/clear "all defaults"
+            # means `clear_defaults({})`, which wipes every stored preference.
+            self._json(
+                {"success": False, "error": f"request body is not valid JSON: {exc.msg}"},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return None
+        if not isinstance(payload, dict):
+            # A bare list/string/number is valid JSON but not a request document;
+            # every route here indexes it as a mapping.
+            self._json(
+                {"success": False, "error": "request body must be a JSON object"},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return None
+        return payload
 
     def do_GET(self) -> None:
         if not _request_origin_ok(self):

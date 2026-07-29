@@ -2624,13 +2624,34 @@ def _v2_read_corrections(path: str, *, strict: bool = False) -> Dict[str, Any]:
             raise ConfigParseError(f"{path}: {exc}") from exc
         return {"schema_version": "2.0", "current": {}, "changelog": []}
 
+# Serializes the corrections read-modify-write below. The control panel is a
+# ThreadingHTTPServer and POST /api/clips/<id>/corrections takes no lock (unlike
+# its /transcript/regenerate sibling), so concurrent saves interleaved
+# read → mutate → write and the last writer dropped the others' changelog
+# entries. Measured: 24 concurrent corrections, 9 survived.
+_V2_CORRECTIONS_LOCK = threading.Lock()
+
+
 def _v2_write_corrections(path: str, data: Dict[str, Any]) -> Dict[str, Any]:
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp_path = path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as handle:
-            json.dump(data, handle, indent=2, sort_keys=True, default=str)
-        os.replace(tmp_path, path)
+        # Unique temp name, matching technical_probe._write_json. A shared
+        # `path + ".tmp"` defeats the very atomicity os.replace is here for: two
+        # writers open the SAME temp file, the second truncates the first's
+        # buffer mid-write, and os.replace then publishes the spliced result.
+        # Measured: 1 unparseable corrections.json in 8 trials of 16 concurrent
+        # writes — and _v2_read_corrections(strict=True) then refuses every
+        # future correction for that clip until a human repairs the file.
+        tmp_path = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, indent=2, sort_keys=True, default=str)
+            os.replace(tmp_path, path)
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
         return {"success": True, "path": path}
     except OSError as exc:
         return {"success": False, "error": f"{type(exc).__name__}: {exc}"}
@@ -2667,41 +2688,46 @@ def _v2_update_field(project_root: str, p: Dict[str, Any], *, entity_type: str) 
     if not path:
         return _err(f"Could not locate clip directory for clip_id={clip_id} under {project_root}/clips/. Pass clip_dir explicitly if the clip directory is non-standard.")
 
-    try:
-        data = _v2_read_corrections(path, strict=True)
-    except ConfigParseError as exc:
-        return _err(f"Refusing to write correction: {exc}. The corrections file exists but is unparseable; fix or remove it to avoid wiping the human edit history.")
-    if clip_id and "clip_id" not in data:
-        data["clip_id"] = str(clip_id)
+    # Read → mutate → write is one critical section: outside it, two concurrent
+    # corrections both read the pre-change file, each appends its own changelog
+    # entry, and whichever writes last erases the other's edit while answering
+    # success. Held across the write, not just the read.
+    with _V2_CORRECTIONS_LOCK:
+        try:
+            data = _v2_read_corrections(path, strict=True)
+        except ConfigParseError as exc:
+            return _err(f"Refusing to write correction: {exc}. The corrections file exists but is unparseable; fix or remove it to avoid wiping the human edit history.")
+        if clip_id and "clip_id" not in data:
+            data["clip_id"] = str(clip_id)
 
-    key = f"{entity_type}:{entity_uuid}:{field_path}"
-    previous = data["current"].get(key)
-    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        key = f"{entity_type}:{entity_uuid}:{field_path}"
+        previous = data["current"].get(key)
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-    new_entry = {
-        "value": new_value,
-        "source": "human",
-        "author": author,
-        "timestamp": now,
-    }
-    if confidence:
-        new_entry["confidence"] = str(confidence)
+        new_entry = {
+            "value": new_value,
+            "source": "human",
+            "author": author,
+            "timestamp": now,
+        }
+        if confidence:
+            new_entry["confidence"] = str(confidence)
 
-    data["current"][key] = new_entry
-    data["changelog"].append({
-        "entity_type": entity_type,
-        "entity_uuid": str(entity_uuid),
-        "field_path": field_path,
-        "previous_value": (previous or {}).get("value"),
-        "new_value": new_value,
-        "previous_source": (previous or {}).get("source"),
-        "new_source": "human",
-        "previous_author": (previous or {}).get("author"),
-        "new_author": author,
-        "change_reason": reason,
-        "timestamp": now,
-    })
-    write_result = _v2_write_corrections(path, data)
+        data["current"][key] = new_entry
+        data["changelog"].append({
+            "entity_type": entity_type,
+            "entity_uuid": str(entity_uuid),
+            "field_path": field_path,
+            "previous_value": (previous or {}).get("value"),
+            "new_value": new_value,
+            "previous_source": (previous or {}).get("source"),
+            "new_source": "human",
+            "previous_author": (previous or {}).get("author"),
+            "new_author": author,
+            "change_reason": reason,
+            "timestamp": now,
+        })
+        write_result = _v2_write_corrections(path, data)
     if not write_result.get("success"):
         return write_result
     # C1 — mirror the correction into the DB-canonical store (row-level

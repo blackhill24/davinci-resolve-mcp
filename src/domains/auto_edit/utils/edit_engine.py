@@ -27,6 +27,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -88,10 +89,18 @@ def save_plan(project_root: str, plan: Dict[str, Any]) -> Dict[str, Any]:
     path = _plan_path(project_root, plan["plan_id"])
     if path is None:
         raise ValueError(f"unsafe plan_id: {plan['plan_id']!r}")
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(plan, handle, indent=2, default=str)
-    os.replace(tmp, path)
+    # Unique temp name: a shared "<path>.tmp" lets two concurrent writers share
+    # one buffer, so os.replace publishes a spliced, unparseable file.
+    tmp = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(plan, handle, indent=2, default=str)
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
     return plan
 
 
@@ -150,10 +159,18 @@ def mark_plan_executed(project_root: str, plan_id: str, result_summary: Dict[str
     path = _plan_path(project_root, plan_id)
     if path is None:
         return
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(plan, handle, indent=2, default=str)
-    os.replace(tmp, path)
+    # Unique temp name: a shared "<path>.tmp" lets two concurrent writers share
+    # one buffer, so os.replace publishes a spliced, unparseable file.
+    tmp = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(plan, handle, indent=2, default=str)
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 # ── shared evidence helpers ──────────────────────────────────────────────────

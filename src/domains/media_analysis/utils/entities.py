@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -144,10 +145,18 @@ def _detection_state_path(project_root: str) -> str:
 def _write_detection_state(project_root: str, token: str, ordering: List[str]) -> None:
     analysis_memory.ensure_memory_structure(project_root)
     path = _detection_state_path(project_root)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump({"vision_token": token, "ordering": ordering, "written_at": _now()}, handle, indent=2)
-    os.replace(tmp, path)
+    # Unique temp name: a shared "<path>.tmp" lets two concurrent writers share
+    # one buffer, so os.replace publishes a spliced, unparseable file.
+    tmp = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump({"vision_token": token, "ordering": ordering, "written_at": _now()}, handle, indent=2)
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 def _read_detection_state(project_root: str) -> Optional[Dict[str, Any]]:
@@ -580,8 +589,14 @@ def commit_bin_summary(
     )
     if appendix:
         content += f"\n\n---\n\n{appendix}"
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        handle.write(content)
-    os.replace(tmp, path)
+    tmp = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
     return {"success": True, "path": path, "bytes": len(content)}

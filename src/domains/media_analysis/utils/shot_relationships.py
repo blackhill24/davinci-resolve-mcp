@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -97,10 +98,18 @@ def _state_path(project_root: str) -> str:
 def _write_state(project_root: str, token: str, candidates: List[Dict[str, Any]]) -> None:
     analysis_memory.ensure_memory_structure(project_root)
     path = _state_path(project_root)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump({"vision_token": token, "candidates": candidates, "written_at": _now()}, handle, indent=2)
-    os.replace(tmp, path)
+    # Unique temp name: a shared "<path>.tmp" lets two concurrent writers share
+    # one buffer, so os.replace publishes a spliced, unparseable file.
+    tmp = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump({"vision_token": token, "candidates": candidates, "written_at": _now()}, handle, indent=2)
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 def _read_state(project_root: str) -> Optional[Dict[str, Any]]:

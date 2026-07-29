@@ -96,11 +96,11 @@ retime, or automate audio levels (`src/core/api_truth.py`). Hence:
 
 ## Offline tests / live validation
 
-Offline: `tests/test_cut_ir_words.py`, `tests/test_auto_edit.py`,
-`tests/test_auto_edit_tool.py`, `tests/test_auto_edit_polish.py`,
-`tests/test_advanced_bridge_ops.py`, `tests/test_music_analysis.py`; montage
-adds `tests/test_montage_edit.py` (the decision layer, incl. a real
-click-track end-to-end run) and `tests/test_montage_wiring.py` (verifies —
+Offline: `tests/domains/auto_edit/test_cut_ir_words.py`, `tests/domains/auto_edit/test_auto_edit.py`,
+`tests/domains/auto_edit/test_auto_edit_tool.py`, `tests/domains/auto_edit/test_auto_edit_polish.py`,
+`tests/core/test_advanced_bridge_ops.py`, `tests/domains/auto_edit/test_music_analysis.py`; montage
+adds `tests/domains/auto_edit/test_montage_edit.py` (the decision layer, incl. a real
+click-track end-to-end run) and `tests/domains/auto_edit/test_montage_wiring.py` (verifies —
 doesn't assume — that `apply_revision`/G1-adoption/cut-summary dispatch work
 against montage CutLists, not just talking-head ones).
 Live: `tests/domains/auto_edit/live_auto_edit_validation.py`, `tests/domains/auto_edit/live_montage_probe.py`

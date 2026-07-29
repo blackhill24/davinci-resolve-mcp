@@ -59,7 +59,7 @@ pure file/DB-read compute that stays **in-band** — Resolve keeps running
 the whole call, no quit/relaunch needed. `run_drx_compute(action, args)`
 targets grade compute specifically; `run_advanced_tool(tool, action, args)`
 generalizes to any of the advanced server's 18 tools via
-`scripts/advanced-bridge.mjs` (which generalizes the narrower, mutating
+`resolve-advanced/scripts/advanced-bridge.mjs` (which generalizes the narrower, mutating
 `drp-bridge.mjs` — drp/drt/drx only — to the full tool set). Only a narrow
 per-ACTION slice of the advanced server actually requires Resolve closed
 (`conform.fix_reverse_clip`, `offline_ref`'s LIVE DB link/unlink,
@@ -145,14 +145,14 @@ capture — if a step needs to *compute* anything, that belongs in the tool.
 
 ## Offline tests / live validation
 
-Offline: `tests/test_orchestrate.py`, `tests/test_orchestrate_tool.py`,
-`tests/test_orchestrate_gates.py`, `tests/test_orchestrate_gates_tool.py`,
-`tests/test_orchestrate_run_stage.py`, `tests/test_orchestrate_run_stage_tool.py`
+Offline: `tests/domains/orchestration/test_orchestrate.py`, `tests/domains/orchestration/test_orchestrate_tool.py`,
+`tests/domains/orchestration/test_orchestrate_gates.py`, `tests/domains/orchestration/test_orchestrate_gates_tool.py`,
+`tests/domains/orchestration/test_orchestrate_run_stage.py`, `tests/domains/orchestration/test_orchestrate_run_stage_tool.py`
 (state machine, persistence, lease, fingerprints, drift-refuse, snapshot
 bookkeeping/GC, the gate matrix, and every `run_stage` delegation path with
 the domain-tool calls mocked — this suite verifies orchestrate's own logic,
-not the domain tools' internals); `tests/test_advanced_bridge_drx_compute.py`,
-`tests/test_advanced_bridge_generic.py` (the offline-compute bridge,
+not the domain tools' internals); `tests/core/test_advanced_bridge_drx_compute.py`,
+`tests/core/test_advanced_bridge_generic.py` (the offline-compute bridge,
 including real end-to-end calls — synthetic ffmpeg frames through a real
 drx compute, a real ffprobe-backed `deliverable_qc` — when Node + the
 relevant optional deps are present; graceful skip otherwise). Live:

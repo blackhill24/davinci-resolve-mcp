@@ -254,13 +254,19 @@ class BodyParsingTest(unittest.TestCase):
         handler.headers = {"Host": "127.0.0.1:8899"}
         self.assertEqual({}, handler._body())
 
-    def test_malformed_json_is_an_empty_dict_not_a_crash(self):
-        self.assertEqual({}, self._handler_with(b"{not json")._body())
+    def test_malformed_json_is_refused_not_silently_emptied(self):
+        # These two used to assert `{}`, which contradicted both `_body()`'s own
+        # docstring and MalformedBodyTest below ("a malformed or truncated body
+        # must be a 4xx"). `{}` is not a harmless default: it is what the route
+        # then runs on, and for /api/setup/clear `clear_defaults({})` wipes every
+        # stored preference and answers 200. The invariant this class exists for
+        # — `_body()` never raises — still holds; None means "already answered".
+        self.assertIsNone(self._handler_with(b"{not json")._body())
 
-    def test_a_non_object_json_body_is_an_empty_dict(self):
+    def test_a_non_object_json_body_is_refused(self):
         # A bare list would otherwise reach `body.get(...)` and raise.
-        self.assertEqual({}, self._handler_with(b"[1, 2, 3]")._body())
-        self.assertEqual({}, self._handler_with(b'"a string"')._body())
+        self.assertIsNone(self._handler_with(b"[1, 2, 3]")._body())
+        self.assertIsNone(self._handler_with(b'"a string"')._body())
 
     def test_a_json_object_is_returned_as_is(self):
         self.assertEqual({"a": 1}, self._handler_with(b'{"a": 1}')._body())
@@ -321,6 +327,30 @@ class MalformedBodyTest(unittest.TestCase):
         status, _headers, payload = self._post(b"", {"Transfer-Encoding": "chunked"})
         self.assertEqual(411, status)
         self.assertIn("chunked", json.loads(payload)["error"])
+
+    def test_a_truncated_json_body_is_a_400_not_a_route_run_on_defaults(self):
+        # The same standard as the chunked branch, applied to the JSON decode.
+        # This one had teeth: POST /api/setup/clear with a truncated body reached
+        # `clear_defaults({})`, which clears every stored preference, and answered
+        # 200 success.
+        raw = b'{"strategy": '
+        status, _headers, payload = self._post(raw, {"Content-Length": str(len(raw))})
+        self.assertEqual(400, status)
+        self.assertIn("not valid JSON", json.loads(payload)["error"])
+
+    def test_a_json_body_that_is_not_an_object_is_a_400(self):
+        raw = b"[1, 2, 3]"
+        status, _headers, payload = self._post(raw, {"Content-Length": str(len(raw))})
+        self.assertEqual(400, status)
+        self.assertIn("must be a JSON object", json.loads(payload)["error"])
+
+    def test_an_absent_body_still_reaches_the_route(self):
+        # Unchanged and load-bearing: several panel POSTs (transport start/stop,
+        # rollback) legitimately send no body at all, and must not become 400s.
+        exchange = _Exchange("POST", "/api/panel_state")
+        exchange.handler.headers = {"Host": "127.0.0.1:8899", "Content-Length": "0"}
+        exchange.handler.rfile = io.BytesIO(b"")
+        self.assertEqual({}, exchange.handler._body())
 
     def test_the_handler_declares_a_socket_timeout(self):
         # StreamRequestHandler.setup() applies this to the connection; without

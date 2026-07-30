@@ -41,6 +41,18 @@ exhausting the pool early; if every clip is genuinely out of usable seconds
 the montage still TRUNCATES rather than repeating a window or fabricating
 coverage, and says so honestly in `problems`.
 
+In-point (issue #178, phase 3/6): a cut's source start is NOT the shot's
+first frame by default — that is, by construction, the least-settled frame
+in the shot (right after the scene change). Precedence, honestly recorded
+per segment as `evidence.in_point_basis`: a scouted in-point
+(`editorial.scout`, deep_vision's per-window scoring — see
+`deep_vision.deepen_clip`'s `windows` param) > the deep-vision `best_moment`
+already on the shot > the plain shot start / advancing cursor position. Both
+preferred points are clamped to the window actually being cut (never move a
+cut outside its own shot), and a preference that no longer fits (already
+passed by the cursor, or the shot ends before it) is skipped rather than
+violated.
+
 No voiceover/ducking concept in v1 — strictly B-roll + music. Music is
 required (its length sets the montage's runtime; target_duration_seconds,
 if given, trims it rather than replacing it as the primary driver).
@@ -121,6 +133,36 @@ def _clip_level_select_potential(conn, clip_uuid: str) -> Optional[str]:
         return None
 
 
+_SCOUT_QUALITY_RANK = {"low": 0, "medium": 1, "high": 2}
+_SCOUT_EXPOSURE_RANK = {"crushed": 0, "clipped": 0, "good": 1}
+
+
+def _scout_desirability(entry: Dict[str, Any]) -> float:
+    """Higher is better; unusable entries never win (see _best_scout_in_point)."""
+    return (
+        _SCOUT_QUALITY_RANK.get(str(entry.get("subject_clarity", "")).lower(), 0)
+        + _SCOUT_QUALITY_RANK.get(str(entry.get("motion_interest", "")).lower(), 0)
+        + _SCOUT_QUALITY_RANK.get(str(entry.get("composition", "")).lower(), 0)
+        + _SCOUT_EXPOSURE_RANK.get(str(entry.get("exposure", "")).lower(), 0)
+    )
+
+
+def _best_scout_in_point(scout_entries: Any) -> Optional[float]:
+    """The highest-scored USABLE scout window's in_point_seconds, or None —
+    never fabricates a preference when scouting hasn't run or found nothing
+    usable (issue #178's honest-degradation requirement)."""
+    if not isinstance(scout_entries, list):
+        return None
+    usable = [
+        e for e in scout_entries
+        if isinstance(e, dict) and e.get("usable") and isinstance(e.get("in_point_seconds"), (int, float))
+    ]
+    if not usable:
+        return None
+    best = max(usable, key=_scout_desirability)
+    return float(best["in_point_seconds"])
+
+
 def _candidate_shots(conn, clip_uuids: Sequence[str]) -> List[Dict[str, Any]]:
     """Every usable shot across the given clips, ranked by select_potential
     (shot-level deep vision, falling back to clip-level) with its pacing."""
@@ -158,6 +200,11 @@ def _candidate_shots(conn, clip_uuids: Sequence[str]) -> List[Dict[str, Any]]:
         pacing = str(editorial.get("pacing") or "unknown").lower()
         if pacing not in _PACING_ZONE:
             pacing = "unknown"
+        best_moment = editorial.get("best_moment")
+        preferred_in_point = None
+        if isinstance(best_moment, dict) and isinstance(best_moment.get("time_seconds"), (int, float)):
+            preferred_in_point = float(best_moment["time_seconds"])
+        scout_in_point = _best_scout_in_point(groups.get("scout"))
         candidates.append({
             "clip_uuid": str(shot["clip_uuid"]),
             "clip_name": clip.get("clip_name"),
@@ -171,8 +218,74 @@ def _candidate_shots(conn, clip_uuids: Sequence[str]) -> List[Dict[str, Any]]:
             "rank": rank,
             "pacing": pacing,
             "description": shot.get("description"),
+            "preferred_in_point": preferred_in_point,
+            "scout_in_point": scout_in_point,
         })
     return candidates
+
+
+def _deep_vision():
+    """Lazy import — mirrors deep_vision.py's own _ma()/_clip_ident() pattern,
+    avoids a hard import-time dependency from the offline decision layer on
+    the vision stack."""
+    from src.domains.media_analysis.utils import deep_vision
+    return deep_vision
+
+
+def _shots_needing_scout(conn, clip_uuids: Sequence[str]) -> Dict[str, Dict[int, List[Dict[str, float]]]]:
+    """``clip_uuid -> {shot_index: [{"start", "end"}]}`` for every usable shot
+    that has no scout data yet. Cache-aware by construction (issue #178): a
+    shot already carrying an ``editorial.scout`` (via extra_json's top-level
+    ``scout`` key) list is skipped, which is what makes a second `plan_cut`
+    on the same brief issue zero new vision handoffs."""
+    out: Dict[str, Dict[int, List[Dict[str, float]]]] = {}
+    if not clip_uuids:
+        return out
+    placeholders = ",".join("?" * len(clip_uuids))
+    for shot_row in conn.execute(
+        f"SELECT * FROM shots WHERE clip_uuid IN ({placeholders})", list(clip_uuids)
+    ).fetchall():
+        shot = dict(shot_row)
+        groups = edit_engine._shot_groups(shot)
+        if isinstance(groups.get("scout"), list) and groups["scout"]:
+            continue  # already scouted
+        start, end = shot.get("time_seconds_start"), shot.get("time_seconds_end")
+        if start is None or end is None or float(end) - float(start) < MIN_SHOT_SECONDS:
+            continue
+        clip_uuid = str(shot["clip_uuid"])
+        out.setdefault(clip_uuid, {})[int(shot["shot_index"])] = [
+            {"start": float(start), "end": float(end)}]
+    return out
+
+
+def scout_handoff_if_needed(
+    project_root: str, brief: Dict[str, Any], *, confirm_token: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """Offer (or complete the estimate/confirm handshake for) in-point
+    scouting on any not-yet-scouted shot in this montage brief (issue #178).
+
+    Returns None when there is nothing to scout — no candidate clip is
+    analyzed yet, or every shot already carries scout data — so the caller
+    proceeds straight to `build_cut_list_for_brief` (which degrades honestly
+    to best_moment/shot-start when a shot was never scouted at all).
+    Otherwise returns deep_vision.deepen_clip's own estimate/confirm or
+    pending_host_analysis payload, verbatim, for exactly one not-yet-scouted
+    clip — the caller reads frames, commits, then calls this again (or just
+    calls plan_cut again with ``scout=false``) to move on.
+    """
+    conn = timeline_brain_db.connect(project_root)
+    clip_uuids: List[str] = []
+    for path in brief.get("files") or []:
+        clip = auto_edit._clip_for_file(conn, path)
+        if clip:
+            clip_uuids.append(str(clip["clip_uuid"]))
+    needed = _shots_needing_scout(conn, clip_uuids)
+    if not needed:
+        return None
+    clip_uuid, windows = next(iter(needed.items()))
+    return _deep_vision().deepen_clip(
+        project_root, clip_ref=clip_uuid, shot_indices=list(windows.keys()),
+        windows=windows, confirm_token=confirm_token)
 
 
 # ── energy curve (pacing + placement) ────────────────────────────────────────
@@ -279,13 +392,30 @@ class _ShotPool:
         return None
 
     @staticmethod
-    def take(shot: Dict[str, Any], seconds: float) -> Tuple[float, float]:
-        """Consume `seconds` from the shot's advancing cursor; returns the
-        (src_start, src_end) window actually used."""
-        src_start = shot["cursor"]
-        src_end = min(shot["time_seconds_end"], src_start + seconds)
+    def take(shot: Dict[str, Any], seconds: float) -> Tuple[float, float, str]:
+        """Consume `seconds` from the shot's advancing cursor; returns
+        (src_start, src_end, in_point_basis).
+
+        `preferred_in_point`/`scout_in_point` on the shot (issue #178) win
+        over the cursor when they still fit the window actually being cut —
+        i.e. not already passed by the cursor, and leaving room for a
+        full-length cut before the shot ends. Checked scout-first (more
+        evidence: a live look at the actual frames) then best_moment, so
+        `evidence.in_point_basis` records whichever one actually applied.
+        """
+        cursor = shot["cursor"]
+        end = shot["time_seconds_end"]
+        basis = "shot_start" if cursor == shot["time_seconds_start"] else "sequential_window"
+        src_start = cursor
+        for label, candidate in (("scout", shot.get("scout_in_point")),
+                                  ("best_moment", shot.get("preferred_in_point"))):
+            if isinstance(candidate, (int, float)) and cursor <= candidate <= end - seconds:
+                src_start = float(candidate)
+                basis = label
+                break
+        src_end = min(end, src_start + seconds)
         shot["cursor"] = src_end
-        return src_start, src_end
+        return src_start, src_end, basis
 
 
 def _finalize_grid_locked_frames(plan: Dict[str, Any], *, runtime_frames: int) -> None:
@@ -362,6 +492,14 @@ def build_cut_list_for_brief(
     if not candidates:
         return {"success": False, "error": "no usable shots found for the candidate clips",
                 "problems": problems}
+    if not any(c.get("scout_in_point") is not None for c in candidates):
+        # Honest degradation (issue #178): no shot in this brief has scouted
+        # in-point data (scouting was declined, hasn't run yet, or every
+        # window came back unusable) — every cut falls back to best_moment,
+        # then the shot start. Never blocks the pipeline.
+        problems.append(
+            "no scouted in-points available for these shots — using best_moment "
+            "(where present) or the shot start instead")
 
     fps_values = {round(c["fps"], 3) for c in candidates}
     if len(fps_values) > 1:
@@ -378,9 +516,22 @@ def build_cut_list_for_brief(
     def _rationale(shot: Dict[str, Any]) -> str:
         return f"select_potential rank {shot['rank']}, pacing={shot['pacing']}"
 
-    def _evidence(shot: Dict[str, Any], basis: str) -> Dict[str, Any]:
+    def _evidence(shot: Dict[str, Any], basis: str, *, in_point_basis: str = "shot_start") -> Dict[str, Any]:
         return {"basis": basis, "clip_name": shot.get("clip_name"),
-                "description": shot.get("description"), "pacing": shot["pacing"]}
+                "description": shot.get("description"), "pacing": shot["pacing"],
+                "in_point_basis": in_point_basis}
+
+    def _preferred_src_start(shot: Dict[str, Any], *, min_duration: float) -> Tuple[float, str]:
+        """scout > best_moment > shot start (issue #178), clamped so at least
+        `min_duration` seconds still fit before the shot ends. Returns
+        (src_start, in_point_basis)."""
+        start, end = shot["time_seconds_start"], shot["time_seconds_end"]
+        limit = end - min_duration
+        for label, candidate in (("scout", shot.get("scout_in_point")),
+                                  ("best_moment", shot.get("preferred_in_point"))):
+            if isinstance(candidate, (int, float)) and start <= candidate <= limit:
+                return float(candidate), label
+        return start, "shot_start"
 
     grid_available = bool(beats.get("grid_available")) and len(beats.get("beat_grid") or []) >= 2
     segments: Optional[List[Dict[str, Any]]] = None
@@ -398,13 +549,14 @@ def build_cut_list_for_brief(
         if schedule:
             def _grid_segment(role: str, shot: Dict[str, Any], src_start_seconds: float,
                                record_start_frame: int, record_len: int,
-                               arrangement: Dict[str, Any]) -> Dict[str, Any]:
+                               arrangement: Dict[str, Any], *, in_point_basis: str = "shot_start") -> Dict[str, Any]:
                 start_frame = int(round(src_start_seconds * fps))
                 end_frame = start_frame + record_len  # derived from record length — never re-rounded
                 seg = cut_ir.make_cut_list_segment(
                     role=role, clip_id=shot["resolve_clip_id"], clip_uuid=shot["clip_uuid"],
                     source_start_frame=start_frame, source_end_frame=end_frame,
-                    rationale=_rationale(shot), evidence=_evidence(shot, "select_potential+pacing+beat_grid"),
+                    rationale=_rationale(shot),
+                    evidence=_evidence(shot, "select_potential+pacing+beat_grid", in_point_basis=in_point_basis),
                 )
                 seg["record_start_frame"] = record_start_frame
                 seg["beat_index"] = arrangement["beat_index"]
@@ -425,9 +577,10 @@ def build_cut_list_for_brief(
             hook_end_beat = min(hook_entry["beat_index"] + hook_entry["beat_length"], len(beat_frames) - 1)
             hook_record_len = beat_frames[hook_end_beat] - beat_frames[hook_entry["beat_index"]]
             hook_internal = pool.get(hook["clip_uuid"], hook["shot_uuid"])
-            hook_src_start, _ = _ShotPool.take(hook_internal, hook_record_len / fps)
+            hook_src_start, _, hook_in_point_basis = _ShotPool.take(hook_internal, hook_record_len / fps)
             segments = [_grid_segment("montage_hook", hook, hook_src_start,
-                                      beat_frames[hook_entry["beat_index"]], hook_record_len, hook_entry)]
+                                      beat_frames[hook_entry["beat_index"]], hook_record_len, hook_entry,
+                                      in_point_basis=hook_in_point_basis)]
             last_clip_uuid = hook["clip_uuid"]
 
             max_density = max(
@@ -467,9 +620,10 @@ def build_cut_list_for_brief(
                     truncated = True
                     break
 
-                src_start, _ = _ShotPool.take(chosen, needed_seconds)
+                src_start, _, in_point_basis = _ShotPool.take(chosen, needed_seconds)
                 segments.append(_grid_segment(
-                    "montage", chosen, src_start, record_start_frame, record_len, entry))
+                    "montage", chosen, src_start, record_start_frame, record_len, entry,
+                    in_point_basis=in_point_basis))
                 last_clip_uuid = chosen["clip_uuid"]
 
             if truncated:
@@ -494,18 +648,21 @@ def build_cut_list_for_brief(
         hook_seconds = (HOOK_BEATS * 60.0 / tempo) if tempo else DEFAULT_HOOK_SECONDS
         hook_seconds = max(MIN_CUT_SECONDS, min(hook_seconds, hook["duration_seconds"], total_runtime))
 
-        def _segment(role: str, shot: Dict[str, Any], src_start: float, src_end: float) -> Dict[str, Any]:
+        def _segment(role: str, shot: Dict[str, Any], src_start: float, src_end: float,
+                     *, in_point_basis: str = "shot_start") -> Dict[str, Any]:
             start_frame = int(round(src_start * fps))
             end_frame = max(start_frame + 1, int(round(src_end * fps)))
             return cut_ir.make_cut_list_segment(
                 role=role, clip_id=shot["resolve_clip_id"], clip_uuid=shot["clip_uuid"],
                 source_start_frame=start_frame, source_end_frame=end_frame,
-                rationale=_rationale(shot), evidence=_evidence(shot, "select_potential+pacing"),
+                rationale=_rationale(shot),
+                evidence=_evidence(shot, "select_potential+pacing", in_point_basis=in_point_basis),
             )
 
-        hook_src_start = hook["time_seconds_start"]
+        hook_src_start, hook_in_point_basis = _preferred_src_start(hook, min_duration=hook_seconds)
         hook_src_end = min(hook["time_seconds_end"], hook_src_start + hook_seconds)
-        segments = [_segment("montage_hook", hook, hook_src_start, hook_src_end)]
+        segments = [_segment("montage_hook", hook, hook_src_start, hook_src_end,
+                             in_point_basis=hook_in_point_basis)]
         used_shot_uuids = {hook["shot_uuid"]}
         record_cursor = hook_src_end - hook_src_start
 
@@ -547,7 +704,7 @@ def build_cut_list_for_brief(
                 break
 
             used_shot_uuids.add(chosen["shot_uuid"])
-            src_start = chosen["time_seconds_start"]
+            src_start, in_point_basis = _preferred_src_start(chosen, min_duration=target_dur)
             raw_src_end = min(chosen["time_seconds_end"], src_start + target_dur)
             target_record_end = record_cursor + (raw_src_end - src_start)
             snapped_record_end = min(
@@ -556,7 +713,7 @@ def build_cut_list_for_brief(
             actual_duration = max(MIN_CUT_SECONDS, snapped_record_end - record_cursor)
             src_end = min(chosen["time_seconds_end"], src_start + actual_duration)
 
-            segments.append(_segment("montage", chosen, src_start, src_end))
+            segments.append(_segment("montage", chosen, src_start, src_end, in_point_basis=in_point_basis))
             record_cursor += (src_end - src_start)
 
         if truncated:

@@ -15,6 +15,7 @@ import unittest
 from unittest import mock
 
 import src.server as s
+from src.core import timeline_brain_db
 from src.domains.auto_edit.utils import auto_edit, cut_ir, edit_engine
 
 
@@ -96,6 +97,80 @@ class PlanCutDispatchTests(unittest.TestCase):
         mocked.assert_called_once()
         mocked_montage.assert_not_called()
         self.assertIn("error", out)
+
+
+class ScoutHandoffWiringTests(unittest.TestCase):
+    """plan_cut's in-point scouting offer (issue #178, phase 3/6): on by
+    default, an escape hatch, and never re-offered once a shot is scouted
+    (cache hit — no re-scout on a later revision)."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="montage-scout-wiring-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.addCleanup(timeline_brain_db.close_all)
+
+    def _seed_clip(self):
+        from tests.domains.media_analysis.test_analysis_store import make_report
+        from src.domains.media_analysis.utils import analysis_store
+        report = make_report()
+        report["clip"] = dict(report["clip"], file_path="/media/b1.mp4", clip_name="B1.mp4")
+        result = analysis_store.ingest_report(self.root, report, clip_dir="b1-dir")
+        self.assertTrue(result["success"], result)
+        return result["clip_uuid"]
+
+    def test_unscouted_montage_brief_offers_scout_before_planning(self):
+        self._seed_clip()
+        brief = auto_edit.create_brief(
+            self.root, files=["/media/b1.mp4"], music="/media/track.wav", genre="montage")
+        auto_edit.advance_brief(self.root, brief["brief_id"], "ready")
+        with mock.patch.object(s._montage_edit_mod, "build_cut_list_for_brief") as mocked_build:
+            out = run(s.auto_edit("plan_cut", {"brief_id": brief["brief_id"], "analysis_root": self.root}))
+        mocked_build.assert_not_called()
+        self.assertEqual(out.get("status"), "confirmation_required")
+        self.assertIn("estimate", out)
+
+    def test_scout_false_skips_the_offer(self):
+        self._seed_clip()
+        brief = auto_edit.create_brief(
+            self.root, files=["/media/b1.mp4"], music="/media/track.wav", genre="montage")
+        auto_edit.advance_brief(self.root, brief["brief_id"], "ready")
+        fake_plan = make_montage_plan(self.root)
+        with mock.patch.object(
+                s._montage_edit_mod, "build_cut_list_for_brief",
+                return_value={"success": True, "plan": fake_plan}) as mocked_build:
+            out = run(s.auto_edit(
+                "plan_cut", {"brief_id": brief["brief_id"], "analysis_root": self.root, "scout": False}))
+        mocked_build.assert_called_once()
+        self.assertTrue(out.get("success"), out)
+
+    def test_already_scouted_shots_issue_no_new_handoff(self):
+        from src.domains.media_analysis.utils import analysis_store
+        clip_uuid = self._seed_clip()
+        # Simulate a prior, already-committed scout pass on every shot.
+        report = analysis_store.export_report(self.root, clip_uuid)
+        for shot in report["visual"]["shot_descriptions"]:
+            shot["scout"] = [{"window_start_seconds": shot["time_seconds_start"],
+                               "window_end_seconds": shot["time_seconds_end"],
+                               "in_point_seconds": shot["time_seconds_start"] + 0.1,
+                               "subject_clarity": "high", "motion_interest": "medium",
+                               "composition": "high", "exposure": "good",
+                               "dominant_colour": {"tone": "warm", "brightness": 0.5},
+                               "usable": True, "why": "already scouted"}]
+        ingest = analysis_store.ingest_report(self.root, report, clip_dir="b1-dir")
+        self.assertTrue(ingest["success"], ingest)
+
+        brief = auto_edit.create_brief(
+            self.root, files=["/media/b1.mp4"], music="/media/track.wav", genre="montage")
+        auto_edit.advance_brief(self.root, brief["brief_id"], "ready")
+        fake_plan = make_montage_plan(self.root)
+        with mock.patch.object(
+                s._montage_edit_mod, "build_cut_list_for_brief",
+                return_value={"success": True, "plan": fake_plan}) as mocked_build, \
+             mock.patch("src.domains.media_analysis.utils.deep_vision.deepen_clip") as mocked_deepen:
+            out = run(s.auto_edit("plan_cut", {"brief_id": brief["brief_id"], "analysis_root": self.root}))
+        mocked_deepen.assert_not_called()
+        mocked_build.assert_called_once()
+        self.assertTrue(out.get("success"), out)
 
 
 class ReviseCutOnMontageTests(unittest.TestCase):

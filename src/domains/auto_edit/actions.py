@@ -1324,6 +1324,20 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             brief = _auto_edit_mod.load_brief(project_root, brief["plan_id"]) or brief
         genre = str(brief.get("genre") or "talking_head")
         if genre == _montage_edit_mod.GENRE:
+            # In-point scouting (issue #178): on by default, escape hatch via
+            # scout=false. Offers the deep_vision handoff for exactly one
+            # not-yet-scouted clip and returns THAT instead of a plan — read
+            # its frames, commit, then call plan_cut again. Cache-aware
+            # (scout_handoff_if_needed returns None once every shot already
+            # has scout data), so this never re-offers on a later revision,
+            # and it never blocks planning: pass scout=false, or just ignore
+            # the offer and call plan_cut again, to plan with whatever
+            # best_moment/shot-start in-points are already available.
+            if p.get("scout", True):
+                scout_offer = _montage_edit_mod.scout_handoff_if_needed(
+                    project_root, brief, confirm_token=p.get("scout_confirm_token"))
+                if scout_offer is not None:
+                    return scout_offer
             # No ducking/voiceover in montage — the loudness-bed-gain pass
             # exists only to feed talking-head's ducking ladder.
             built = _montage_edit_mod.build_cut_list_for_brief(project_root, brief)

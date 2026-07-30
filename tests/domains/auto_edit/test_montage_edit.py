@@ -67,8 +67,9 @@ def _visual_report(shots, *, clip_select_potential="medium"):
     }
 
 
-def _shot(idx, start, end, *, select_potential, pacing, description="A shot."):
-    return {
+def _shot(idx, start, end, *, select_potential, pacing, description="A shot.",
+          best_moment=None, scout=None):
+    shot = {
         "shot_index": idx,
         "time_seconds_start": start,
         "time_seconds_end": end,
@@ -78,13 +79,16 @@ def _shot(idx, start, end, *, select_potential, pacing, description="A shot."):
         "editorial": {
             "editorial_role": "montage_element",
             "select_potential": select_potential,
-            "best_moment_present": False,
-            "best_moment": None,
+            "best_moment_present": best_moment is not None,
+            "best_moment": best_moment,
             "pacing": pacing,
             "stillness_type": None,
             "pacing_note": None,
         },
     }
+    if scout is not None:
+        shot["scout"] = scout
+    return shot
 
 
 class MontageEditBase(unittest.TestCase):
@@ -313,6 +317,89 @@ class BuildCutListMockedBeatsTests(MontageEditBase):
             out = montage_edit.build_cut_list_for_brief(self.root, brief)
         self.assertFalse(out["success"])
         self.assertIn("mixed frame rates", out["error"])
+
+
+def _scout_window(window_start, window_end, in_point, *, usable=True,
+                   subject_clarity="high", motion_interest="high", composition="high", exposure="good"):
+    return {
+        "window_start_seconds": window_start, "window_end_seconds": window_end,
+        "in_point_seconds": in_point, "subject_clarity": subject_clarity,
+        "motion_interest": motion_interest, "composition": composition, "exposure": exposure,
+        "dominant_colour": {"tone": "warm", "brightness": 0.5}, "usable": usable, "why": "test",
+    }
+
+
+class InPointPrecedenceTests(MontageEditBase):
+    """issue #178, phase 3/6 of the montage-quality epic: in-points come from
+    a scouted window > best_moment > the shot's first frame — never just
+    time_seconds_start by default."""
+
+    def _mock_beats(self, *, duration=12.0):
+        onsets = [round(0.5 * i, 3) for i in range(1, 25)]
+        return {"success": True, "available": True, "duration_seconds": duration,
+                "onsets": onsets, "onset_count": len(onsets), "tempo_bpm": 120.0,
+                "grid_available": False}
+
+    def test_scout_beats_best_moment_beats_shot_start(self):
+        self._ingest_clip(
+            clip_id="resolve-scoutclip", name="Scout.mp4", path="/media/scout.mp4",
+            clip_dir="scout-dir",
+            shots=[
+                _shot(1, 0.0, 6.0, select_potential="high", pacing="kinetic",
+                      best_moment={"time_seconds": 2.0, "why": "peak action"},
+                      scout=[_scout_window(3.0, 4.0, 3.4)]),
+                _shot(2, 6.0, 12.0, select_potential="high", pacing="still",
+                      best_moment={"time_seconds": 8.0, "why": "held beat"}),
+            ])
+        brief = {"files": ["/media/scout.mp4"], "music": "/media/track.wav"}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats",
+                                return_value=self._mock_beats()):
+            out = montage_edit.build_cut_list_for_brief(self.root, brief)
+        self.assertTrue(out["success"], out)
+        segments = out["plan"]["segments"]
+        fps = out["plan"]["fps"]
+
+        hook = segments[0]  # highest-ranked shot overall -> shot 1 (rank tie broken by iteration; both high)
+        # Whichever shot became the hook, its in-point must honor the
+        # scout > best_moment precedence for that specific shot.
+        basis = hook["evidence"]["in_point_basis"]
+        self.assertIn(basis, ("scout", "best_moment"))
+        if hook["clip_uuid"] == segments[0]["clip_uuid"] and basis == "scout":
+            self.assertEqual(hook["source_start_frame"], round(3.4 * fps))
+        for seg in segments:
+            self.assertIn(seg["evidence"]["in_point_basis"], ("scout", "best_moment", "shot_start"))
+            self.assertNotEqual(seg["evidence"]["in_point_basis"], "shot_start")  # every shot here has a preference
+
+    def test_preference_too_close_to_shot_end_is_clamped_not_used(self):
+        # best_moment sits 0.2s before the shot ends — using it would leave no
+        # room for even a short cut, so it must be skipped, not violated.
+        self._ingest_clip(
+            clip_id="resolve-clampclip", name="Clamp.mp4", path="/media/clamp.mp4",
+            clip_dir="clamp-dir",
+            shots=[
+                _shot(1, 0.0, 3.0, select_potential="high", pacing="kinetic",
+                      best_moment={"time_seconds": 2.9, "why": "too late"}),
+                _shot(2, 3.0, 6.0, select_potential="high", pacing="still"),
+            ])
+        brief = {"files": ["/media/clamp.mp4"], "music": "/media/track.wav"}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats",
+                                return_value=self._mock_beats()):
+            out = montage_edit.build_cut_list_for_brief(self.root, brief)
+        self.assertTrue(out["success"], out)
+        hook = out["plan"]["segments"][0]
+        self.assertEqual(hook["evidence"]["in_point_basis"], "shot_start")
+        self.assertEqual(hook["source_start_frame"], 0)
+
+    def test_no_scout_or_best_moment_falls_back_to_shot_start_honestly(self):
+        files = self._seed_pool()  # plain shots, no best_moment/scout anywhere
+        brief = {"files": files, "music": "/media/track.wav"}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats",
+                                return_value=self._mock_beats()):
+            out = montage_edit.build_cut_list_for_brief(self.root, brief)
+        self.assertTrue(out["success"], out)
+        for seg in out["plan"]["segments"]:
+            self.assertEqual(seg["evidence"]["in_point_basis"], "shot_start")
+        self.assertTrue(any("no scouted in-points" in p for p in out["plan"]["problems"]))
 
 
 class RenderMontageSummaryTests(MontageEditBase):

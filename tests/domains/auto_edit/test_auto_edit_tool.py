@@ -468,6 +468,188 @@ class GradeActionTest(unittest.TestCase):
             item.SetCDL.assert_not_called()
 
 
+class MotionActionTest(unittest.TestCase):
+    """finish()'s motion branch (issue #180, phase 5/6 of the
+    montage-quality epic): beat-locked Fusion motion, flash, and retime,
+    applied per-segment via a small per-clip Fusion comp. Opt-in via the
+    `motion` param — omitting it changes nothing (grade/subtitles/render
+    tests above never pass it)."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="auto-edit-motion-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def _mock_project(self, *, item_count):
+        from unittest import mock
+        tl = mock.Mock()
+        tl.GetName.return_value = "TL"
+        tl.GetUniqueId.return_value = "uid-TL"
+        items = []
+        comps = []
+        for _ in range(item_count):
+            comp = mock.MagicMock()
+            comp.FindTool.return_value = None  # nothing exists yet -> AddTool path
+            comps.append(comp)
+            item = mock.Mock()
+            item.GetFusionCompCount.return_value = 0
+            item.AddFusionComp.return_value = comp
+            item.SetProperty.return_value = True
+            items.append(item)
+        tl.GetItemListInTrack.return_value = items
+        proj = mock.Mock()
+        proj.GetTimelineCount.return_value = 1
+        proj.GetTimelineByIndex.return_value = tl
+
+        def _switch(target):
+            proj.GetCurrentTimeline.return_value = target
+            return True
+
+        proj.SetCurrentTimeline.side_effect = _switch
+        proj.GetCurrentTimeline.return_value = tl
+        return proj, tl, items, comps
+
+    def _finish(self, proj, params):
+        from unittest import mock
+        with mock.patch.object(_dom_auto_edit, "_destructive_versioning_provider",
+            return_value=(None, proj, self.root, "P"),
+        ):
+            return run(s.auto_edit("finish", params))
+
+    def _plan_with_directives(self, directives):
+        segments = []
+        for i, d in enumerate(directives):
+            seg = cut_ir.make_cut_list_segment(
+                role="montage_hook" if i == 0 else "montage",
+                clip_id=f"clip-{i}", clip_uuid=f"uuid-{i}",
+                source_start_frame=0, source_end_frame=48)
+            seg["motion"] = d.get("motion")
+            seg["flash"] = d.get("flash", False)
+            seg["retime"] = d.get("retime", False)
+            segments.append(seg)
+        plan = cut_ir.make_cut_list(segments=segments, fps=24.0)
+        auto_edit._assign_record_frames(plan)  # sequential accumulate walk: 0, 48, 96, ...
+        return edit_engine.save_plan(self.root, plan)
+
+    def _motion_directive(self):
+        return {"zoom_start": 1.0, "zoom_end": 1.05, "amp": 0.05, "beat_seconds": 0.5}
+
+    def test_omitting_motion_param_applies_nothing(self):
+        plan = self._plan_with_directives([{"motion": self._motion_directive()}])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items, _comps = self._mock_project(item_count=1)
+        out = run(s.auto_edit("finish", {"plan_id": plan["plan_id"]}))
+        # No confirm-token gate is even relevant here — the point is that the
+        # motion machinery never touches the item without an explicit param.
+        items[0].GetFusionCompCount.assert_not_called()
+        self.assertNotIn("motion", out)
+
+    def test_motion_directive_adds_a_transform_with_zoom_expression(self):
+        plan = self._plan_with_directives([{"motion": self._motion_directive()}])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items, comps = self._mock_project(item_count=1)
+        params = {"plan_id": plan["plan_id"], "motion": {}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["motion"]["applied"], 1)
+        items[0].AddFusionComp.assert_called_once()
+        comps[0].AddTool.assert_any_call("Transform", -32768, -32768)
+        transform = comps[0].AddTool.return_value
+        # the Size INPUT (transform["Size"]) gets the expression, not the tool itself
+        size_input = transform.__getitem__("Size")
+        size_input.SetExpression.assert_called_once()
+        expr = size_input.SetExpression.call_args.args[0]
+        self.assertIn("fmod", expr)
+        self.assertIn("exp", expr)
+
+    def test_flash_flag_adds_brightness_contrast_with_gain_expression(self):
+        plan = self._plan_with_directives([{"flash": True}])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items, comps = self._mock_project(item_count=1)
+        params = {"plan_id": plan["plan_id"], "motion": {}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["flash"]["applied"], 1)
+        comps[0].AddTool.assert_any_call("BrightnessContrast", -32768, -32768)
+
+    def test_retime_flag_sets_process_explicitly(self):
+        # look defaults on and also touches SetProperty (Crop*) — disable it
+        # here to isolate the retime assertion.
+        plan = self._plan_with_directives([{"retime": True}])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items, _comps = self._mock_project(item_count=1)
+        params = {"plan_id": plan["plan_id"], "motion": {"look": False}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["retime"]["applied"], 1)
+        self.assertEqual(out["retime"]["process"], "optical_flow")
+        items[0].SetProperty.assert_called_once_with("RetimeProcess", 3)
+        # never left at the project default (0)
+        self.assertNotEqual(items[0].SetProperty.call_args.args[1], 0)
+
+    def test_no_directives_on_any_segment_applies_nothing_with_look_disabled(self):
+        plan = self._plan_with_directives([{}, {}])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items, _comps = self._mock_project(item_count=2)
+        params = {"plan_id": plan["plan_id"], "motion": {"look": False}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["motion"]["applied"], 0)
+        self.assertEqual(out["flash"]["applied"], 0)
+        self.assertEqual(out["retime"]["applied"], 0)
+        self.assertEqual(out["look"]["applied"], 0)
+        for item in items:
+            item.GetFusionCompCount.assert_not_called()
+
+    def test_look_defaults_on_and_applies_vignette_grain_letterbox_to_every_clip(self):
+        # No motion/flash/retime directives at all — the look pass (vignette
+        # + grain + letterbox) still applies to every clip by default,
+        # since it is genre-wide, not conditional on beat-grid confidence.
+        plan = self._plan_with_directives([{}, {}])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items, comps = self._mock_project(item_count=2)
+        params = {"plan_id": plan["plan_id"], "motion": {}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["look"]["applied"], 2)
+        self.assertEqual(out["look"]["letterbox_applied"], 2)
+        for item in items:
+            item.AddFusionComp.assert_called_once()
+            item.SetProperty.assert_any_call("CropTop", 0.06)
+            item.SetProperty.assert_any_call("CropBottom", 0.06)
+        for comp in comps:
+            comp.AddTool.assert_any_call("EllipseMask", -32768, -32768)
+            comp.AddTool.assert_any_call("FastNoise", -32768, -32768)
+            comp.AddTool.assert_any_call("Merge", -32768, -32768)
+
+    def test_failed_set_expression_is_surfaced_not_swallowed(self):
+        # Resolve reports failure by RETURN VALUE, not by raising — a
+        # discarded False here would silently report success (issue #111's
+        # finding shape). SetExpression returning False must show up in
+        # `errors` and NOT count toward `applied`.
+        plan = self._plan_with_directives([{"motion": self._motion_directive()}])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items, comps = self._mock_project(item_count=1)
+        comps[0].AddTool.return_value.__getitem__.return_value.SetExpression.return_value = False
+        params = {"plan_id": plan["plan_id"], "motion": {}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["motion"]["applied"], 0)
+        self.assertTrue(any("SetExpression(Size) returned False" in e for e in out["errors"]))
+
+
 class PolishActionTest(unittest.TestCase):
     """polish_timeline() dispatch: the offline-reachable gates before the live
     export→drt-surgery→reimport round-trip (that round-trip is #13's live gate)."""

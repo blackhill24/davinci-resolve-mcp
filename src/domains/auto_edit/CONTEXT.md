@@ -13,6 +13,7 @@ with one approval checkpoint. Prompt: `/auto_edit_workflow`.
 | Talking-head decision layer | `utils/auto_edit.py` | — | |
 | Montage decision layer (sibling to talking-head, same CutList IR) | `utils/montage_edit.py` | — | genre dispatch wired in #41 |
 | Montage beat-grid arrangement (section → cut-length schedule) | `utils/montage_arrangement.py` | — | pure planning, no I/O; consumed by `montage_edit.py` (#177) |
+| Montage beat-locked motion/flash Fusion expressions | `utils/montage_motion.py` | — | pure expression generation, no I/O; applied by `actions.py`'s `finish` (#180) |
 | Cut intermediate representation | `utils/cut_ir.py` | — | shared IR consumed by both decision layers |
 | Ducking ladder + beat detection + beat grid | `utils/music_analysis.py` | — | `detect_beats` returns `beat_grid`/`sections` (#176) for montage's grid-locked cutting |
 

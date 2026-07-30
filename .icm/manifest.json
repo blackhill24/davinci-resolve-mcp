@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "d16397fd9bcdbcac",
+      "fingerprint": "d806c2cf31ecda22",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -72,6 +72,7 @@
         "src/domains/auto_edit/utils/edit_engine.py",
         "src/domains/auto_edit/utils/montage_arrangement.py",
         "src/domains/auto_edit/utils/montage_edit.py",
+        "src/domains/auto_edit/utils/montage_motion.py",
         "src/domains/auto_edit/utils/music_analysis.py",
         "src/domains/color_grade/__init__.py",
         "src/domains/color_grade/actions.py",
@@ -693,7 +694,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "76ed1f30aba1cb87",
+      "fingerprint": "a6e42f0c3f330901",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -792,6 +793,7 @@
         "tests/domains/auto_edit/test_edit_engine.py",
         "tests/domains/auto_edit/test_montage_arrangement.py",
         "tests/domains/auto_edit/test_montage_edit.py",
+        "tests/domains/auto_edit/test_montage_motion.py",
         "tests/domains/auto_edit/test_montage_wiring.py",
         "tests/domains/auto_edit/test_music_analysis.py",
         "tests/domains/color_grade/live_color_grade_validation.py",

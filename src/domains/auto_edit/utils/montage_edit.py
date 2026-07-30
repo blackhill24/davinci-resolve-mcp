@@ -68,7 +68,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.core import timeline_brain_db
 from src.core.proc import safe_run
-from src.domains.auto_edit.utils import auto_edit, cut_ir, edit_engine, montage_arrangement, music_analysis
+from src.domains.auto_edit.utils import (
+    auto_edit, cut_ir, edit_engine, montage_arrangement, montage_motion, music_analysis,
+)
 
 GENRE = "montage"
 
@@ -752,7 +754,13 @@ def build_cut_list_for_brief(
                 seg["beat_length"] = arrangement["beat_length"]
                 seg["section"] = arrangement["section"]
                 seg["look_bucket"] = shot.get("look_bucket")
-                seg["motion"] = None       # phase 5 (beat-locked motion) fills this in
+                # Beat-locked motion (issue #180): only meaningful with a real
+                # tempo — grid_available already guarantees the beat grid, so
+                # tempo is always set whenever this branch runs.
+                seg["motion"] = (
+                    montage_motion.compute_motion_directive(arrangement["section"], beat_seconds=60.0 / tempo)
+                    if tempo else None
+                )
                 seg["flash"] = "flash" in arrangement["flags"]
                 seg["retime"] = "retime" in arrangement["flags"]
                 return seg

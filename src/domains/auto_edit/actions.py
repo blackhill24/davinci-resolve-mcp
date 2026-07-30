@@ -111,6 +111,7 @@ from src.core import brain_edits as _brain_edits
 from src.domains.auto_edit.utils import edit_engine as _edit_engine_mod
 from src.domains.auto_edit.utils import auto_edit as _auto_edit_mod
 from src.domains.auto_edit.utils import montage_edit as _montage_edit_mod
+from src.domains.auto_edit.utils import montage_motion as _montage_motion_mod
 from src.domains.orchestration.utils import orchestrate as _orchestrate_mod
 from src.core import advanced_bridge as _advanced_bridge
 from src.domains.auto_edit.utils import music_analysis as _music_analysis_mod
@@ -1694,6 +1695,233 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             out["music_bed_note"] = bed_note
         return out
 
+    _MOTION_TRANSFORM_TOOL = "MCP_BeatPulse"
+    _MOTION_FLASH_TOOL = "MCP_Flash"
+    _VIGNETTE_MASK_TOOL = "MCP_VignetteMask"
+    _VIGNETTE_TOOL = "MCP_Vignette"
+    _GRAIN_NOISE_TOOL = "MCP_Grain"
+    _GRAIN_MERGE_TOOL = "MCP_GrainMerge"
+    _RETIME_PROCESS_MAP = {"nearest": 1, "frame_blend": 2, "optical_flow": 3}
+
+    # Look pass (issue #180 section B): InsertGeneratorIntoTimeline("Adjustment
+    # Clip") was verified live (Resolve Studio 21.0.2.4) to ignore track_index/
+    # track_type entirely — it always ripple-inserts onto whatever Resolve
+    # considers the "current" video track, ripple-shifting every clip after
+    # it. Not viable for a shared upper-track adjustment layer in an
+    # unattended pipeline. Falls back to the issue's own documented
+    # alternative: the same small per-clip vignette/grain nodes appended to
+    # EVERY item's comp (still non-destructive, still adjustable afterward —
+    # just not literally "once"). Letterbox uses the existing per-item Crop
+    # property directly; no Fusion node needed for a straight top/bottom bar.
+    _VIGNETTE_GAIN = 0.55       # corner darkening strength
+    _GRAIN_BLEND = 0.06         # grain opacity
+    _LETTERBOX_CROP_RATIO = 0.06  # top+bottom crop fraction of frame height
+
+    def _map_montage_items_to_segments(items, segments, title_offset):
+        """item order on V1 mirrors segment order, offset by the intro
+        title's own item (build_timeline records its footprint as
+        execution_summary.title.record_offset) — shared by the grade `match`
+        stage and the motion/flash/retime stage below."""
+        item_offset = 1 if title_offset > 0 else 0
+        for i, item in enumerate(items):
+            seg_idx = i - item_offset
+            if 0 <= seg_idx < len(segments):
+                yield item, seg_idx, segments[seg_idx]
+
+    def _ensure_fusion_tool(comp, tool_type, name):
+        tool = comp.FindTool(name)
+        if tool:
+            return tool, None
+        try:
+            tool = comp.AddTool(tool_type, -32768, -32768)
+        except Exception as exc:
+            return None, f"AddTool({tool_type}) failed: {type(exc).__name__}: {exc}"
+        if not tool:
+            return None, f"AddTool({tool_type}) returned no tool"
+        try:
+            renamed = bool(tool.SetAttrs({"TOOLS_Name": name}))
+        except Exception as exc:
+            renamed = False
+            renamed_error = f"{type(exc).__name__}: {exc}"
+        else:
+            renamed_error = None
+        if not renamed:
+            # Not fatal — the tool is usable unnamed — but comp.FindTool(name)
+            # won't find it next time, which would add a DUPLICATE tool on a
+            # later finish() call against the same comp. Surface it rather
+            # than silently reporting success (#111 finding 5/6's shape).
+            return tool, f"AddTool({tool_type}) succeeded but SetAttrs(TOOLS_Name) failed" + (
+                f": {renamed_error}" if renamed_error else "")
+        return tool, None
+
+    def _apply_montage_motion(tl, plan, *, title_offset, look=True):
+        """Issue #180, phase 5/6 of the montage-quality epic: beat-locked
+        Fusion motion (a zoom ramp + a decaying pulse locked to the master
+        beat grid, see montage_motion.build_zoom_expression), flash frames on
+        section-opening downbeats, speed ramps on flagged shots, and a
+        vignette/grain look pass (``look``, on by default — see the module's
+        adjustment-layer note above for why this is per-clip, not per-track).
+
+        Motion/flash/look live on a small per-clip Fusion comp
+        (MediaIn1 -> [BeatPulse Transform] -> [Flash BrightnessContrast] ->
+        [Vignette] -> [Grain Merge] -> MediaOut1) — non-destructive,
+        GPU-accelerated, adjustable afterward in the Fusion page. Retime and
+        letterbox are applied via existing per-item SetProperty calls
+        (RetimeProcess / CropTop+CropBottom) — no Fusion node needed for
+        either. Retime's process is set EXPLICITLY (never left at the
+        project default).
+        """
+        segments = plan.get("segments") or []
+        fps = float(plan.get("fps") or 24.0)
+        items = tl.GetItemListInTrack("video", 1) or []
+        motion_applied = 0
+        flash_applied = 0
+        retime_applied = 0
+        look_applied = 0
+        letterbox_applied = 0
+        errors: List[str] = []
+        for item, seg_idx, seg in _map_montage_items_to_segments(items, segments, title_offset):
+            motion = seg.get("motion")
+            flash = bool(seg.get("flash"))
+            retime = bool(seg.get("retime"))
+            if not motion and not flash and not retime and not look:
+                continue
+
+            comp = None
+            if motion or flash or look:
+                try:
+                    comp_count = int(item.GetFusionCompCount() or 0)
+                    comp = item.GetFusionCompByIndex(1) if comp_count >= 1 else item.AddFusionComp()
+                except Exception as exc:
+                    errors.append(f"segment {seg_idx}: Fusion comp setup failed: {type(exc).__name__}: {exc}")
+                    comp = None
+
+            upstream_name = "MediaIn1"
+            if motion and comp:
+                transform, tool_warning = _ensure_fusion_tool(comp, "Transform", _MOTION_TRANSFORM_TOOL)
+                if tool_warning:
+                    errors.append(f"segment {seg_idx}: {tool_warning}")
+                if transform is not None:
+                    try:
+                        media_in = comp.FindTool("MediaIn1")
+                        media_out = comp.FindTool("MediaOut1")
+                        if media_in:
+                            transform.ConnectInput("Input", media_in)
+                        if media_out:
+                            media_out.ConnectInput("Input", transform)
+                        record_len = int(seg["source_end_frame"]) - int(seg["source_start_frame"])
+                        expr = _montage_motion_mod.build_zoom_expression(
+                            zoom_start=motion["zoom_start"], zoom_end=motion["zoom_end"],
+                            amp=motion["amp"], beat_seconds=motion["beat_seconds"], fps=fps,
+                            record_start_frame=int(seg.get("record_start_frame", 0)),
+                            clip_length_frames=record_len,
+                        )
+                        if bool(transform["Size"].SetExpression(expr)):
+                            motion_applied += 1
+                            upstream_name = _MOTION_TRANSFORM_TOOL
+                        else:
+                            errors.append(f"segment {seg_idx}: SetExpression(Size) returned False")
+                    except Exception as exc:
+                        errors.append(f"segment {seg_idx}: motion expression failed: {type(exc).__name__}: {exc}")
+
+            if flash and comp:
+                flash_tool, tool_warning = _ensure_fusion_tool(comp, "BrightnessContrast", _MOTION_FLASH_TOOL)
+                if tool_warning:
+                    errors.append(f"segment {seg_idx}: {tool_warning}")
+                if flash_tool is not None:
+                    try:
+                        upstream = comp.FindTool(upstream_name) or comp.FindTool("MediaIn1")
+                        media_out = comp.FindTool("MediaOut1")
+                        if upstream:
+                            flash_tool.ConnectInput("Input", upstream)
+                        if media_out:
+                            media_out.ConnectInput("Input", flash_tool)
+                        if bool(flash_tool["Gain"].SetExpression(_montage_motion_mod.build_flash_expression())):
+                            flash_applied += 1
+                        else:
+                            errors.append(f"segment {seg_idx}: SetExpression(Gain) returned False")
+                    except Exception as exc:
+                        errors.append(f"segment {seg_idx}: flash expression failed: {type(exc).__name__}: {exc}")
+
+            if look and comp:
+                mask, mask_warning = _ensure_fusion_tool(comp, "EllipseMask", _VIGNETTE_MASK_TOOL)
+                vignette, vignette_warning = _ensure_fusion_tool(comp, "BrightnessContrast", _VIGNETTE_TOOL)
+                for w in (mask_warning, vignette_warning):
+                    if w:
+                        errors.append(f"segment {seg_idx}: {w}")
+                if mask is not None and vignette is not None:
+                    try:
+                        upstream = comp.FindTool(upstream_name) or comp.FindTool("MediaIn1")
+                        media_out = comp.FindTool("MediaOut1")
+                        if upstream:
+                            vignette.ConnectInput("Input", upstream)
+                        vignette.ConnectInput("EffectMask", mask)
+                        if media_out:
+                            media_out.ConnectInput("Input", vignette)
+                        ok = (
+                            bool(vignette.SetInput("ApplyMaskInverted", 1))
+                            and bool(vignette.SetInput("Gain", _VIGNETTE_GAIN))
+                        )
+                        if ok:
+                            upstream_name = _VIGNETTE_TOOL
+                        else:
+                            errors.append(f"segment {seg_idx}: vignette SetInput returned False")
+                    except Exception as exc:
+                        errors.append(f"segment {seg_idx}: vignette setup failed: {type(exc).__name__}: {exc}")
+
+                noise, noise_warning = _ensure_fusion_tool(comp, "FastNoise", _GRAIN_NOISE_TOOL)
+                grain_merge, merge_warning = _ensure_fusion_tool(comp, "Merge", _GRAIN_MERGE_TOOL)
+                for w in (noise_warning, merge_warning):
+                    if w:
+                        errors.append(f"segment {seg_idx}: {w}")
+                if noise is not None and grain_merge is not None:
+                    try:
+                        upstream = comp.FindTool(upstream_name) or comp.FindTool("MediaIn1")
+                        media_out = comp.FindTool("MediaOut1")
+                        if upstream:
+                            grain_merge.ConnectInput("Background", upstream)
+                        grain_merge.ConnectInput("Foreground", noise)
+                        if media_out:
+                            media_out.ConnectInput("Input", grain_merge)
+                        if bool(grain_merge.SetInput("Blend", _GRAIN_BLEND)):
+                            look_applied += 1
+                            upstream_name = _GRAIN_MERGE_TOOL
+                        else:
+                            errors.append(f"segment {seg_idx}: grain SetInput(Blend) returned False")
+                    except Exception as exc:
+                        errors.append(f"segment {seg_idx}: grain setup failed: {type(exc).__name__}: {exc}")
+
+                try:
+                    top_ok = bool(item.SetProperty("CropTop", _LETTERBOX_CROP_RATIO))
+                    bottom_ok = bool(item.SetProperty("CropBottom", _LETTERBOX_CROP_RATIO))
+                    if top_ok and bottom_ok:
+                        letterbox_applied += 1
+                    else:
+                        errors.append(f"segment {seg_idx}: SetProperty(CropTop/CropBottom) returned False")
+                except Exception as exc:
+                    errors.append(f"segment {seg_idx}: letterbox crop failed: {type(exc).__name__}: {exc}")
+
+            if retime:
+                try:
+                    if bool(item.SetProperty("RetimeProcess", _RETIME_PROCESS_MAP["optical_flow"])):
+                        retime_applied += 1
+                    else:
+                        errors.append(f"segment {seg_idx}: SetProperty(RetimeProcess) returned False")
+                except Exception as exc:
+                    errors.append(f"segment {seg_idx}: retime failed: {type(exc).__name__}: {exc}")
+
+        result = {
+            "motion": {"applied": motion_applied},
+            "flash": {"applied": flash_applied},
+            "look": {"applied": look_applied, "letterbox_applied": letterbox_applied,
+                     "note": "per-clip vignette/grain/letterbox — InsertGeneratorIntoTimeline "
+                             "track targeting is unreliable (verified live), see module note"},
+            "retime": {"applied": retime_applied, "process": "optical_flow"},
+        }
+        if errors:
+            result["errors"] = errors
+        return result
+
     if action == "finish":
         _r, proj, project_root, err = _auto_edit_project_context(p, need_resolve=True)
         if err:
@@ -1711,6 +1939,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         grade = p.get("grade") if isinstance(p.get("grade"), dict) else None
         subtitles = p.get("subtitles") if isinstance(p.get("subtitles"), dict) else None
         render = p.get("render") if isinstance(p.get("render"), dict) else None
+        motion_opts = p.get("motion") if isinstance(p.get("motion"), dict) else None
         if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
             return _issue_confirm_token(
                 action="auto_edit.finish", params=p,
@@ -1721,6 +1950,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                     "timeline": built_name,
                     "grade": {k: v for k, v in (grade or {}).items() if k != "cdl"},
                     "subtitles": bool(subtitles),
+                    "motion": bool(motion_opts),
                     "render_target": (render or {}).get("target_dir"),
                 },
             )
@@ -1792,6 +2022,11 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                     # Deduplicate: one identical message per item is noise.
                     graded["drx_error"] = "; ".join(sorted(set(drx_errors)))
             result["grade"] = graded
+
+        if motion_opts is not None:
+            title_offset = int(((plan.get("execution_summary") or {}).get("title") or {}).get("record_offset") or 0)
+            result.update(_apply_montage_motion(
+                tl, plan, title_offset=title_offset, look=bool(motion_opts.get("look", True))))
 
         if subtitles:
             result["subtitles"] = _safe_create_subtitles(tl, subtitles)

@@ -876,10 +876,16 @@ def plan_polish_ops(
       * ``options["dissolve_at_segments"]`` — an explicit list of segment indices
         (the boundary *before* each) overrides all auto-detection when present.
       * a segment carrying a ``transition_in`` flag (revise_cut can set it).
-      * a SOURCE change: consecutive kept segments whose ``clip_uuid`` differs —
-        a hard cut across a source change reads as an error; a short dissolve
-        reads as deliberate. (Default on.)
-      * a story-beat change, only when ``options["dissolve_on_beat_change"]``.
+      * TALKING-HEAD: a SOURCE change: consecutive kept segments whose
+        ``clip_uuid`` differs — a hard cut across a source change reads as an
+        error; a short dissolve reads as deliberate. (Default on.)
+      * MONTAGE (issue #180): every cut is a source change by construction
+        (phase 2), so the heuristic above would dissolve the whole edit — a
+        montage-role plan defaults to ``no_dissolves`` instead, and if
+        re-enabled, dissolves only a cut that opens a ``breathe`` section
+        (never between two accelerate/high cuts).
+      * a story-beat change, only when ``options["dissolve_on_beat_change"]``
+        (talking-head only).
     A boundary already covered by a b-roll overlay is skipped (the overlay is the
     chosen smoothing there) and recorded in ``notes``.
 
@@ -919,7 +925,20 @@ def plan_polish_ops(
         if isinstance(ov.get("over_segment_index"), int)
     }
 
-    if not opts.get("no_dissolves"):
+    # Montage (issue #180, phase 5/6 of the montage-quality epic): phase 2
+    # guarantees every cut is a source change, so the talking-head
+    # source-change heuristic below would dissolve the ENTIRE edit — the
+    # opposite of the punchy beat-cut montage it's meant to be. Montage plans
+    # default to no_dissolves and, when dissolves are explicitly re-enabled,
+    # use a musically motivated list instead: only a cut that OPENS a
+    # "breathe" section (arrangement.py's long hold after a dense run) gets
+    # one — never between two accelerate/high-energy cuts. Talking-head is
+    # untouched: same default, same source-change heuristic as always.
+    is_montage = any(seg.get("role") in cut_ir.MONTAGE_SEGMENT_ROLES for seg in segments)
+    no_dissolves = opts.get("no_dissolves")
+    if no_dissolves is None:
+        no_dissolves = is_montage
+    if not no_dissolves:
         dissolve_on_beat = bool(opts.get("dissolve_on_beat_change"))
         explicit = opts.get("dissolve_at_segments")
         explicit_set = set(explicit) if isinstance(explicit, (list, tuple)) else None
@@ -931,6 +950,9 @@ def plan_polish_ops(
                     reason = f"explicit dissolve flag at segment {i}"
             elif seg.get("transition_in"):
                 reason = f"segment {i} carries a transition_in flag"
+            elif is_montage:
+                if seg.get("section") == "breathe" and prev.get("section") != "breathe":
+                    reason = f"segment {i} opens a breathe section"
             elif prev.get("clip_uuid") != seg.get("clip_uuid"):
                 reason = f"source change {prev.get('clip_uuid')!r}→{seg.get('clip_uuid')!r}"
             elif dissolve_on_beat and seg.get("story_beat") and \

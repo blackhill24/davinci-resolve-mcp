@@ -442,6 +442,23 @@ class BuildCutListGridLockedTests(MontageEditBase):
             self.assertIn("flash", seg)
             self.assertIn("retime", seg)
 
+    def test_motion_directive_matches_each_segments_own_section(self):
+        # issue #180: with a confident grid (tempo known), every segment gets
+        # a real beat-locked motion directive, not phase 2's None placeholder.
+        files = self._seed_pool()
+        beats = _grid_beats()
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        beat_seconds = 60.0 / beats["tempo_bpm"]
+        for seg in out["plan"]["segments"]:
+            motion = seg["motion"]
+            self.assertIsNotNone(motion)
+            expected_zoom = montage_edit.montage_motion.MOTION_ZOOM_RANGE.get(
+                seg["section"], montage_edit.montage_motion.DEFAULT_ZOOM_RANGE)
+            self.assertEqual((motion["zoom_start"], motion["zoom_end"]), expected_zoom)
+            self.assertAlmostEqual(motion["beat_seconds"], beat_seconds, places=4)
+
     def test_small_pool_fills_full_runtime_no_truncation(self):
         # 3 clips / 8 shots (~24s of raw material, the _seed_pool fixture) —
         # under the OLD one-shot-one-use model this pool caps out at ~8-9

@@ -2,12 +2,12 @@
   "version": 2,
   "layers": 3,
   "root_nav": "CLAUDE.md",
-  "synced": "2026-07-29",
+  "synced": "2026-07-30",
   "_root_structure": "4c31c2025e3cd06d",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "3f490eec06b0bec4",
+      "fingerprint": "d16397fd9bcdbcac",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -70,6 +70,7 @@
         "src/domains/auto_edit/utils/auto_edit.py",
         "src/domains/auto_edit/utils/cut_ir.py",
         "src/domains/auto_edit/utils/edit_engine.py",
+        "src/domains/auto_edit/utils/montage_arrangement.py",
         "src/domains/auto_edit/utils/montage_edit.py",
         "src/domains/auto_edit/utils/music_analysis.py",
         "src/domains/color_grade/__init__.py",
@@ -692,7 +693,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "0269ed1660fafe45",
+      "fingerprint": "76ed1f30aba1cb87",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -789,6 +790,7 @@
         "tests/domains/auto_edit/test_cut_ir.py",
         "tests/domains/auto_edit/test_cut_ir_words.py",
         "tests/domains/auto_edit/test_edit_engine.py",
+        "tests/domains/auto_edit/test_montage_arrangement.py",
         "tests/domains/auto_edit/test_montage_edit.py",
         "tests/domains/auto_edit/test_montage_wiring.py",
         "tests/domains/auto_edit/test_music_analysis.py",

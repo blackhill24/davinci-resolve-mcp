@@ -18,7 +18,7 @@ import wave
 from unittest import mock
 
 from src.core import timeline_brain_db
-from src.domains.auto_edit.utils import cut_ir, montage_edit
+from src.domains.auto_edit.utils import auto_edit, cut_ir, montage_edit
 from src.domains.media_analysis.utils import analysis_store
 
 from tests.domains.media_analysis.test_analysis_store import make_report
@@ -346,6 +346,194 @@ class RenderMontageSummaryTests(MontageEditBase):
                 self.root, {"files": ["/media/tiny2.mp4"], "music": "/media/track.wav"})
         summary = montage_edit.render_montage_summary(out["plan"])
         self.assertIn("ran out of candidate shots", summary)
+
+    def test_grid_locked_summary_shows_section_and_beats_columns(self):
+        files = self._seed_pool()
+        beats = _grid_beats()
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        summary = montage_edit.render_montage_summary(out["plan"])
+        self.assertIn("| Section | Beats |", summary)
+        self.assertIn("| intro | 4 |", summary)
+        self.assertIn("| drop | 2 |", summary)
+
+
+def _grid_beats(*, bpm=120.0, n_beats=24, duration=None, drop_at_bar=3, bars_total=6):
+    """A fabricated grid_available=True detect_beats() result — pure Python,
+    no ffmpeg — for exercising the beat-grid cutting path (issue #177)."""
+    period = 60.0 / bpm
+    beat_grid = [round(i * period, 6) for i in range(n_beats)]
+    duration = duration if duration is not None else beat_grid[-1] + period
+    drop_beat = drop_at_bar * 4
+    sections = [
+        {"start_bar": 0, "end_bar": drop_at_bar, "start_seconds": beat_grid[0],
+         "end_seconds": beat_grid[min(drop_beat, n_beats - 1)],
+         "energy": 1.0, "label": "intro", "is_drop": False},
+        {"start_bar": drop_at_bar, "end_bar": bars_total, "start_seconds": beat_grid[min(drop_beat, n_beats - 1)],
+         "end_seconds": beat_grid[-1], "energy": 3.0, "label": "high", "is_drop": True},
+    ]
+    return {
+        "success": True, "available": True, "duration_seconds": duration,
+        "onsets": [round(0.25 * i, 3) for i in range(int(duration / 0.25))],
+        "onset_count": int(duration / 0.25), "tempo_bpm": bpm,
+        "beat_grid": beat_grid, "bar_grid": beat_grid[::4], "downbeats": beat_grid[::4],
+        "sections": sections, "tempo_confidence": 5.0, "beat_zero": 0.0,
+        "grid_available": True, "method": "fabricated for tests",
+    }
+
+
+class BuildCutListGridLockedTests(MontageEditBase):
+    """The beat-grid cutting path (issue #177, phase 2/6 of the
+    montage-quality epic) — fabricated grid_available=True beats, no ffmpeg."""
+
+    def test_grid_invariant_every_record_start_is_a_beat(self):
+        files = self._seed_pool()
+        beats = _grid_beats()
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        self.assertTrue(out["success"], out)
+        plan = out["plan"]
+        self.assertTrue(plan["grid_available"])
+        fps = plan["fps"]
+        beat_frames = {int(round(t * fps)) for t in beats["beat_grid"]}
+        for seg in plan["segments"]:
+            self.assertIn(seg["record_start_frame"], beat_frames)
+
+    def test_source_length_equals_record_length_no_independent_rounding(self):
+        files = self._seed_pool()
+        beats = _grid_beats()
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        plan = out["plan"]
+        fps = plan["fps"]
+        beat_frames = [int(round(t * fps)) for t in beats["beat_grid"]]
+        for seg in plan["segments"]:
+            k = seg["beat_index"]
+            end_k = min(k + seg["beat_length"], len(beat_frames) - 1)
+            expected_len = beat_frames[end_k] - beat_frames[k]
+            self.assertEqual(seg["source_end_frame"] - seg["source_start_frame"], expected_len)
+            self.assertEqual(seg["record_start_frame"], beat_frames[k])
+
+    def test_no_two_consecutive_segments_share_a_clip(self):
+        files = self._seed_pool()
+        beats = _grid_beats()
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        clip_uuids = [s["clip_uuid"] for s in out["plan"]["segments"]]
+        for a, b in zip(clip_uuids, clip_uuids[1:]):
+            self.assertNotEqual(a, b)
+
+    def test_every_segment_carries_beat_index_length_and_section(self):
+        files = self._seed_pool()
+        beats = _grid_beats()
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        for seg in out["plan"]["segments"]:
+            self.assertIsInstance(seg["beat_index"], int)
+            self.assertIsInstance(seg["beat_length"], int)
+            self.assertIsInstance(seg["section"], str)
+            self.assertIn("look_bucket", seg)
+            self.assertIn("motion", seg)
+            self.assertIn("flash", seg)
+            self.assertIn("retime", seg)
+
+    def test_small_pool_fills_full_runtime_no_truncation(self):
+        # 3 clips / 8 shots (~24s of raw material, the _seed_pool fixture) —
+        # under the OLD one-shot-one-use model this pool caps out at ~8-9
+        # segments regardless of how short each cut is, truncating well short
+        # of a fast, cut-heavy track. Candidate windows + round-robin must now
+        # reuse each clip's remaining seconds (via a different in-point) to
+        # fill the whole runtime instead.
+        files = self._seed_pool()
+        # Mostly 2-beat (1s @ 120 BPM) cuts for ~18s straight -> needs ~20
+        # segments, far more than the 8 distinct shots in the pool.
+        beats = _grid_beats(bpm=120.0, n_beats=40, bars_total=10, drop_at_bar=1)
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        self.assertTrue(out["success"], out)
+        self.assertFalse(any("ran out of candidate shots" in p for p in out["plan"]["problems"]))
+        self.assertGreater(len(out["plan"]["segments"]), 8)
+
+    def test_genuinely_insufficient_material_still_truncates_honestly(self):
+        # 6s of total source material cannot fill a 24s track even with
+        # window reuse — the grid path must still degrade honestly rather
+        # than fabricate coverage that doesn't exist.
+        self._ingest_clip(
+            clip_id="resolve-tinygrid2", name="TinyGrid2.mp4", path="/media/tinygrid2.mp4",
+            clip_dir="tinygrid2-dir",
+            shots=[
+                _shot(1, 0.0, 3.0, select_potential="high", pacing="kinetic"),
+                _shot(2, 3.0, 6.0, select_potential="high", pacing="still"),
+            ])
+        beats = _grid_beats(bpm=120.0, n_beats=48, bars_total=12, drop_at_bar=6)  # 24s track
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": ["/media/tinygrid2.mp4"], "music": "/media/track.wav"})
+        self.assertTrue(out["success"], out)
+        self.assertTrue(any("ran out of candidate shots" in p for p in out["plan"]["problems"]))
+        self.assertLess(out["plan"]["estimates"]["duration_seconds"], 24.0)
+
+    def test_grid_locked_plan_does_not_call_talking_heads_accumulate_walk(self):
+        # auto_edit._assign_record_frames' accumulate walk would silently
+        # throw away the beat-quantised record_start_frame values (it
+        # re-derives every segment's start from source length in build
+        # order) — the grid path must use _finalize_grid_locked_frames
+        # instead and never call the shared talking-head walk at all.
+        files = self._seed_pool()
+        beats = _grid_beats()
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats), \
+             mock.patch.object(montage_edit.auto_edit, "_assign_record_frames") as walk:
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        self.assertTrue(out["success"], out)
+        walk.assert_not_called()
+
+    def test_non_grid_plan_still_calls_talking_heads_accumulate_walk(self):
+        files = self._seed_pool()
+        beats = self._mock_beats_no_grid()
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats), \
+             mock.patch.object(montage_edit.auto_edit, "_assign_record_frames",
+                                side_effect=auto_edit._assign_record_frames) as walk:
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        self.assertTrue(out["success"], out)
+        walk.assert_called_once()
+
+    @staticmethod
+    def _mock_beats_no_grid():
+        return {
+            "success": True, "available": True, "duration_seconds": 12.0,
+            "onsets": [round(0.5 * i, 3) for i in range(1, 25)],
+            "onset_count": 24, "tempo_bpm": 120.0, "grid_available": False,
+        }
+
+    def test_music_record_end_uses_track_runtime_not_cursor(self):
+        files = self._seed_pool()
+        beats = _grid_beats()
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        plan = out["plan"]
+        fps = plan["fps"]
+        self.assertEqual(plan["music"]["record_end_frame"], round(beats["duration_seconds"] * fps))
+
+    def test_talking_head_unaffected_by_grid_locked_addition(self):
+        # The shared auto_edit.build_cut_list_for_brief path (talking-head)
+        # never sets record_start_frame before calling _assign_record_frames,
+        # so it must still get the original accumulate-walk untouched.
+        from src.domains.auto_edit.utils import cut_ir as _cut_ir
+        seg = _cut_ir.make_cut_list_segment(
+            role="speech", clip_id="c1", source_start_frame=0, source_end_frame=48)
+        plan = _cut_ir.make_cut_list(segments=[seg], fps=24.0)
+        auto_edit._assign_record_frames(plan)
+        self.assertEqual(plan["segments"][0]["record_start_frame"], 0)
+        self.assertEqual(plan["record_duration_frames"], 48)
 
 
 class BuildCutListRealBeatsTests(MontageEditBase):

@@ -168,6 +168,120 @@ class PureFunctionTests(unittest.TestCase):
         self.assertEqual(montage_edit.nearest_onset([1.0], 5.0, minimum=2.0), 5.0)
 
 
+def _sig_candidate(clip_uuid, *, tone=None, brightness=None, file_path=None):
+    sig = {"tone": tone, "brightness": brightness} if tone is not None else None
+    return {"clip_uuid": clip_uuid, "time_seconds_start": 0.0,
+            "file_path": file_path, "colour_signature": sig}
+
+
+class LookBucketingTests(unittest.TestCase):
+    """issue #179, phase 4/6 of the montage-quality epic: cluster source
+    clips by colour signature into 2-4 look buckets, each with its own
+    match CDL pulling toward a shared (median-brightness) target."""
+
+    def test_distinct_signatures_yield_distinct_buckets(self):
+        candidates = [
+            _sig_candidate("a", tone="warm", brightness=0.7),
+            _sig_candidate("b", tone="cool", brightness=0.3),
+        ]
+        bucket_of_clip, sigs, basis = montage_edit.assign_look_buckets(candidates)
+        self.assertEqual(basis, "scout")
+        self.assertEqual(len(set(bucket_of_clip.values())), 2)
+        self.assertNotEqual(bucket_of_clip["a"], bucket_of_clip["b"])
+        self.assertEqual(sigs["a"]["basis"], "scout")
+
+    def test_same_signature_shares_a_bucket(self):
+        candidates = [
+            _sig_candidate("a", tone="warm", brightness=0.72),
+            _sig_candidate("b", tone="warm", brightness=0.68),
+        ]
+        bucket_of_clip, _sigs, _basis = montage_edit.assign_look_buckets(candidates)
+        self.assertEqual(bucket_of_clip["a"], bucket_of_clip["b"])
+
+    def test_caps_at_four_buckets(self):
+        # 6 clips spanning 3 tones x 2 bands = 6 distinct (tone, band) keys.
+        candidates = [
+            _sig_candidate("a", tone="warm", brightness=0.9),
+            _sig_candidate("b", tone="warm", brightness=0.1),
+            _sig_candidate("c", tone="cool", brightness=0.9),
+            _sig_candidate("d", tone="cool", brightness=0.1),
+            _sig_candidate("e", tone="neutral", brightness=0.9),
+            _sig_candidate("f", tone="neutral", brightness=0.1),
+        ]
+        bucket_of_clip, _sigs, _basis = montage_edit.assign_look_buckets(candidates)
+        self.assertLessEqual(len(set(bucket_of_clip.values())), montage_edit.MAX_LOOK_BUCKETS)
+
+    def test_no_scout_data_falls_back_to_default_signature(self):
+        # No colour_signature and no real file to probe -> honest neutral default.
+        candidates = [_sig_candidate("a", file_path="/media/does-not-exist.mp4")]
+        bucket_of_clip, sigs, basis = montage_edit.assign_look_buckets(candidates)
+        self.assertEqual(basis, "default")
+        self.assertEqual(sigs["a"]["tone"], "neutral")
+        self.assertEqual(bucket_of_clip["a"], "neutral_mid")
+
+    def test_mixed_basis_reported_honestly(self):
+        candidates = [
+            _sig_candidate("a", tone="warm", brightness=0.7),
+            _sig_candidate("b", file_path="/media/does-not-exist.mp4"),
+        ]
+        _bucket_of_clip, _sigs, basis = montage_edit.assign_look_buckets(candidates)
+        self.assertEqual(basis, "mixed")
+
+    def test_match_cdl_targets_shared_median_brightness(self):
+        candidates = [
+            _sig_candidate("a", tone="warm", brightness=0.8),
+            _sig_candidate("b", tone="cool", brightness=0.2),
+            _sig_candidate("c", tone="neutral", brightness=0.5),
+        ]
+        bucket_of_clip, sigs, _basis = montage_edit.assign_look_buckets(candidates)
+        cdls = montage_edit.compute_match_cdls(sigs, bucket_of_clip)
+        self.assertEqual(len(cdls), 3)
+        for bucket, cdl in cdls.items():
+            self.assertIn("NodeIndex", cdl)
+            self.assertEqual(len(cdl["Slope"]), 3)
+            self.assertEqual(len(cdl["Offset"]), 3)
+        # the neutral/median-brightness bucket needs no exposure correction
+        neutral_bucket = bucket_of_clip["c"]
+        self.assertEqual(cdls[neutral_bucket]["Offset"], [0.0, 0.0, 0.0])
+        self.assertEqual(cdls[neutral_bucket]["Slope"], [1.0, 1.0, 1.0])
+        # warm bucket's slope pulls red down / blue up (cools it toward neutral)
+        warm_bucket = bucket_of_clip["a"]
+        self.assertLess(cdls[warm_bucket]["Slope"][0], 1.0)
+        self.assertGreater(cdls[warm_bucket]["Slope"][2], 1.0)
+
+    def test_ffmpeg_fallback_used_when_file_missing_returns_none(self):
+        self.assertIsNone(
+            montage_edit._ffmpeg_colour_signature("/media/does-not-exist.mp4", 1.0))
+        self.assertIsNone(montage_edit._ffmpeg_colour_signature(None, 1.0))
+
+
+class BuildCutListLookBucketTests(MontageEditBase):
+    def _mock_beats(self, *, duration=12.0):
+        onsets = [round(0.5 * i, 3) for i in range(1, 25)]
+        return {"success": True, "available": True, "duration_seconds": duration,
+                "onsets": onsets, "onset_count": len(onsets), "tempo_bpm": 120.0,
+                "grid_available": False}
+
+    def test_every_segment_carries_a_look_bucket_and_plan_carries_cdls(self):
+        files = self._seed_pool()
+        brief = {"files": files, "music": "/media/track.wav"}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats",
+                                return_value=self._mock_beats()):
+            out = montage_edit.build_cut_list_for_brief(self.root, brief)
+        self.assertTrue(out["success"], out)
+        plan = out["plan"]
+        for seg in plan["segments"]:
+            self.assertIn("look_bucket", seg)
+            self.assertIsNotNone(seg["look_bucket"])
+        self.assertIn("look_buckets", plan)
+        self.assertTrue(plan["look_buckets"])
+        for bucket in {seg["look_bucket"] for seg in plan["segments"]}:
+            self.assertIn(bucket, plan["look_buckets"])
+        # no scout data anywhere in this fixture -> honest default basis, noted
+        self.assertEqual(plan["look_bucket_basis"], "default")
+        self.assertTrue(any("look buckets derived from" in p for p in plan["problems"]))
+
+
 class ValidateBriefTests(unittest.TestCase):
     def test_requires_music(self):
         errors = montage_edit.validate_montage_brief_inputs(files=["/a.mp4"], music=None)

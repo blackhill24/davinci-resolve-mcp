@@ -1738,6 +1738,42 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         if grade:
             graded: Dict[str, Any] = {}
             items = tl.GetItemListInTrack("video", 1) or []
+            if grade.get("match"):
+                # Per-bucket "match" CDL (issue #179, phase 4/6 of the
+                # montage-quality epic) — stage 1 of a two-stage grade. Maps
+                # each V1 item back to its plan segment (item order mirrors
+                # segment order, offset by the intro title's record_offset —
+                # build_timeline records it in execution_summary.title) and
+                # applies THAT segment's bucket's CDL, so lighting conditions
+                # that can't intercut under one uniform CDL actually match.
+                # Purely additive: grade["cdl"]/["lut_path"]/["drx_path"]
+                # below are untouched and still apply uniformly (stage 2,
+                # the shared creative look) exactly as before.
+                match_map = grade["match"] if isinstance(grade["match"], dict) else {}
+                segments = plan.get("segments") or []
+                title_offset = int(
+                    ((plan.get("execution_summary") or {}).get("title") or {}).get("record_offset") or 0)
+                item_offset = 1 if title_offset > 0 else 0
+                ok_count = 0
+                by_bucket: Dict[str, int] = {}
+                match_errors = []
+                for i, item in enumerate(items):
+                    seg_idx = i - item_offset
+                    if seg_idx < 0 or seg_idx >= len(segments):
+                        continue
+                    bucket = segments[seg_idx].get("look_bucket")
+                    bucket_grade = match_map.get(bucket) if bucket else None
+                    if not isinstance(bucket_grade, dict) or not bucket_grade.get("cdl"):
+                        continue
+                    try:
+                        if item.SetCDL(_normalize_cdl(bucket_grade["cdl"])):
+                            ok_count += 1
+                            by_bucket[bucket] = by_bucket.get(bucket, 0) + 1
+                    except Exception as exc:
+                        match_errors.append(f"{type(exc).__name__}: {exc}")
+                graded["match"] = {"applied": ok_count, "of": len(items), "by_bucket": by_bucket}
+                if match_errors:
+                    graded["match_error"] = "; ".join(sorted(set(match_errors)))
             if grade.get("lut_path"):
                 ok_count = 0
                 for item in items:

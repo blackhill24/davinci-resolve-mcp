@@ -327,6 +327,147 @@ class FinishActionTest(unittest.TestCase):
         self.assertIn("no output file", done["render"]["error"])
 
 
+class GradeActionTest(unittest.TestCase):
+    """finish()'s grade branch (issue #179, phase 4/6 of the montage-quality
+    epic): the new per-bucket `match` stage is purely additive — the
+    existing uniform lut/cdl/drx paths must keep working byte-identically."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="auto-edit-grade-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def _mock_project(self, *, item_count, timeline_name="TL"):
+        from unittest import mock
+        tl = mock.Mock()
+        tl.GetName.return_value = timeline_name
+        tl.GetUniqueId.return_value = f"uid-{timeline_name}"
+        items = []
+        for i in range(item_count):
+            item = mock.Mock()
+            item.SetCDL.return_value = True
+            graph = mock.Mock()
+            graph.SetLUT.return_value = True
+            graph.ApplyGradeFromDRX.return_value = True
+            item.GetNodeGraph.return_value = graph
+            items.append(item)
+        tl.GetItemListInTrack.return_value = items
+        proj = mock.Mock()
+        proj.GetTimelineCount.return_value = 1
+        proj.GetTimelineByIndex.return_value = tl
+
+        def _switch(target):
+            proj.GetCurrentTimeline.return_value = target
+            return True
+
+        proj.SetCurrentTimeline.side_effect = _switch
+        proj.GetCurrentTimeline.return_value = tl
+        return proj, tl, items
+
+    def _finish(self, proj, params):
+        from unittest import mock
+        with mock.patch.object(_dom_auto_edit, "_destructive_versioning_provider",
+            return_value=(None, proj, self.root, "P"),
+        ):
+            return run(s.auto_edit("finish", params))
+
+    def _plan_with_buckets(self, buckets):
+        segments = [
+            cut_ir.make_cut_list_segment(
+                role="montage_hook" if i == 0 else "montage",
+                clip_id=f"clip-{i}", clip_uuid=f"uuid-{i}",
+                source_start_frame=i * 48, source_end_frame=i * 48 + 48)
+            for i in range(len(buckets))
+        ]
+        for seg, bucket in zip(segments, buckets):
+            seg["look_bucket"] = bucket
+        plan = cut_ir.make_cut_list(segments=segments, fps=24.0)
+        auto_edit._assign_record_frames(plan)
+        return edit_engine.save_plan(self.root, plan)
+
+    def test_uniform_cdl_lut_drx_unchanged(self):
+        # The pre-existing behaviour: one CDL/LUT/DRX applied to every item,
+        # regardless of any bucket — no `grade["match"]` key at all.
+        plan = self._plan_with_buckets(["a", "b", "c"])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items = self._mock_project(item_count=3)
+        params = {
+            "plan_id": plan["plan_id"],
+            "grade": {"cdl": {"Slope": [1.0, 1.0, 1.0]}, "lut_path": "/luts/look.cube",
+                      "drx_path": "/grades/look.drx"},
+        }
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        graded = out["grade"]
+        self.assertEqual(graded["cdl"], {"applied": 3, "of": 3})
+        self.assertEqual(graded["lut"], {"applied": 3, "of": 3})
+        self.assertEqual(graded["drx"], {"applied": 3, "of": 3})
+        self.assertNotIn("match", graded)
+        # every item got the SAME normalized CDL — no per-bucket differentiation
+        calls = [c.args[0] for c in items[0].SetCDL.call_args_list]
+        for item in items:
+            self.assertEqual(item.SetCDL.call_args.args[0], calls[0])
+
+    def test_match_applies_different_cdl_per_bucket(self):
+        plan = self._plan_with_buckets(["warm_bright", "cool_dark", "warm_bright"])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items = self._mock_project(item_count=3)
+        match = {
+            "warm_bright": {"cdl": {"Slope": [0.95, 1.0, 1.05], "Offset": [-0.2, -0.2, -0.2]}},
+            "cool_dark": {"cdl": {"Slope": [1.05, 1.0, 0.95], "Offset": [0.2, 0.2, 0.2]}},
+        }
+        params = {"plan_id": plan["plan_id"], "grade": {"match": match}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        graded = out["grade"]["match"]
+        self.assertEqual(graded["applied"], 3)
+        self.assertEqual(graded["of"], 3)
+        self.assertEqual(graded["by_bucket"], {"warm_bright": 2, "cool_dark": 1})
+        # item 0 and item 2 (both warm_bright) got the SAME cdl; item 1 (cool_dark) differs
+        self.assertEqual(items[0].SetCDL.call_args.args[0], items[2].SetCDL.call_args.args[0])
+        self.assertNotEqual(items[0].SetCDL.call_args.args[0], items[1].SetCDL.call_args.args[0])
+        self.assertIn("-0.2", items[0].SetCDL.call_args.args[0]["Offset"])
+
+    def test_match_honors_intro_title_record_offset(self):
+        # item 0 on V1 is the intro title itself when titles were built —
+        # segment[0]'s bucket must map to item 1, not item 0.
+        plan = self._plan_with_buckets(["warm_bright", "cool_dark"])
+        plan["execution_summary"] = {"timeline_name": "TL", "title": {"record_offset": 48}}
+        edit_engine.save_plan(self.root, plan)
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        proj, _tl, items = self._mock_project(item_count=3)  # title + 2 segments
+        match = {
+            "warm_bright": {"cdl": {"Slope": [0.9, 1.0, 1.1]}},
+            "cool_dark": {"cdl": {"Slope": [1.1, 1.0, 0.9]}},
+        }
+        params = {"plan_id": plan["plan_id"], "grade": {"match": match}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        # the title item (index 0) never gets a match CDL
+        items[0].SetCDL.assert_not_called()
+        items[1].SetCDL.assert_called_once()
+        items[2].SetCDL.assert_called_once()
+        self.assertEqual(out["grade"]["match"]["applied"], 2)
+
+    def test_match_with_no_bucket_data_reports_zero_and_never_blocks(self):
+        plan = self._plan_with_buckets([None, None])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items = self._mock_project(item_count=2)
+        params = {"plan_id": plan["plan_id"],
+                  "grade": {"match": {"warm_bright": {"cdl": {"Slope": [1, 1, 1]}}}}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["grade"]["match"], {"applied": 0, "of": 2, "by_bucket": {}})
+        for item in items:
+            item.SetCDL.assert_not_called()
+
+
 class PolishActionTest(unittest.TestCase):
     """polish_timeline() dispatch: the offline-reachable gates before the live
     export→drt-surgery→reimport round-trip (that round-trip is #13's live gate)."""

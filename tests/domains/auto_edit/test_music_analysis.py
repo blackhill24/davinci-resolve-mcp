@@ -1,11 +1,27 @@
 """Tests for the ffmpeg-only music_analysis util (bed gain + beat/onset)."""
+import array
 import os
+import random
 import shutil
 import tempfile
 import unittest
 from unittest import mock
 
 from src.domains.auto_edit.utils import music_analysis
+
+
+def _impulse_train(bpm, step, duration, *, phase=0.0, amplitude=1.0):
+    """A synthetic novelty curve: one impulse per beat at ``bpm``, pure Python."""
+    period = 60.0 / bpm
+    n = int(round(duration / step))
+    arr = [0.0] * n
+    t = phase
+    while t < duration:
+        idx = int(round(t / step))
+        if 0 <= idx < n:
+            arr[idx] = amplitude
+        t += period
+    return arr
 
 EBUR128_SUMMARY = """
 [Parsed_ebur128_0 @ 0x55] Summary:
@@ -164,6 +180,141 @@ class BeatDetectionTest(unittest.TestCase):
         self.assertLessEqual(out["onset_count"], 16)
         self.assertIsNotNone(out["tempo_bpm"])
         self.assertAlmostEqual(out["tempo_bpm"], 120.0, delta=15.0)
+
+
+class TempogramTest(unittest.TestCase):
+    STEP = 0.01
+
+    def test_recovers_tempo_from_clean_impulse_train(self):
+        for bpm in (100.0, 120.0, 140.0):
+            with self.subTest(bpm=bpm):
+                nov = _impulse_train(bpm, self.STEP, 20.0)
+                out = music_analysis.tempogram(nov, self.STEP)
+                self.assertTrue(out["ranked"])
+                self.assertAlmostEqual(out["ranked"][0]["bpm"], bpm, delta=0.5)
+
+    def test_does_not_lock_onto_a_subdivision(self):
+        # Real (accented) beats every period P, plus weaker off-beat events at
+        # P/2 (an 8th-note subdivision) — this is the failure mode the metrical
+        # comb exists to defeat: without it, the estimator can lock onto the
+        # subdivision or a harmonic of it instead of the true (quarter) beat.
+        true_bpm = 70.0
+        period = 60.0 / true_bpm
+        nov = _impulse_train(true_bpm, self.STEP, 24.0, amplitude=1.0)
+        off_beat = _impulse_train(true_bpm * 2, self.STEP, 24.0,
+                                  phase=period / 2.0, amplitude=0.4)
+        nov = [a + b for a, b in zip(nov, off_beat)]
+        out = music_analysis.tempogram(nov, self.STEP)
+        self.assertTrue(out["ranked"])
+        self.assertAlmostEqual(out["ranked"][0]["bpm"], true_bpm, delta=0.5)
+
+    def test_ambiguous_input_scores_low_confidence(self):
+        rnd = random.Random(7)
+        nov = [rnd.uniform(0.0, 1.0) for _ in range(2000)]
+        out = music_analysis.tempogram(nov, self.STEP)
+        self.assertLess(out["confidence"], music_analysis.MIN_TEMPO_CONFIDENCE)
+
+    def test_confident_click_train_beats_threshold(self):
+        nov = _impulse_train(120.0, self.STEP, 20.0)
+        out = music_analysis.tempogram(nov, self.STEP)
+        self.assertGreaterEqual(out["confidence"], music_analysis.MIN_TEMPO_CONFIDENCE)
+
+
+class LockPhaseTest(unittest.TestCase):
+    def test_recovers_known_offset(self):
+        step = 0.01
+        bpm = 120.0
+        period = 60.0 / bpm
+        offset = 0.137
+        nov = _impulse_train(bpm, step, 20.0, phase=offset)
+        locked = music_analysis.lock_phase(nov, step, period, 20.0)
+        self.assertAlmostEqual(locked, offset, delta=step)
+
+
+class BeatGridTest(unittest.TestCase):
+    def test_regular_spacing(self):
+        grid = music_analysis.beat_grid(120.0, 0.05, 5.0)
+        self.assertTrue(grid)
+        period = 60.0 / 120.0
+        for a, b in zip(grid, grid[1:]):
+            self.assertAlmostEqual(b - a, period, delta=1e-6)
+
+    def test_empty_without_tempo(self):
+        self.assertEqual(music_analysis.beat_grid(None, 0.0, 5.0), [])
+        self.assertEqual(music_analysis.beat_grid(0.0, 0.0, 5.0), [])
+
+
+class DownbeatPhaseTest(unittest.TestCase):
+    def test_finds_accented_phase(self):
+        step = 0.01
+        beat_times = [i * 0.5 for i in range(16)]
+        kick_novelty = [0.0] * 2000
+        accent_phase = 2
+        for i, t in enumerate(beat_times):
+            idx = int(round(t / step))
+            kick_novelty[idx] = 1.0 if i % 4 == accent_phase else 0.1
+        phase = music_analysis.downbeat_phase(kick_novelty, step, beat_times, meter=4)
+        self.assertEqual(phase, accent_phase)
+
+
+class SectionsTest(unittest.TestCase):
+    def test_staircase_boundaries_and_drop(self):
+        step = 0.1
+        bar_seconds = 2.0
+        n_bars = 32
+        bar_grid = [i * bar_seconds for i in range(n_bars)]
+        n_frames = int((n_bars * bar_seconds) / step) + 10
+        # Energy staircase: 0-8 quiet, 8-16 mid, 16-24 LOUD (the drop), 24-32 mid.
+        levels = [0.1, 0.3, 1.0, 0.4]
+        kick = [0.0] * n_frames
+        for bar in range(n_bars):
+            level = levels[bar // 8]
+            start = int(round(bar_grid[bar] / step))
+            end = int(round((bar_grid[bar] + bar_seconds) / step))
+            for i in range(start, min(end, n_frames)):
+                kick[i] = level
+        out = music_analysis.sections(bar_grid, {"kick": kick}, step)
+        self.assertTrue(out)
+        for entry in out:
+            self.assertEqual(entry["start_bar"] % 8, 0)
+        drops = [e for e in out if e["is_drop"]]
+        self.assertEqual(len(drops), 1)
+        self.assertEqual(drops[0]["start_bar"], 16)
+
+
+class BeatDetectionGridTest(unittest.TestCase):
+    """detect_beats' grid extension (issue #176) — real track + honest degradation."""
+
+    def test_low_confidence_input_yields_no_fabricated_grid(self):
+        rnd = random.Random(11)
+        sr = 4000
+        noise = array.array("f", [rnd.uniform(-1.0, 1.0) for _ in range(sr * 6)])
+        with mock.patch.object(music_analysis, "_decode_pcm_mono",
+                               return_value=(noise, sr)):
+            with mock.patch("os.path.isfile", return_value=True):
+                out = music_analysis.detect_beats("/media/noise.wav")
+        self.assertTrue(out["success"])
+        self.assertFalse(out["grid_available"])
+        self.assertEqual(out["beat_grid"], [])
+        self.assertIn("problems", out)
+
+    @unittest.skipUnless(
+        os.path.isfile("/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3"),
+        "reference track not present in this environment")
+    def test_real_track_locks_a_confident_108bpm_grid(self):
+        out = music_analysis.detect_beats(
+            "/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3")
+        self.assertTrue(out["success"], out)
+        self.assertTrue(out["grid_available"])
+        self.assertAlmostEqual(out["tempo_bpm"], 108.0, delta=1.0)
+        self.assertAlmostEqual(out["beat_zero"], 0.209, delta=0.05)
+        period = 60.0 / out["tempo_bpm"]
+        for a, b in zip(out["beat_grid"], out["beat_grid"][1:]):
+            self.assertAlmostEqual(b - a, period, delta=1e-6)
+        # every existing key is still present with its established meaning
+        for key in ("success", "available", "path", "duration_seconds", "sample_rate",
+                    "onsets", "onset_count", "tempo_bpm", "method"):
+            self.assertIn(key, out)
 
 
 class RenderDuckedBedTest(unittest.TestCase):

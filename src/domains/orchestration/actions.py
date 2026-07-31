@@ -574,9 +574,21 @@ async def _orchestrate_plan_stage_talking_head(
     if state != "ready":
         return {"success": True, "stage": "edit", "brief_id": brief_id,
                 "waiting_on": "analysis", "brief_state": state}
-    planned = await auto_edit("plan_cut", {"brief_id": brief_id, "analysis_root": project_root})
+    # scout=False: orchestrate drives the edit stage with no interactive host
+    # turn available, so montage's in-point scout handoff (#178) — which defers
+    # planning and returns {status: "pending_host_analysis", ...} with no
+    # plan_id — must not be offered here. plan_cut degrades honestly with
+    # whatever best_moment/shot-start in-points are already scouted (#187).
+    planned = await auto_edit("plan_cut", {
+        "brief_id": brief_id, "analysis_root": project_root, "scout": False})
     if not planned.get("success"):
         return planned
+    if "plan_id" not in planned:
+        # Defensive: some future plan_cut response could still defer without a
+        # plan_id even with scouting disabled. Surface it as a stage still
+        # waiting rather than crashing on planned["plan_id"].
+        return {"success": True, "stage": "edit", "brief_id": brief_id,
+                "waiting_on": "plan_cut", **planned}
     _orchestrate_mod.set_stage_foreign_keys(
         project_root, job_id, "edit", plan_id=planned["plan_id"])
     return {"success": True, "stage": "edit", "brief_id": brief_id, **planned}

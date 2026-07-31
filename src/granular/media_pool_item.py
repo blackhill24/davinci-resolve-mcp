@@ -3,6 +3,7 @@
 from src.granular.common import *  # noqa: F401,F403
 from src.domains.project_lifecycle.utils.cloud_operations import cloud_sync_status_label
 from src.domains.media_analysis.utils.clip_identity_registry import mark_registry_stale_for_clip as _mark_analysis_registry_stale
+from src.core.gpu_vram import insufficient_vram_error as _insufficient_vram_error
 
 resolve = ResolveProxy()
 
@@ -1073,6 +1074,9 @@ def remove_clip_motion_blur(clip_id: str, deblur_option: Optional[Dict[str, Any]
     )
     if gate:
         return gate
+    vram_error = _insufficient_vram_error()
+    if vram_error:
+        return vram_error
     with ledger_timed("remove_motion_blur", clip_id=clip_id) as _rec:
         new_clip = clip.RemoveMotionBlur(deblur)
         _rec.success = bool(new_clip)

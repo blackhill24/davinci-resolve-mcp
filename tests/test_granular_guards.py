@@ -268,7 +268,8 @@ class LedgerRecordsGranularAiOps(LedgerRootMixin, unittest.TestCase):
     def test_render_class_ops_are_recorded_as_render(self):
         new_clip = _double({"GetName": "A001_C003_deblur", "GetUniqueId": "uid-2"},
                            name="new")
-        with mock.patch.object(granular_guards, "_confirm_token_required", return_value=False):
+        with mock.patch.object(granular_guards, "_confirm_token_required", return_value=False), \
+             mock.patch.object(granular_mpi, "_insufficient_vram_error", return_value=None):
             out, _clip = self._clip_call(
                 granular_mpi.remove_clip_motion_blur,
                 {"RemoveMotionBlur": new_clip}, clip_id="c-42")
@@ -277,6 +278,19 @@ class LedgerRecordsGranularAiOps(LedgerRootMixin, unittest.TestCase):
         self.assertEqual(1, len(rows))
         self.assertEqual(_ledger.OP_CLASS_RENDER, rows[0]["op_class"])
         self.assertEqual("c-42", rows[0]["clip_id"])
+
+    def test_remove_motion_blur_blocked_on_insufficient_vram(self):
+        """A VRAM-insufficient GPU must never reach RemoveMotionBlur (#188)."""
+        new_clip = _double({"GetName": "A001_C003_deblur", "GetUniqueId": "uid-2"},
+                           name="new")
+        vram_error = {"error": "not enough VRAM", "free_vram_mib": 4000, "required_vram_mib": 12000}
+        with mock.patch.object(granular_guards, "_confirm_token_required", return_value=False), \
+             mock.patch.object(granular_mpi, "_insufficient_vram_error", return_value=vram_error):
+            out, clip = self._clip_call(
+                granular_mpi.remove_clip_motion_blur,
+                {"RemoveMotionBlur": new_clip}, clip_id="c-42")
+        self.assertEqual(out, vram_error)
+        self.assertNotIn("RemoveMotionBlur", call_names(clip))
 
     def test_generate_speech_is_recorded(self):
         new_item = _double({"GetName": "vo_01.wav", "GetUniqueId": "uid-9"}, name="new")

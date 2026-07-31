@@ -26,7 +26,7 @@ semantics of its own.
 | Busy/lock gating | `resolve_busy.py`, `page_lock.py` | — | long-Resolve-op busy gate + UI page lock |
 | Private state files in temp | `private_tmp.py` | — | per-uid 0700 dir + 0600 + `O_NOFOLLOW`. The ONE implementation: `page_lock.py`, `mcp_transport.py` (bearer token) and `proc.py` (ALSA conf) all route through it — a predictable bare-`/tmp` name is plantable by any other local user (#143) |
 | Invoke resolve-advanced (Node) ops | `advanced_bridge.py` | domain `utils/` | used by timeline_edit, auto_edit, orchestration — see `resolve-advanced/scripts/drp-bridge.mjs` |
-| Misc infra | `actor_identity.py`, `analysis_runs.py`, `bridge_metrics.py`, `failure_tracker.py`, `object_inspection.py`, `readback.py`, `structural_diff.py`, `update_check.py` | — | one concern each; grep before adding a new core file |
+| Misc infra | `actor_identity.py`, `analysis_runs.py`, `bridge_metrics.py`, `failure_tracker.py`, `gpu_vram.py`, `object_inspection.py`, `readback.py`, `structural_diff.py`, `update_check.py` | — | one concern each; grep before adding a new core file. `gpu_vram.py` gates `remove_motion_blur` on free VRAM (#188) — used by `granular/media_pool_item.py`, `granular/folder.py`, `domains/media_pool_ingest/actions.py` |
 
 ## Conventions & gotchas
 

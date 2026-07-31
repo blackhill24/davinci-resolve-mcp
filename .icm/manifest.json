@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "a154e7452608766f",
+      "fingerprint": "733a3d6b2d77e397",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -25,6 +25,7 @@
         "src/core/destructive_hook.py",
         "src/core/envelope.py",
         "src/core/failure_tracker.py",
+        "src/core/gpu_vram.py",
         "src/core/launch_shim.py",
         "src/core/live_connection.py",
         "src/core/locale_guard.py",
@@ -621,7 +622,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "23b1f1c1aa86c3dc",
+      "fingerprint": "cf4284eec971f6e9",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -694,7 +695,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "9e6ff051ff8e6255",
+      "fingerprint": "4c82d0f59f0cffe4",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -727,6 +728,7 @@
         "tests/core/test_error_envelope.py",
         "tests/core/test_failure_tracker.py",
         "tests/core/test_governance_identity.py",
+        "tests/core/test_gpu_vram.py",
         "tests/core/test_granular_export_path.py",
         "tests/core/test_mcp_transport.py",
         "tests/core/test_object_inspection.py",

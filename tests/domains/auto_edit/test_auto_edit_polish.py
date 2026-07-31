@@ -114,6 +114,71 @@ class DissolveTest(unittest.TestCase):
         self.assertEqual(out["transitions"], 0)
 
 
+class MontageDissolveTest(unittest.TestCase):
+    """issue #180, phase 5/6 of the montage-quality epic: phase 2 guarantees
+    every montage cut is a source change, so the talking-head heuristic would
+    dissolve the whole edit. Montage defaults to no_dissolves; re-enabling
+    dissolves for a montage plan uses the musically motivated breathe-section
+    list instead of the source-change heuristic."""
+
+    def test_montage_plan_emits_zero_dissolves_by_default(self):
+        # Every segment a different source, exactly like a real beat-cut
+        # montage — the talking-head heuristic would fire on every boundary.
+        plan = _plan([
+            _seg("A", 0, role="montage_hook"),
+            _seg("B", 48, role="montage"),
+            _seg("C", 96, role="montage"),
+            _seg("D", 144, role="montage"),
+        ])
+        out = auto_edit.plan_polish_ops(plan)
+        self.assertEqual(out["transitions"], 0)
+
+    def test_talking_head_default_and_heuristic_unaffected(self):
+        # Regression: a plain speech-role plan gets EXACTLY today's behaviour.
+        plan = _plan([_seg("A", 0), _seg("A", 48), _seg("B", 96)])
+        out = auto_edit.plan_polish_ops(plan)
+        self.assertEqual(out["transitions"], 1)
+        self.assertEqual(out["ops"][0]["segment_index"], 2)
+
+    def test_montage_no_dissolves_can_be_forced_off(self):
+        plan = _plan([
+            _seg("A", 0, role="montage_hook"),
+            _seg("B", 48, role="montage"),
+        ])
+        out = auto_edit.plan_polish_ops(plan, options={"no_dissolves": False})
+        # source-change heuristic never applies to montage even when
+        # dissolves are force-enabled — only a breathe-section opener does,
+        # and neither segment here has one, so still zero.
+        self.assertEqual(out["transitions"], 0)
+
+    def test_montage_dissolves_into_breathe_section_only(self):
+        plan = _plan([
+            _seg("A", 0, role="montage_hook", section="intro"),
+            _seg("B", 48, role="montage", section="high"),
+            _seg("C", 96, role="montage", section="breathe"),  # dissolve INTO this
+            _seg("D", 144, role="montage", section="breathe"),  # already in breathe — no dissolve
+            _seg("E", 192, role="montage", section="mid"),  # leaving breathe — no dissolve
+        ])
+        out = auto_edit.plan_polish_ops(plan, options={"no_dissolves": False})
+        self.assertEqual(out["transitions"], 1)
+        op = next(o for o in out["ops"] if o["op"] == "place_transition")
+        self.assertEqual(op["segment_index"], 2)
+        self.assertIn("breathe", op["reason"])
+
+    def test_montage_explicit_dissolve_at_segments_still_overrides(self):
+        # no_dissolves is montage's master switch (defaults on); an explicit
+        # dissolve_at_segments list only overrides the AUTO-DETECTION within
+        # that switch, same as talking-head — so re-enable it explicitly here.
+        plan = _plan([
+            _seg("A", 0, role="montage_hook", section="intro"),
+            _seg("B", 48, role="montage", section="high"),
+        ])
+        out = auto_edit.plan_polish_ops(
+            plan, options={"no_dissolves": False, "dissolve_at_segments": [1]})
+        self.assertEqual(out["transitions"], 1)
+        self.assertEqual(out["ops"][0]["segment_index"], 1)
+
+
 class LowerThirdTest(unittest.TestCase):
     def test_one_lower_third_per_distinct_story_beat(self):
         plan = _plan([

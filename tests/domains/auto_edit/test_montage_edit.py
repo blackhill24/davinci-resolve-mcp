@@ -779,5 +779,143 @@ class BuildCutListRealBeatsTests(MontageEditBase):
         self.assertIsNotNone(plan["tempo_bpm"])
 
 
+class MontageQCTests(MontageEditBase):
+    """montage_edit.build_qc_request / commit_qc_report (issue #181, phase
+    6/6 of the montage-quality epic): frame extraction from the RENDERED
+    output (never source media), the deferred host-vision payload shape,
+    and mapping findings back to a suggested revise_cut edit."""
+
+    def _plan(self, n_segments=3):
+        segments = [
+            cut_ir.make_cut_list_segment(
+                role="montage_hook" if i == 0 else "montage",
+                clip_id=f"clip-{i}", clip_uuid=f"uuid-{i}",
+                source_start_frame=0, source_end_frame=48)
+            for i in range(n_segments)
+        ]
+        plan = cut_ir.make_cut_list(segments=segments, fps=24.0)
+        auto_edit._assign_record_frames(plan)
+        plan["plan_id"] = "test-plan"
+        return plan
+
+    def test_missing_render_file_is_honest_not_a_crash(self):
+        plan = self._plan()
+        out = montage_edit.build_qc_request(plan, "/no/such/render.mov", self.root)
+        self.assertFalse(out["success"])
+        self.assertIn("render output not found", out["error"])
+
+    def test_extracts_cut_frames_and_contact_sheet_under_analysis_root(self):
+        plan = self._plan(n_segments=3)
+        render_path = os.path.join(self.root, "render.mov")
+        with open(render_path, "wb") as handle:
+            handle.write(b"fake-render")
+        extracted = []
+
+        def fake_export(path, time_seconds, output_path):
+            extracted.append(output_path)
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            with open(output_path, "wb") as handle:
+                handle.write(b"\xff\xd8\xff\xdbfake-jpeg")
+            return True
+
+        with mock.patch(
+            "src.domains.media_analysis.utils.sampling_and_frames._export_analysis_frame",
+            side_effect=fake_export,
+        ):
+            out = montage_edit.build_qc_request(plan, render_path, self.root)
+        self.assertTrue(out["success"], out)
+        self.assertEqual(out["status"], "pending_host_analysis")
+        # hook (segment 0) has no preceding cut to check
+        self.assertEqual(len(out["cut_frames"]), 2)
+        self.assertEqual([c["segment_index"] for c in out["cut_frames"]], [1, 2])
+        self.assertEqual(len(out["contact_sheet"]), montage_edit.DEFAULT_QC_CONTACT_SHEET_COUNT)
+        self.assertEqual(set(out["frame_paths"]), set(extracted))
+        from src.domains.media_analysis.utils import analysis_memory
+        qc_root = os.path.join(analysis_memory.memory_dir(self.root), "auto_edit", "qc")
+        for path in extracted:
+            self.assertTrue(path.startswith(qc_root), path)
+        self.assertEqual(out["commit_action"]["action"], "commit_qc")
+
+    def test_no_frames_extracted_is_honest(self):
+        plan = self._plan()
+        render_path = os.path.join(self.root, "render.mov")
+        with open(render_path, "wb") as handle:
+            handle.write(b"fake-render")
+        with mock.patch(
+            "src.domains.media_analysis.utils.sampling_and_frames._export_analysis_frame",
+            return_value=False,
+        ):
+            out = montage_edit.build_qc_request(plan, render_path, self.root)
+        self.assertFalse(out["success"])
+        self.assertIn("no frames could be extracted", out["error"])
+
+
+class CommitQCReportTests(unittest.TestCase):
+    def _plan(self, n_segments=3):
+        segments = [
+            cut_ir.make_cut_list_segment(
+                role="montage_hook" if i == 0 else "montage",
+                clip_id=f"clip-{i}", clip_uuid=f"uuid-{i}",
+                source_start_frame=0, source_end_frame=48)
+            for i in range(n_segments)
+        ]
+        return cut_ir.make_cut_list(segments=segments, fps=24.0)
+
+    def test_repeated_shot_finding_suggests_a_drop_edit(self):
+        plan = self._plan()
+        report = {"overall": "needs_revision", "findings": [
+            {"kind": "repeated_shot", "segment_index": 2, "why": "same shot as segment 0",
+             "severity": "high", "frame_path": "/root/qc/cut_002.jpg"},
+        ]}
+        out = montage_edit.commit_qc_report(plan, report)
+        self.assertTrue(out["success"], out)
+        self.assertEqual(out["report"]["overall"], "needs_revision")
+        self.assertEqual(len(out["suggested_edits"]), 1)
+        self.assertEqual(out["suggested_edits"][0], {"op": "drop", "index": 2})
+        self.assertEqual(out["report"]["findings"][0]["suggested_edit"], {"op": "drop", "index": 2})
+
+    def test_exposure_finding_has_no_suggested_edit(self):
+        plan = self._plan()
+        report = {"findings": [
+            {"kind": "exposure_outlier", "segment_index": 1, "why": "blown highlights",
+             "severity": "medium"},
+        ]}
+        out = montage_edit.commit_qc_report(plan, report)
+        self.assertTrue(out["success"], out)
+        self.assertEqual(out["suggested_edits"], [])
+        self.assertNotIn("suggested_edit", out["report"]["findings"][0])
+
+    def test_out_of_range_segment_index_never_suggests_an_edit(self):
+        plan = self._plan(n_segments=2)
+        report = {"findings": [
+            {"kind": "repeated_shot", "segment_index": 99, "why": "?"},
+        ]}
+        out = montage_edit.commit_qc_report(plan, report)
+        self.assertTrue(out["success"], out)
+        self.assertEqual(out["suggested_edits"], [])
+
+    def test_no_findings_defaults_to_pass(self):
+        plan = self._plan()
+        out = montage_edit.commit_qc_report(plan, {"findings": []})
+        self.assertTrue(out["success"], out)
+        self.assertEqual(out["report"]["overall"], "pass")
+
+    def test_qc_report_as_json_string_is_parsed(self):
+        plan = self._plan()
+        out = montage_edit.commit_qc_report(plan, '{"findings": []}')
+        self.assertTrue(out["success"], out)
+
+    def test_malformed_json_string_is_honest(self):
+        plan = self._plan()
+        out = montage_edit.commit_qc_report(plan, "{not json")
+        self.assertFalse(out["success"])
+        self.assertIn("not valid JSON", out["error"])
+
+    def test_missing_findings_key_is_honest(self):
+        plan = self._plan()
+        out = montage_edit.commit_qc_report(plan, {"overall": "pass"})
+        self.assertFalse(out["success"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,7 @@ tests/live_auto_edit_validation.py per the release process.
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import tempfile
 import unittest
@@ -115,6 +116,53 @@ class BuildRowsTest(unittest.TestCase):
         self.assertIsNone(video[0].get("punch_in"))
         self.assertEqual(video[1]["punch_in"]["zoom"], 1.12)
         self.assertTrue(all("punch_in" not in r or r["media_type"] == 1 for r in rows))
+
+
+class BeatAlignmentTest(unittest.TestCase):
+    """_compute_beat_alignment (issue #181, phase 6/6 of the montage-quality
+    epic): the built-timeline-level check that would have caught the
+    original drift — every item's actual start frame must match exactly
+    what its plan segment says, not just land somewhere in the grid."""
+
+    @staticmethod
+    def _segs(*record_start_frames):
+        return [{"record_start_frame": f} for f in record_start_frames]
+
+    def test_perfectly_aligned_build_has_no_deviations(self):
+        segments = self._segs(0, 48, 96, 168)
+        out = s._compute_beat_alignment(segments, [0, 48, 96, 168])
+        self.assertEqual(out["checked"], 4)
+        self.assertEqual(out["deviations"], [])
+
+    def test_a_single_off_grid_item_is_reported_precisely(self):
+        segments = self._segs(0, 48, 96)
+        out = s._compute_beat_alignment(segments, [0, 50, 96])  # item 1 is 2 frames late
+        self.assertEqual(out["checked"], 3)
+        self.assertEqual(len(out["deviations"]), 1)
+        dev = out["deviations"][0]
+        self.assertEqual(dev["segment"], 1)
+        self.assertEqual(dev["expected"], 48)
+        self.assertEqual(dev["actual"], 50)
+        self.assertEqual(dev["deviation_frames"], 2)
+
+    def test_item_offset_skips_the_intro_title_item(self):
+        # item 0 is the title itself; item 1 corresponds to segment 0, etc.
+        segments = self._segs(0, 48)
+        out = s._compute_beat_alignment(
+            segments, [0, 100, 148], item_offset=1, record_offset=100)
+        self.assertEqual(out["checked"], 2)  # title item (index 0) never compared
+        self.assertEqual(out["deviations"], [])
+
+    def test_record_offset_shifts_every_expected_position(self):
+        segments = self._segs(0, 48)
+        out = s._compute_beat_alignment(segments, [100, 148], record_offset=100)
+        self.assertEqual(out["deviations"], [])
+
+    def test_extra_items_beyond_the_plans_segments_are_not_compared(self):
+        segments = self._segs(0, 48)
+        out = s._compute_beat_alignment(segments, [0, 48, 96, 144])
+        self.assertEqual(out["checked"], 2)
+        self.assertEqual(out["deviations"], [])
 
 
 class ApproveCutActionTest(unittest.TestCase):
@@ -489,6 +537,15 @@ class MotionActionTest(unittest.TestCase):
         for _ in range(item_count):
             comp = mock.MagicMock()
             comp.FindTool.return_value = None  # nothing exists yet -> AddTool path
+            # SetInput/GetInput readback: _fusion_input_set_ok verifies via
+            # GetInput rather than trusting SetInput's own (live-unreliable)
+            # return, so the mock must actually round-trip a value per input
+            # name for that verification to mean anything here.
+            tool_mock = comp.AddTool.return_value
+            input_store = {}
+            tool_mock.SetInput.side_effect = (
+                lambda name, value, *a, **kw: input_store.__setitem__(name, value))
+            tool_mock.GetInput.side_effect = lambda name, *a, **kw: input_store.get(name)
             comps.append(comp)
             item = mock.Mock()
             item.GetFusionCompCount.return_value = 0
@@ -555,7 +612,7 @@ class MotionActionTest(unittest.TestCase):
         self.assertTrue(out.get("success"), out)
         self.assertEqual(out["motion"]["applied"], 1)
         items[0].AddFusionComp.assert_called_once()
-        comps[0].AddTool.assert_any_call("Transform", -32768, -32768)
+        comps[0].AddTool.assert_any_call("Transform", -1, -1)
         transform = comps[0].AddTool.return_value
         # the Size INPUT (transform["Size"]) gets the expression, not the tool itself
         size_input = transform.__getitem__("Size")
@@ -574,7 +631,7 @@ class MotionActionTest(unittest.TestCase):
         out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
         self.assertTrue(out.get("success"), out)
         self.assertEqual(out["flash"]["applied"], 1)
-        comps[0].AddTool.assert_any_call("BrightnessContrast", -32768, -32768)
+        comps[0].AddTool.assert_any_call("BrightnessContrast", -1, -1)
 
     def test_retime_flag_sets_process_explicitly(self):
         # look defaults on and also touches SetProperty (Crop*) — disable it
@@ -628,26 +685,202 @@ class MotionActionTest(unittest.TestCase):
             item.SetProperty.assert_any_call("CropTop", 0.06)
             item.SetProperty.assert_any_call("CropBottom", 0.06)
         for comp in comps:
-            comp.AddTool.assert_any_call("EllipseMask", -32768, -32768)
-            comp.AddTool.assert_any_call("FastNoise", -32768, -32768)
-            comp.AddTool.assert_any_call("Merge", -32768, -32768)
+            comp.AddTool.assert_any_call("EllipseMask", -1, -1)
+            comp.AddTool.assert_any_call("FastNoise", -1, -1)
+            comp.AddTool.assert_any_call("Merge", -1, -1)
 
     def test_failed_set_expression_is_surfaced_not_swallowed(self):
-        # Resolve reports failure by RETURN VALUE, not by raising — a
-        # discarded False here would silently report success (issue #111's
-        # finding shape). SetExpression returning False must show up in
-        # `errors` and NOT count toward `applied`.
+        # SetExpression's own return is NOT trustworthy over the Lua bridge
+        # (live-verified — see _fusion_expression_set_ok) — a genuine failure
+        # shows up as an empty/falsy GetExpression READBACK, not a False
+        # return from SetExpression itself. A discarded readback failure
+        # would silently report success (issue #111's finding shape), so it
+        # must show up in `errors` and NOT count toward `applied`.
         plan = self._plan_with_directives([{"motion": self._motion_directive()}])
         auto_edit.mark_approved(self.root, plan["plan_id"])
         edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
         proj, _tl, items, comps = self._mock_project(item_count=1)
-        comps[0].AddTool.return_value.__getitem__.return_value.SetExpression.return_value = False
+        comps[0].AddTool.return_value.__getitem__.return_value.GetExpression.return_value = ""
         params = {"plan_id": plan["plan_id"], "motion": {}}
         gate = self._finish(proj, params)
         out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
         self.assertTrue(out.get("success"), out)
         self.assertEqual(out["motion"]["applied"], 0)
-        self.assertTrue(any("SetExpression(Size) returned False" in e for e in out["errors"]))
+        self.assertTrue(any("SetExpression(Size) readback empty after set" in e for e in out["errors"]))
+
+
+class QCWiringTest(unittest.TestCase):
+    """finish()'s QC pass (issue #181, phase 6/6 of the montage-quality
+    epic): on by default for a successful montage render, opt-outable, and
+    purely additive — never flips render/finish's own success."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="auto-edit-qc-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.target_dir = tempfile.mkdtemp(prefix="auto-edit-qc-render-")
+        self.addCleanup(shutil.rmtree, self.target_dir, True)
+        with open(os.path.join(self.target_dir, "cut.mov"), "wb") as handle:
+            handle.write(b"\x00")
+
+    def _mock_project(self):
+        from unittest import mock
+        tl = mock.Mock()
+        tl.GetName.return_value = "TL"
+        tl.GetUniqueId.return_value = "uid-TL"
+        tl.GetItemListInTrack.return_value = []
+        proj = mock.Mock()
+        proj.GetTimelineCount.return_value = 1
+        proj.GetTimelineByIndex.return_value = tl
+
+        def _switch(target):
+            proj.GetCurrentTimeline.return_value = target
+            return True
+
+        proj.SetCurrentTimeline.side_effect = _switch
+        proj.GetCurrentTimeline.return_value = tl
+        proj.SetRenderSettings.return_value = True
+        proj.AddRenderJob.return_value = "job-1"
+        proj.StartRendering.return_value = True
+        proj.IsRenderingInProgress.return_value = False
+        proj.GetRenderJobStatus.return_value = {"JobStatus": "Complete", "CompletionPercentage": 100}
+        return proj, tl
+
+    def _montage_plan(self):
+        segments = [
+            cut_ir.make_cut_list_segment(
+                role="montage_hook", clip_id="clip-0", clip_uuid="uuid-0",
+                source_start_frame=0, source_end_frame=48),
+            cut_ir.make_cut_list_segment(
+                role="montage", clip_id="clip-1", clip_uuid="uuid-1",
+                source_start_frame=0, source_end_frame=48),
+        ]
+        plan = cut_ir.make_cut_list(segments=segments, fps=24.0)
+        auto_edit._assign_record_frames(plan)
+        return edit_engine.save_plan(self.root, plan)
+
+    def _finish(self, proj, params):
+        from unittest import mock
+        with mock.patch.object(_dom_auto_edit, "_destructive_versioning_provider",
+            return_value=(None, proj, self.root, "P"),
+        ):
+            return run(s.auto_edit("finish", params))
+
+    def _params(self, plan, **extra):
+        return {
+            "plan_id": plan["plan_id"],
+            "render": {"target_dir": self.target_dir, "custom_name": "cut"},
+            **extra,
+        }
+
+    def test_qc_runs_by_default_on_a_successful_montage_render(self):
+        from unittest import mock
+        plan = self._montage_plan()
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl = self._mock_project()
+        params = self._params(plan)
+        gate = self._finish(proj, params)
+        fake_qc = {"success": True, "status": "pending_host_analysis", "frame_paths": ["/x.jpg"]}
+        with mock.patch.object(_dom_auto_edit._montage_edit_mod, "build_qc_request",
+                               return_value=fake_qc) as build_qc:
+            out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["qc"], fake_qc)
+        build_qc.assert_called_once()
+        call_plan = build_qc.call_args.args[0]
+        self.assertEqual(call_plan["plan_id"], plan["plan_id"])
+        self.assertEqual(build_qc.call_args.args[1], out["render"]["output_path"])
+
+    def test_qc_false_opts_out(self):
+        from unittest import mock
+        plan = self._montage_plan()
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl = self._mock_project()
+        params = self._params(plan, qc=False)
+        gate = self._finish(proj, params)
+        with mock.patch.object(_dom_auto_edit._montage_edit_mod, "build_qc_request") as build_qc:
+            out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertNotIn("qc", out)
+        build_qc.assert_not_called()
+
+    def test_qc_disabled_via_dict_shape(self):
+        from unittest import mock
+        plan = self._montage_plan()
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl = self._mock_project()
+        params = self._params(plan, qc={"enabled": False})
+        gate = self._finish(proj, params)
+        with mock.patch.object(_dom_auto_edit._montage_edit_mod, "build_qc_request") as build_qc:
+            out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertNotIn("qc", out)
+        build_qc.assert_not_called()
+
+    def test_qc_never_blocks_finish_even_when_it_fails(self):
+        from unittest import mock
+        plan = self._montage_plan()
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl = self._mock_project()
+        params = self._params(plan)
+        gate = self._finish(proj, params)
+        failing_qc = {"success": False, "error": "no frames could be extracted from the render for QC"}
+        with mock.patch.object(_dom_auto_edit._montage_edit_mod, "build_qc_request",
+                               return_value=failing_qc):
+            out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["qc"], failing_qc)
+
+    def test_qc_skipped_for_talking_head_plans(self):
+        from unittest import mock
+        plan = make_plan(self.root)  # talking-head (role="speech")
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl = self._mock_project()
+        params = self._params(plan)
+        gate = self._finish(proj, params)
+        with mock.patch.object(_dom_auto_edit._montage_edit_mod, "build_qc_request") as build_qc:
+            out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertNotIn("qc", out)
+        build_qc.assert_not_called()
+
+
+class CommitQCActionTest(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="auto-edit-commit-qc-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def test_commit_qc_normalizes_findings_and_saves_no_plan_mutation(self):
+        segments = [
+            cut_ir.make_cut_list_segment(
+                role="montage_hook", clip_id="clip-0", clip_uuid="uuid-0",
+                source_start_frame=0, source_end_frame=48),
+            cut_ir.make_cut_list_segment(
+                role="montage", clip_id="clip-1", clip_uuid="uuid-1",
+                source_start_frame=0, source_end_frame=48),
+        ]
+        plan = cut_ir.make_cut_list(segments=segments, fps=24.0)
+        auto_edit._assign_record_frames(plan)
+        plan = edit_engine.save_plan(self.root, plan)
+        out = run(s.auto_edit("commit_qc", {
+            "plan_id": plan["plan_id"], "analysis_root": self.root,
+            "qc_report": {"findings": [
+                {"kind": "repeated_shot", "segment_index": 1, "why": "dup", "severity": "high"},
+            ]},
+        }))
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["suggested_edits"], [{"op": "drop", "index": 1}])
+
+    def test_commit_qc_unknown_plan_is_honest(self):
+        out = run(s.auto_edit("commit_qc", {
+            "plan_id": "does-not-exist", "analysis_root": self.root, "qc_report": {"findings": []},
+        }))
+        self.assertFalse(out.get("success"))
+        self.assertIn("error", out)
 
 
 class PolishActionTest(unittest.TestCase):

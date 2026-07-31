@@ -159,6 +159,22 @@ ACCEPTED_DISCARDED_RETURNS = {
     ("src/domains/fusion_composition/actions.py", "_fusion_set_point_input", "SetInput"): 1,
     ("src/domains/fusion_composition/actions.py", "_fusion_set_text_plus", "SetInput"): 1,
     ("src/domains/fusion_composition/actions.py", "_safe_add_fusion_tool", "SetAttrs"): 1,
+    # auto_edit's _ensure_fusion_tool_locked mirrors _safe_add_fusion_tool
+    # exactly (same AddTool+rename-in-one-lock recipe, live-verified as the
+    # one pattern that actually renames a newly added tool). Verified by
+    # GetAttrs().get("TOOLS_Name") read-back right after, same doctrine.
+    ("src/domains/auto_edit/actions.py", "_ensure_fusion_tool_locked", "SetAttrs"): 1,
+    # SetExpression/SetInput's return is the SAME unreliable Lua-bridge
+    # signal as FlowView.SetPos above — live-verified here the hard way: with
+    # creation, rename, wiring, AND the expression/input all inside one
+    # unbroken Lock cycle, SetExpression/SetInput STILL returned False on
+    # every call. _fusion_expression_set_ok/_fusion_input_set_ok discard it
+    # and verify with GetExpression/GetInput read-back instead, matching
+    # _fusion_comp_bulk_set_expressions's own doctrine (which discards
+    # SetExpression's return entirely, see line ~615 of
+    # fusion_composition/actions.py).
+    ("src/domains/auto_edit/actions.py", "_fusion_expression_set_ok", "SetExpression"): 1,
+    ("src/domains/auto_edit/actions.py", "_fusion_input_set_ok", "SetInput"): 1,
     ("src/domains/fusion_composition/actions.py", "_safe_set_fusion_inputs", "SetInput"): 2,
     ("src/domains/fusion_composition/actions.py", "fusion_comp", "AddModifier"): 1,
     ("src/domains/fusion_composition/actions.py", "fusion_comp", "SetAttrs"): 4,

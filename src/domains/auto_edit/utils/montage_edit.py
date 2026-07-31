@@ -439,6 +439,10 @@ def _match_cdl(tone: str, brightness: float, target_brightness: float) -> Dict[s
         "Slope": [round(v, 4) for v in slope],
         "Offset": [offset, offset, offset],
         "Power": [1.0, 1.0, 1.0],
+        # SetCDL was live-verified (tests/live_api_gap_verification.py) only
+        # with all five keys present, Saturation included — omitting it is
+        # the live, not-mock, cause of a silent False return on every call.
+        "Saturation": 1.0,
     }
 
 
@@ -1026,3 +1030,176 @@ def render_montage_summary(plan: Dict[str, Any]) -> str:
         ]
     lines += ["", "_Approve to build; revise with structured notes (reorder/keep/drop)._"]
     return "\n".join(lines)
+
+
+# ── visual QC pass (issue #181, phase 6/6 of the montage-quality epic) ──────
+#
+# Claude Desktop QC'd by looking — it rendered check frames and inspected
+# them before declaring the montage done; we declared success on
+# output_path existing. This extracts a frame just after every cut boundary
+# plus an evenly-sampled contact sheet from the ACTUAL RENDERED FILE (the
+# real deliverable, not the Resolve timeline), routes them through the same
+# host_chat_paths deferred-payload shape deep_vision already uses (estimate/
+# frame-prep here, host reads frames, then commits back), and — for a
+# finding that maps to a specific cut — proposes a revise_cut edit so the
+# loop can close. On by default for montage (finish's `qc` param), matching
+# phase 3's scouting posture; declining the handoff just means the QC report
+# never arrives — the mechanical beat-alignment readback (build_timeline)
+# already ran regardless, and finish's own render result is untouched.
+
+QC_SCHEMA = {
+    "findings": "[{kind: exposure_outlier|grade_mismatch|unreadable|repeated_shot, "
+                "frame_path, segment_index: <int or null>, why: <short free text>, "
+                "severity: low|medium|high}]",
+    "overall": "pass|needs_revision",
+}
+QC_PROMPT = (
+    "Visual QC pass on a finished montage render. Look at each frame in "
+    "frame_paths — cut_frames were extracted just after each cut boundary, "
+    "contact_sheet samples the whole render evenly. Flag: exposure outliers, "
+    "shots that do not match the surrounding grade, unreadable or "
+    "mid-transition frames, and shots that look repeated. For a finding tied "
+    "to a specific cut, set segment_index to that cut_frames entry's "
+    "segment_index (null otherwise). Return strict JSON only: "
+    '{"overall": "pass"|"needs_revision", "findings": [...]}. Then call the '
+    "tool in commit_action with that JSON as qc_report."
+)
+DEFAULT_QC_BOUNDARY_OFFSET_FRAMES = 2
+DEFAULT_QC_CONTACT_SHEET_COUNT = 8
+_QC_DROP_KINDS = {"repeated_shot", "unreadable"}
+
+
+def _sampling_and_frames():
+    from src.domains.media_analysis.utils import sampling_and_frames
+    return sampling_and_frames
+
+
+def _analysis_memory():
+    from src.domains.media_analysis.utils import analysis_memory
+    return analysis_memory
+
+
+def build_qc_request(
+    plan: Dict[str, Any], render_path: str, project_root: str, *,
+    boundary_offset_frames: int = DEFAULT_QC_BOUNDARY_OFFSET_FRAMES,
+    contact_sheet_count: int = DEFAULT_QC_CONTACT_SHEET_COUNT,
+) -> Dict[str, Any]:
+    """Extract QC frames from the rendered output and build the deferred
+    host-vision payload. Never touches source media — only the finished
+    render — and writes exclusively under the analysis root.
+
+    Returns ``{success, status: "pending_host_analysis", frame_paths,
+    cut_frames, contact_sheet, schema, prompt, commit_action}`` on success,
+    or an honest ``{success: False, error}`` when the render is missing or
+    no frame could be extracted — this never blocks `finish`, which attaches
+    whatever this returns to its own result and moves on regardless.
+    """
+    if not render_path or not os.path.isfile(render_path):
+        return {"success": False, "error": f"render output not found: {render_path!r}"}
+    segments = plan.get("segments") or []
+    if not segments:
+        return {"success": False, "error": "plan has no segments to QC"}
+    fps = float(plan.get("fps") or 24.0)
+    saf = _sampling_and_frames()
+    qc_dir = os.path.join(
+        _analysis_memory().memory_dir(project_root), "auto_edit", "qc",
+        str(plan.get("plan_id") or "unknown"))
+    os.makedirs(qc_dir, exist_ok=True)
+
+    cut_frames: List[Dict[str, Any]] = []
+    for i, seg in enumerate(segments):
+        if i == 0:
+            continue  # the hook has no PRECEDING cut to check
+        record_frame = int(seg.get("record_start_frame", 0))
+        t = (record_frame + boundary_offset_frames) / fps
+        out_path = os.path.join(qc_dir, f"cut_{i:03d}.jpg")
+        if saf._export_analysis_frame(render_path, t, out_path):
+            cut_frames.append({"segment_index": i, "frame_path": out_path, "time_seconds": round(t, 3)})
+
+    total_frames = max(
+        (int(s.get("record_start_frame", 0)) + (int(s["source_end_frame"]) - int(s["source_start_frame"]))
+         for s in segments),
+        default=0)
+    duration = total_frames / fps if total_frames and fps else 0.0
+    contact_sheet: List[Dict[str, Any]] = []
+    for k in range(contact_sheet_count if duration > 0 else 0):
+        t = duration * (k + 0.5) / contact_sheet_count
+        out_path = os.path.join(qc_dir, f"contact_{k:03d}.jpg")
+        if saf._export_analysis_frame(render_path, t, out_path):
+            contact_sheet.append({"frame_path": out_path, "time_seconds": round(t, 3)})
+
+    frame_paths = [c["frame_path"] for c in cut_frames] + [c["frame_path"] for c in contact_sheet]
+    if not frame_paths:
+        return {"success": False, "error": "no frames could be extracted from the render for QC"}
+
+    return {
+        "success": True,
+        "status": "pending_host_analysis",
+        "provider": "host_chat_paths",
+        "mode": "montage_qc",
+        "render_path": render_path,
+        "cut_frames": cut_frames,
+        "contact_sheet": contact_sheet,
+        "frame_paths": frame_paths,
+        "schema": QC_SCHEMA,
+        "prompt": QC_PROMPT,
+        "commit_action": {
+            "tool": "auto_edit",
+            "action": "commit_qc",
+            "params": {"plan_id": plan.get("plan_id"),
+                       "qc_report": "<host chat: {overall, findings}>"},
+        },
+        "instructions": (
+            "Read every file under frame_paths as a local image, then call the "
+            "tool in commit_action with qc_report set to your findings. "
+            "Skipping the commit leaves the QC pass incomplete — surface that "
+            "rather than silently stopping."
+        ),
+    }
+
+
+def commit_qc_report(plan: Dict[str, Any], qc_report: Any) -> Dict[str, Any]:
+    """Normalize the host's QC findings and, for one tied to a specific cut
+    (a repeated or unreadable shot), propose a ``revise_cut`` ``drop`` edit.
+    Exposure/grade-mismatch findings are reported but have no corresponding
+    revise_cut op (there is no "re-grade this one cut" edit) — they surface
+    for a human to act on rather than fabricating an edit that doesn't exist.
+    """
+    if isinstance(qc_report, str):
+        try:
+            qc_report = json.loads(qc_report)
+        except json.JSONDecodeError as exc:
+            return {"success": False, "error": f"qc_report was a string but not valid JSON: {exc}"}
+    if not isinstance(qc_report, dict):
+        return {"success": False, "error": "qc_report must be an object with overall/findings"}
+    findings = qc_report.get("findings")
+    if not isinstance(findings, list):
+        return {"success": False, "error": "qc_report.findings must be a list"}
+
+    segments = plan.get("segments") or []
+    normalized: List[Dict[str, Any]] = []
+    suggested_edits: List[Dict[str, Any]] = []
+    for entry in findings:
+        if not isinstance(entry, dict):
+            continue
+        kind = str(entry.get("kind") or "").lower()
+        seg_idx = entry.get("segment_index")
+        finding = {
+            "kind": kind,
+            "frame_path": entry.get("frame_path"),
+            "segment_index": seg_idx if isinstance(seg_idx, int) else None,
+            "why": entry.get("why"),
+            "severity": str(entry.get("severity") or "medium").lower(),
+        }
+        if (isinstance(seg_idx, int) and 0 <= seg_idx < len(segments) and kind in _QC_DROP_KINDS):
+            edit = {"op": "drop", "index": seg_idx}
+            finding["suggested_edit"] = edit
+            suggested_edits.append(edit)
+        normalized.append(finding)
+
+    overall = str(qc_report.get("overall") or ("needs_revision" if normalized else "pass")).lower()
+    return {
+        "success": True,
+        "report": {"overall": overall, "findings": normalized},
+        "suggested_edits": suggested_edits,
+    }

@@ -12,28 +12,34 @@ layer produced it. server.py's auto_edit tool branches start_brief/
 plan_cut by brief.genre (wired in P2, issue #41); this module never
 registers its own MCP tool.
 
-Cut timing is a hybrid, not a rigid beat grid:
-  - PACING (how long a cut holds at each point in the track) comes from
-    local onset DENSITY around that point — dense onsets nearby read as
-    a high-energy section (shorter target cut), sparse onsets read as
-    mellow (longer target cut). This reuses the SAME onset list
-    music_analysis.detect_beats already returns for snap-to-beat, so no
-    new DSP is needed for a second "energy" signal.
-  - PLACEMENT (which candidate shot goes at that point) comes from each
-    shot's own `pacing` classification (still/moderate/kinetic/variable —
-    the PER-SHOT signal in the analysis schema's shot_descriptions[i].editorial;
-    `energy_arc` sits one level up, at editorial_classification/cross_shot,
-    describing the whole CLIP's arc, not a per-shot value, so it can't drive
-    per-shot placement) — kinetic shots slot into high-density regions,
-    still shots into low-density ones, moderate/variable fit anywhere.
-  - Every actual cut boundary snaps to the NEAREST real onset at or after
+Cut timing (issue #177, phase 2/6 of the montage-quality epic): when
+music_analysis.detect_beats locks a confident grid (`grid_available: True`),
+every cut boundary is a BEAT INDEX from montage_arrangement's schedule, not a
+snapped-to-nearest-onset time — see montage_arrangement.py for how section
+evidence becomes cut lengths. Source length is DERIVED from record length
+(`beat_frames[k+n] - beat_frames[k]`), so drift is structurally impossible
+rather than merely corrected. Below the confidence threshold, phase 1
+degrades honestly (`grid_available: False`) and this module falls back to
+the original onset-snap behaviour rather than inventing a grid:
+  - PACING comes from local onset DENSITY around each point (dense onsets
+    nearby read as high-energy — shorter target cut; sparse — a longer
+    hold). Reuses the onset list music_analysis.detect_beats returns.
+  - PLACEMENT (which candidate shot) still comes from each shot's own
+    `pacing` classification in BOTH modes — kinetic shots slot into
+    high-density regions, still shots into low-density ones (`shot_fits_zone`)
+    — local onset density remains a placement tiebreaker even when it no
+    longer drives cut length.
+  - Fallback-mode cut boundaries snap to the NEAREST real onset at or after
     the running cursor, never a mathematical beat count.
 
 Shot exhaustion: the select_potential floor loosens high -> medium -> low
-(mirrors edit_engine.plan_selects' own tunable) to keep filling the
-music's runtime; if even "low" runs dry the montage TRUNCATES rather
-than repeating a shot or fabricating coverage, and says so honestly in
-`problems`.
+(mirrors edit_engine.plan_selects' own tunable) to keep filling the music's
+runtime. In grid mode, candidate WINDOWS (a shot's own advancing source
+cursor) and clip-level round-robin (never two consecutive segments from the
+same clip_uuid) let a shot be reused via a different in-point rather than
+exhausting the pool early; if every clip is genuinely out of usable seconds
+the montage still TRUNCATES rather than repeating a window or fabricating
+coverage, and says so honestly in `problems`.
 
 No voiceover/ducking concept in v1 — strictly B-roll + music. Music is
 required (its length sets the montage's runtime; target_duration_seconds,
@@ -42,12 +48,13 @@ if given, trims it rather than replacing it as the primary driver).
 
 from __future__ import annotations
 
+import bisect
 import json
 import os
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.core import timeline_brain_db
-from src.domains.auto_edit.utils import auto_edit, cut_ir, edit_engine, music_analysis
+from src.domains.auto_edit.utils import auto_edit, cut_ir, edit_engine, montage_arrangement, music_analysis
 
 GENRE = "montage"
 
@@ -213,6 +220,101 @@ def nearest_onset(onsets: Sequence[float], target: float, *, minimum: float) -> 
     return min(candidates, key=lambda o: abs(o - target))
 
 
+class _ShotPool:
+    """Candidate shots grouped by clip, with round-robin selection and a
+    per-shot advancing source cursor ("candidate windows") instead of
+    one-shot-one-use.
+
+    A shot may be picked again later with a *different* in-point (whatever
+    the cursor has advanced to) as long as its clip isn't the immediately
+    preceding pick — that's what removes the old truncation path without
+    ever repeating the exact same footage back-to-back.
+    """
+
+    def __init__(self, candidates: List[Dict[str, Any]]):
+        by_clip: Dict[str, List[Dict[str, Any]]] = {}
+        for c in candidates:
+            by_clip.setdefault(c["clip_uuid"], []).append(dict(c, cursor=c["time_seconds_start"]))
+        self._by_clip = by_clip
+        self._clip_order = list(by_clip.keys())
+        self._rr_ptr = 0
+
+    def _best_in_clip(self, clip_uuid: str, *, floor_rank: int, needed_seconds: float,
+                       density_ratio: float) -> Optional[Dict[str, Any]]:
+        shots = self._by_clip.get(clip_uuid, [])
+        eligible = [s for s in shots
+                    if s["rank"] >= floor_rank
+                    and (s["time_seconds_end"] - s["cursor"]) >= needed_seconds]
+        if not eligible:
+            return None
+        zone_matches = [s for s in eligible if shot_fits_zone(s["pacing"], density_ratio)]
+        pick_from = zone_matches or eligible
+        pick_from.sort(key=lambda s: (-s["rank"], -(s["time_seconds_end"] - s["cursor"])))
+        return pick_from[0]
+
+    def pick(self, *, exclude_clip_uuid: Optional[str], floor_rank: int,
+             needed_seconds: float, density_ratio: float) -> Optional[Dict[str, Any]]:
+        """Round-robin across clips (skipping `exclude_clip_uuid`), best shot
+        within the winning clip. Advances the rotation only on success."""
+        n = len(self._clip_order)
+        for step in range(n):
+            i = (self._rr_ptr + step) % n
+            clip_uuid = self._clip_order[i]
+            if clip_uuid == exclude_clip_uuid:
+                continue
+            shot = self._best_in_clip(
+                clip_uuid, floor_rank=floor_rank, needed_seconds=needed_seconds,
+                density_ratio=density_ratio)
+            if shot is not None:
+                self._rr_ptr = (i + 1) % n
+                return shot
+        return None
+
+    def get(self, clip_uuid: str, shot_uuid: Any) -> Optional[Dict[str, Any]]:
+        """The pool's own tracked copy of a shot (so advancing its cursor via
+        `take` is visible to later round-robin picks)."""
+        for s in self._by_clip.get(clip_uuid, []):
+            if s["shot_uuid"] == shot_uuid:
+                return s
+        return None
+
+    @staticmethod
+    def take(shot: Dict[str, Any], seconds: float) -> Tuple[float, float]:
+        """Consume `seconds` from the shot's advancing cursor; returns the
+        (src_start, src_end) window actually used."""
+        src_start = shot["cursor"]
+        src_end = min(shot["time_seconds_end"], src_start + seconds)
+        shot["cursor"] = src_end
+        return src_start, src_end
+
+
+def _finalize_grid_locked_frames(plan: Dict[str, Any], *, runtime_frames: int) -> None:
+    """Plan-level totals for a grid-locked montage plan.
+
+    Unlike auto_edit._assign_record_frames (talking-head's accumulate walk),
+    this never touches a segment's `record_start_frame` — every segment
+    already carries a beat-quantised one from the arrangement schedule, and
+    re-walking would throw that alignment away. Music runs the TRACK'S OWN
+    length (`runtime_frames`), not the summed cut length, since a grid-locked
+    plan may leave a few trailing frames after the last beat that's short of
+    one more cut.
+    """
+    segments = plan["segments"]
+    plan["record_duration_frames"] = max(
+        (seg["record_start_frame"] + (seg["source_end_frame"] - seg["source_start_frame"])
+         for seg in segments), default=0)
+    for overlay in plan.get("overlays") or []:
+        idx = overlay.get("over_segment_index")
+        if isinstance(idx, int) and 0 <= idx < len(segments):
+            seg = segments[idx]
+            overlay["record_start_frame"] = seg["record_start_frame"]
+            overlay["record_end_frame"] = seg["record_start_frame"] + overlay["duration_frames"]
+    music = plan.get("music")
+    if music:
+        music["record_start_frame"] = 0
+        music["record_end_frame"] = runtime_frames
+
+
 # ── the decision layer ───────────────────────────────────────────────────────
 
 
@@ -267,92 +369,201 @@ def build_cut_list_for_brief(
                 "error": f"mixed frame rates in brief {sorted(fps_values)} — "
                          "montage requires a single fps"}
     fps = candidates[0]["fps"]
+    tempo = beats.get("tempo_bpm")
 
-    # Hook: single highest-select_potential shot overall, prepended once and
-    # withdrawn from the general pool.
+    # Hook: single highest-select_potential shot overall, prepended once.
     ranked_all = sorted(candidates, key=lambda c: -c["rank"])
     hook = ranked_all[0]
-    pool = [c for c in candidates if c is not hook]
 
-    tempo = beats.get("tempo_bpm")
-    hook_seconds = (HOOK_BEATS * 60.0 / tempo) if tempo else DEFAULT_HOOK_SECONDS
-    hook_seconds = max(MIN_CUT_SECONDS, min(hook_seconds, hook["duration_seconds"], total_runtime))
+    def _rationale(shot: Dict[str, Any]) -> str:
+        return f"select_potential rank {shot['rank']}, pacing={shot['pacing']}"
 
-    segments: List[Dict[str, Any]] = []
-    used_shot_uuids = set()
+    def _evidence(shot: Dict[str, Any], basis: str) -> Dict[str, Any]:
+        return {"basis": basis, "clip_name": shot.get("clip_name"),
+                "description": shot.get("description"), "pacing": shot["pacing"]}
 
-    def _segment(role: str, shot: Dict[str, Any], src_start: float, src_end: float) -> Dict[str, Any]:
-        start_frame = int(round(src_start * fps))
-        end_frame = max(start_frame + 1, int(round(src_end * fps)))
-        return cut_ir.make_cut_list_segment(
-            role=role, clip_id=shot["resolve_clip_id"], clip_uuid=shot["clip_uuid"],
-            source_start_frame=start_frame, source_end_frame=end_frame,
-            rationale=f"select_potential rank {shot['rank']}, pacing={shot['pacing']}",
-            evidence={"basis": "select_potential+pacing", "clip_name": shot.get("clip_name"),
-                      "description": shot.get("description"), "pacing": shot["pacing"]},
-        )
+    grid_available = bool(beats.get("grid_available")) and len(beats.get("beat_grid") or []) >= 2
+    segments: Optional[List[Dict[str, Any]]] = None
 
-    hook_src_start = hook["time_seconds_start"]
-    hook_src_end = min(hook["time_seconds_end"], hook_src_start + hook_seconds)
-    segments.append(_segment("montage_hook", hook, hook_src_start, hook_src_end))
-    used_shot_uuids.add(hook["shot_uuid"])
-    record_cursor = hook_src_end - hook_src_start
+    if grid_available:
+        beat_grid_seconds: List[float] = beats["beat_grid"]
+        usable_beat_count = max(2, min(
+            bisect.bisect_right(beat_grid_seconds, total_runtime + 1e-6), len(beat_grid_seconds)))
+        trimmed_grid = beat_grid_seconds[:usable_beat_count]
+        trimmed_sections = [
+            s for s in (beats.get("sections") or []) if s["start_seconds"] < trimmed_grid[-1]]
+        schedule = montage_arrangement.plan_arrangement(trimmed_grid, trimmed_sections)
+        beat_frames = [int(round(t * fps)) for t in trimmed_grid]
 
-    sample_points = [i * 0.5 for i in range(int(total_runtime / 0.5) + 2)]
-    max_density = max(
-        (local_onset_density(onsets, t) for t in sample_points), default=0.0) or 1.0
+        if schedule:
+            def _grid_segment(role: str, shot: Dict[str, Any], src_start_seconds: float,
+                               record_start_frame: int, record_len: int,
+                               arrangement: Dict[str, Any]) -> Dict[str, Any]:
+                start_frame = int(round(src_start_seconds * fps))
+                end_frame = start_frame + record_len  # derived from record length — never re-rounded
+                seg = cut_ir.make_cut_list_segment(
+                    role=role, clip_id=shot["resolve_clip_id"], clip_uuid=shot["clip_uuid"],
+                    source_start_frame=start_frame, source_end_frame=end_frame,
+                    rationale=_rationale(shot), evidence=_evidence(shot, "select_potential+pacing+beat_grid"),
+                )
+                seg["record_start_frame"] = record_start_frame
+                seg["beat_index"] = arrangement["beat_index"]
+                seg["beat_length"] = arrangement["beat_length"]
+                seg["section"] = arrangement["section"]
+                seg["look_bucket"] = None  # phase 4 (per-bucket CDLs) fills this in
+                seg["motion"] = None       # phase 5 (beat-locked motion) fills this in
+                seg["flash"] = "flash" in arrangement["flags"]
+                seg["retime"] = "retime" in arrangement["flags"]
+                return seg
 
-    tier_floor_idx = _SELECT_TIERS.index(min_select_potential) if min_select_potential in _SELECT_TIERS else 0
-    truncated = False
+            pool = _ShotPool(candidates)
+            tier_floor_idx = (
+                _SELECT_TIERS.index(min_select_potential) if min_select_potential in _SELECT_TIERS else 0)
+            truncated = False
 
-    while record_cursor < total_runtime - 1e-6:
-        density = local_onset_density(onsets, record_cursor)
-        density_ratio = min(1.0, density / max_density)
-        target_dur = min(target_cut_seconds(density, max_density=max_density),
-                          total_runtime - record_cursor)
-        if target_dur < MIN_CUT_SECONDS and (total_runtime - record_cursor) < MIN_CUT_SECONDS:
-            break  # remaining gap too small to bother with
+            hook_entry = schedule[0]
+            hook_end_beat = min(hook_entry["beat_index"] + hook_entry["beat_length"], len(beat_frames) - 1)
+            hook_record_len = beat_frames[hook_end_beat] - beat_frames[hook_entry["beat_index"]]
+            hook_internal = pool.get(hook["clip_uuid"], hook["shot_uuid"])
+            hook_src_start, _ = _ShotPool.take(hook_internal, hook_record_len / fps)
+            segments = [_grid_segment("montage_hook", hook, hook_src_start,
+                                      beat_frames[hook_entry["beat_index"]], hook_record_len, hook_entry)]
+            last_clip_uuid = hook["clip_uuid"]
 
-        chosen = None
-        floor = tier_floor_idx
-        while floor < len(_SELECT_TIERS) and chosen is None:
-            floor_rank = _SELECT_RANK[_SELECT_TIERS[floor]]
-            available = [
-                c for c in pool
-                if c["shot_uuid"] not in used_shot_uuids
-                and c["rank"] >= floor_rank
-                and c["duration_seconds"] >= MIN_CUT_SECONDS
-            ]
-            zone_matches = [c for c in available if shot_fits_zone(c["pacing"], density_ratio)]
-            pick_from = zone_matches or available  # tier/duration beats an exact zone match once loosened
-            if pick_from:
-                pick_from.sort(key=lambda c: (-c["rank"], -c["duration_seconds"]))
-                chosen = pick_from[0]
+            max_density = max(
+                (local_onset_density(onsets, t) for t in trimmed_grid), default=0.0) or 1.0
+
+            for entry in schedule[1:]:
+                k = entry["beat_index"]
+                end_k = min(k + entry["beat_length"], len(beat_frames) - 1)
+                record_start_frame = beat_frames[k]
+                record_len = beat_frames[end_k] - record_start_frame
+                if record_len <= 0:
+                    continue
+                needed_seconds = record_len / fps
+                density = local_onset_density(onsets, trimmed_grid[k])
+                density_ratio = min(1.0, density / max_density)
+
+                chosen = None
+                floor = tier_floor_idx
+                while floor < len(_SELECT_TIERS) and chosen is None:
+                    chosen = pool.pick(
+                        exclude_clip_uuid=last_clip_uuid, floor_rank=_SELECT_RANK[_SELECT_TIERS[floor]],
+                        needed_seconds=needed_seconds, density_ratio=density_ratio)
+                    floor += 1
+
+                if chosen is None:
+                    # Round-robin couldn't be satisfied (e.g. only one clip in
+                    # the whole brief) — fall back to the best-ranked eligible
+                    # shot even if it repeats the previous clip, per issue #177.
+                    floor = tier_floor_idx
+                    while floor < len(_SELECT_TIERS) and chosen is None:
+                        chosen = pool.pick(
+                            exclude_clip_uuid=None, floor_rank=_SELECT_RANK[_SELECT_TIERS[floor]],
+                            needed_seconds=needed_seconds, density_ratio=density_ratio)
+                        floor += 1
+
+                if chosen is None:
+                    truncated = True
+                    break
+
+                src_start, _ = _ShotPool.take(chosen, needed_seconds)
+                segments.append(_grid_segment(
+                    "montage", chosen, src_start, record_start_frame, record_len, entry))
+                last_clip_uuid = chosen["clip_uuid"]
+
+            if truncated:
+                problems.append(
+                    f"ran out of candidate shots/windows at select_potential>="
+                    f"{_SELECT_TIERS[tier_floor_idx]} before filling the music's "
+                    f"{total_runtime:.1f}s runtime — montage ends early rather than repeating "
+                    "a window or fabricating coverage")
+        else:
+            grid_available = False  # nothing schedulable at this runtime; fall through
+
+    if segments is None:
+        # Honest degradation (phase 1's grid_available: False, or a schedule
+        # that came back empty) — the original onset-snap behaviour, never a
+        # fabricated grid.
+        if not beats.get("grid_available"):
+            problems.append(
+                "beat grid unavailable (tempo confidence too low, or too few beats for this "
+                "runtime) — falling back to onset-snap cutting rather than inventing a grid")
+
+        pool_list = [c for c in candidates if c is not hook]
+        hook_seconds = (HOOK_BEATS * 60.0 / tempo) if tempo else DEFAULT_HOOK_SECONDS
+        hook_seconds = max(MIN_CUT_SECONDS, min(hook_seconds, hook["duration_seconds"], total_runtime))
+
+        def _segment(role: str, shot: Dict[str, Any], src_start: float, src_end: float) -> Dict[str, Any]:
+            start_frame = int(round(src_start * fps))
+            end_frame = max(start_frame + 1, int(round(src_end * fps)))
+            return cut_ir.make_cut_list_segment(
+                role=role, clip_id=shot["resolve_clip_id"], clip_uuid=shot["clip_uuid"],
+                source_start_frame=start_frame, source_end_frame=end_frame,
+                rationale=_rationale(shot), evidence=_evidence(shot, "select_potential+pacing"),
+            )
+
+        hook_src_start = hook["time_seconds_start"]
+        hook_src_end = min(hook["time_seconds_end"], hook_src_start + hook_seconds)
+        segments = [_segment("montage_hook", hook, hook_src_start, hook_src_end)]
+        used_shot_uuids = {hook["shot_uuid"]}
+        record_cursor = hook_src_end - hook_src_start
+
+        sample_points = [i * 0.5 for i in range(int(total_runtime / 0.5) + 2)]
+        max_density = max(
+            (local_onset_density(onsets, t) for t in sample_points), default=0.0) or 1.0
+
+        tier_floor_idx = _SELECT_TIERS.index(min_select_potential) if min_select_potential in _SELECT_TIERS else 0
+        truncated = False
+
+        while record_cursor < total_runtime - 1e-6:
+            density = local_onset_density(onsets, record_cursor)
+            density_ratio = min(1.0, density / max_density)
+            target_dur = min(target_cut_seconds(density, max_density=max_density),
+                              total_runtime - record_cursor)
+            if target_dur < MIN_CUT_SECONDS and (total_runtime - record_cursor) < MIN_CUT_SECONDS:
+                break  # remaining gap too small to bother with
+
+            chosen = None
+            floor = tier_floor_idx
+            while floor < len(_SELECT_TIERS) and chosen is None:
+                floor_rank = _SELECT_RANK[_SELECT_TIERS[floor]]
+                available = [
+                    c for c in pool_list
+                    if c["shot_uuid"] not in used_shot_uuids
+                    and c["rank"] >= floor_rank
+                    and c["duration_seconds"] >= MIN_CUT_SECONDS
+                ]
+                zone_matches = [c for c in available if shot_fits_zone(c["pacing"], density_ratio)]
+                pick_from = zone_matches or available  # tier/duration beats an exact zone match once loosened
+                if pick_from:
+                    pick_from.sort(key=lambda c: (-c["rank"], -c["duration_seconds"]))
+                    chosen = pick_from[0]
+                    break
+                floor += 1
+
+            if chosen is None:
+                truncated = True
                 break
-            floor += 1
 
-        if chosen is None:
-            truncated = True
-            break
+            used_shot_uuids.add(chosen["shot_uuid"])
+            src_start = chosen["time_seconds_start"]
+            raw_src_end = min(chosen["time_seconds_end"], src_start + target_dur)
+            target_record_end = record_cursor + (raw_src_end - src_start)
+            snapped_record_end = min(
+                nearest_onset(onsets, target_record_end, minimum=record_cursor + MIN_CUT_SECONDS),
+                total_runtime)
+            actual_duration = max(MIN_CUT_SECONDS, snapped_record_end - record_cursor)
+            src_end = min(chosen["time_seconds_end"], src_start + actual_duration)
 
-        used_shot_uuids.add(chosen["shot_uuid"])
-        src_start = chosen["time_seconds_start"]
-        raw_src_end = min(chosen["time_seconds_end"], src_start + target_dur)
-        target_record_end = record_cursor + (raw_src_end - src_start)
-        snapped_record_end = min(
-            nearest_onset(onsets, target_record_end, minimum=record_cursor + MIN_CUT_SECONDS),
-            total_runtime)
-        actual_duration = max(MIN_CUT_SECONDS, snapped_record_end - record_cursor)
-        src_end = min(chosen["time_seconds_end"], src_start + actual_duration)
+            segments.append(_segment("montage", chosen, src_start, src_end))
+            record_cursor += (src_end - src_start)
 
-        segments.append(_segment("montage", chosen, src_start, src_end))
-        record_cursor += (src_end - src_start)
-
-    if truncated:
-        problems.append(
-            f"ran out of candidate shots at select_potential>={_SELECT_TIERS[tier_floor_idx]} "
-            f"before filling the music's {total_runtime:.1f}s runtime — montage ends early "
-            "rather than repeating a shot or fabricating coverage")
+        if truncated:
+            problems.append(
+                f"ran out of candidate shots at select_potential>={_SELECT_TIERS[tier_floor_idx]} "
+                f"before filling the music's {total_runtime:.1f}s runtime — montage ends early "
+                "rather than repeating a shot or fabricating coverage")
 
     if len(segments) < 2:
         return {"success": False, "error": "not enough distinct shots to build a montage",
@@ -365,15 +576,23 @@ def build_cut_list_for_brief(
     }
     plan = cut_ir.make_cut_list(
         segments=segments, fps=fps, music=music, brief_id=brief.get("plan_id"), revision=0)
-    plan["basis"] = "select_potential+pacing+beat_snap"
+    plan["basis"] = "select_potential+pacing+beat_grid" if grid_available else "select_potential+pacing+beat_snap"
     plan["problems"] = problems
     plan["tempo_bpm"] = tempo
     plan["onset_count"] = len(onsets)
-    # record_start_frame is what build_timeline's shared executor actually
-    # reads to place each segment — without it every segment defaults to 0
-    # and stacks on top of the last. Reused verbatim (generic cursor walk,
-    # not talking-head-specific) so the executor and this plan agree.
-    auto_edit._assign_record_frames(plan)
+    plan["grid_available"] = grid_available
+    if grid_available:
+        # Grid-locked segments already carry a correct, beat-quantised
+        # record_start_frame from the arrangement schedule — re-walking (as
+        # auto_edit._assign_record_frames does for talking-head) would throw
+        # that alignment away, so only the plan-level totals are finalized.
+        _finalize_grid_locked_frames(plan, runtime_frames=int(round(total_runtime * fps)))
+    else:
+        # record_start_frame is what build_timeline's shared executor actually
+        # reads to place each segment — without it every segment defaults to 0
+        # and stacks on top of the last. Reused verbatim (generic cursor walk,
+        # not talking-head-specific) so the executor and this plan agree.
+        auto_edit._assign_record_frames(plan)
     errors = cut_ir.validate_cut_list(plan)
     if errors:
         return {"success": False, "error": "generated CutList failed validation", "problems": errors}
@@ -408,20 +627,31 @@ def render_montage_summary(plan: Dict[str, Any]) -> str:
         f"**Tempo:** {f'{tempo:.0f} BPM' if tempo else 'unknown'} · "
         f"**Onsets detected:** {plan.get('onset_count', 0)}",
         "",
-        "| # | Record | Source (frames) | Role | Description | Pacing |",
-        "|---|--------|-----------------|------|--------------|--------|",
     ]
+    grid_available = bool(plan.get("grid_available"))
+    if grid_available:
+        lines += [
+            "| # | Record | Source (frames) | Role | Section | Beats | Description | Pacing |",
+            "|---|--------|-----------------|------|---------|-------|--------------|--------|",
+        ]
+    else:
+        lines += [
+            "| # | Record | Source (frames) | Role | Description | Pacing |",
+            "|---|--------|-----------------|------|--------------|--------|",
+        ]
     for i, seg in enumerate(plan.get("segments") or []):
         evidence = seg.get("evidence") or {}
         pacing = evidence.get("pacing") or ""
         description = evidence.get("description") or ""
-        lines.append(
+        row = (
             f"| {i} | {tc(seg.get('record_start_frame', 0))} "
             f"| {seg['source_start_frame']}–{seg['source_end_frame']} "
             f"| {seg.get('role')} "
-            f"| {description} "
-            f"| {pacing or '—'} |"
         )
+        if grid_available:
+            row += f"| {seg.get('section') or '—'} | {seg.get('beat_length', '—')} "
+        row += f"| {description} | {pacing or '—'} |"
+        lines.append(row)
     problems = plan.get("problems") or []
     if problems:
         lines += ["", "**Notes:**"] + [f"- {p}" for p in problems]

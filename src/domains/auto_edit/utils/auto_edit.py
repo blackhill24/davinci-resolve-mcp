@@ -540,7 +540,15 @@ def _collect_overlays(segments: List[Dict[str, Any]], *, fps: float) -> List[Dic
 
 
 def _assign_record_frames(plan: Dict[str, Any]) -> None:
-    """Walk the record cursor so the executor and summary agree on placement."""
+    """Walk the record cursor so the executor and summary agree on placement.
+
+    Talking-head only — always a full accumulate-walk, unconditionally
+    re-deriving every segment's ``record_start_frame`` from source length.
+    Grid-locked montage plans (issue #177) do not call this: their segments
+    already carry a beat-quantised ``record_start_frame`` that a re-walk would
+    silently throw away, so montage_edit finalizes its own plan-level totals
+    instead (see ``montage_edit._finalize_grid_locked_frames``).
+    """
     cursor = 0
     for seg in plan["segments"]:
         seg["record_start_frame"] = cursor

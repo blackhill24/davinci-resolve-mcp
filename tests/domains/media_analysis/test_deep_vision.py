@@ -210,6 +210,93 @@ class CommitShotVisionTests(DeepVisionBase):
         self.assertGreater(record.call_args.kwargs["vision_tokens"], 0)
 
 
+def scout_entry(shot_index: int, window_start: float, window_end: float, *, usable=True) -> dict:
+    return {
+        "window_start_seconds": window_start,
+        "window_end_seconds": window_end,
+        "in_point_seconds": round(window_start + (window_end - window_start) * 0.4, 3),
+        "subject_clarity": "high", "motion_interest": "medium", "composition": "high",
+        "exposure": "good", "dominant_colour": {"tone": "warm", "brightness": 0.6},
+        "usable": usable, "why": "settled mid-action frame",
+    }
+
+
+class ScoutingTests(DeepVisionBase):
+    """montage in-point scouting (issue #178, phase 3/6 of the montage-quality
+    epic): deepen_clip's `windows` param + the schema's `scout` group,
+    round-tripped through the EXISTING commit_shot_vision — no parallel
+    handoff protocol."""
+
+    def _fake_extract(self, source, time_seconds, out_path):
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "wb") as handle:
+            handle.write(b"\xff\xd8\xff\xdbfake-jpeg")
+        return out_path
+
+    def test_deep_shot_schema_includes_scout_group(self):
+        schema = deep_vision.deep_shot_schema()
+        self.assertIn("scout", schema)
+
+    def _ingest_with_real_source(self):
+        source = os.path.join(self.root, "source.mp4")
+        with open(source, "wb") as handle:
+            handle.write(b"fake-source-media")
+        report = self._report_with_frames()
+        report["clip"]["file_path"] = source
+        return self._ingest(report)
+
+    def test_deepen_clip_with_windows_builds_scout_windows_per_shot(self):
+        self._ingest_with_real_source()
+        windows = {2: [{"start": 5.2, "end": 7.2}, {"start": 9.0, "end": 11.0}]}
+        with mock.patch.object(deep_vision, "_extract_frame", side_effect=self._fake_extract):
+            first = deep_vision.deepen_clip(self.root, clip_ref=self.clip_dir_name, windows=windows)
+            token = first["confirm_token"]
+            payload = deep_vision.deepen_clip(
+                self.root, clip_ref=self.clip_dir_name, windows=windows, confirm_token=token)
+        self.assertTrue(payload["success"], payload)
+        scouted = next(e for e in payload["shot_table"] if e["shot_index"] == 2)
+        self.assertIn("scout_windows", scouted)
+        self.assertEqual(len(scouted["scout_windows"]), 2)
+        for w in scouted["scout_windows"]:
+            self.assertEqual(len(w["frame_indices"]), 4)  # start/25%/50%/75%
+        # A shot with no windows entry keeps the original (non-scouting) plan.
+        untouched = next(e for e in payload["shot_table"] if e["shot_index"] == 1)
+        self.assertNotIn("scout_windows", untouched)
+        self.assertIn("scout", payload["prompt"].lower())
+
+    def test_scout_round_trips_through_commit_shot_vision(self):
+        clip_uuid, _ = self._ingest_with_real_source()
+        windows = {2: [{"start": 5.2, "end": 7.2}]}
+        with mock.patch.object(deep_vision, "_extract_frame", side_effect=self._fake_extract):
+            first = deep_vision.deepen_clip(
+                self.root, clip_ref=self.clip_dir_name, shot_indices=[2], windows=windows)
+            payload = deep_vision.deepen_clip(
+                self.root, clip_ref=self.clip_dir_name, shot_indices=[2], windows=windows,
+                confirm_token=first["confirm_token"])
+
+        entry = deep_entry(2)
+        entry["scout"] = [scout_entry(2, 5.2, 7.2)]
+        result = deep_vision.commit_shot_vision(
+            self.root, shots=[entry], vision_token=payload["vision_token"],
+            clip_ref=self.clip_dir_name)
+        self.assertTrue(result["success"], result)
+
+        exported = analysis_store.export_report(self.root, clip_uuid)
+        shot2 = exported["visual"]["shot_descriptions"][1]
+        self.assertEqual(len(shot2["scout"]), 1)
+        self.assertEqual(shot2["scout"][0]["in_point_seconds"], scout_entry(2, 5.2, 7.2)["in_point_seconds"])
+
+        # Persisted as a subjective field too (same supersede path as every
+        # other deep group) — this is what makes a re-cut free (no re-scout).
+        conn = timeline_brain_db.connect(self.root)
+        row = conn.execute(
+            "SELECT value_json FROM subjective_fields "
+            "WHERE field_path = 'scout' AND superseded_at IS NULL"
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(len(json.loads(row["value_json"])), 1)
+
+
 class VisionPendingSweepTests(DeepVisionBase):
     def _pending_report(self):
         report = self._report_with_frames()

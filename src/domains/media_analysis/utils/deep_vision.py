@@ -85,6 +85,17 @@ DEEP_SHOT_FIELD_GROUPS: Dict[str, Any] = {
         "match_action_out": "<bool — could send a match cut>",
         "cut_compatibility_hints": "<free text>",
     },
+    # Montage in-point scouting (issue #178, phase 3/6 of the montage-quality
+    # epic): one entry per candidate window that was extracted (see
+    # `deepen_clip`'s `windows` param) — start/25%/50%/75% frames of that
+    # window, scored so montage_edit can pick a settled in-point instead of
+    # always cutting to the shot's first (least-settled) frame. Null/omitted
+    # when this shot wasn't scouted.
+    "scout": "null, or [{window_start_seconds, window_end_seconds, in_point_seconds, "
+             "subject_clarity: low|medium|high, motion_interest: low|medium|high, "
+             "composition: low|medium|high, exposure: crushed|good|clipped, "
+             "dominant_colour: {tone: warm|cool|neutral, brightness: 0..1}, "
+             "usable: <bool>, why: <short free text>}]",
     "description": "<1-3 sentences, editorially useful, colleague-style note>",
     "confidence": {
         "visual": "low|medium|high",
@@ -94,6 +105,17 @@ DEEP_SHOT_FIELD_GROUPS: Dict[str, Any] = {
         "cuttability": "low|medium|high",
     },
 }
+
+SCOUT_PROMPT_ADDENDUM = (
+    " Some shot_table entries also carry `scout_windows` — one entry per "
+    "candidate cut window, each with its own start/25%/50%/75% frame_indices. "
+    "For those shots, ALSO fill the `scout` field group: one object per "
+    "window in scout_windows, each naming the SAME window_start_seconds/"
+    "window_end_seconds it was given, an in_point_seconds you'd actually cut "
+    "to (the most settled, readable moment in that window — not necessarily "
+    "the first frame), and the scored fields (subject_clarity, "
+    "motion_interest, composition, exposure, dominant_colour, usable, why)."
+)
 
 DEEP_SHOT_PROMPT = (
     "Deep per-shot editorial analysis. For EACH shot listed in shot_table, look "
@@ -213,6 +235,7 @@ def deepen_clip(
     *,
     clip_ref: Any,
     shot_indices: Optional[List[int]] = None,
+    windows: Optional[Dict[int, List[Dict[str, float]]]] = None,
     confirm_token: Optional[str] = None,
     job_id: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -220,6 +243,14 @@ def deepen_clip(
 
     First call (no confirm_token) returns the cost estimate + confirm_token.
     Second call with the token returns the deferred host-vision payload.
+
+    ``windows`` (montage in-point scouting, issue #178): ``shot_index ->
+    [{"start": seconds, "end": seconds}, ...]``. A shot present in ``windows``
+    gets its frame plan REPLACED with start/25%/50%/75% frames of EACH window
+    (montage's candidate cut windows from phase 2), instead of the default
+    single mid-shot frame — this is what lets the host score an in-point per
+    window (``scout``) rather than just describing the shot once. Shots not
+    in ``windows`` are unaffected (the original per-shot plan).
     """
     ma = _ma()
     context, err = _clip_context(project_root, clip_ref)
@@ -238,20 +269,33 @@ def deepen_clip(
 
     # Frame plan: existing on-disk frames per shot; shots with none get
     # extraction placeholders; long shots get one extra mid-late frame.
+    # Shots named in `windows` get a scouting plan instead (see docstring).
     source = clip.get("file_path")
     frame_plan: List[Dict[str, Any]] = []
     total_frames = 0
     for shot in shots:
-        rows = _frames_for_shot(shot, context["frames"])
-        on_disk = [r for r in rows if r.get("frame_path") and os.path.isfile(str(r["frame_path"]))]
-        start = float(shot.get("time_seconds_start") or 0.0)
-        end = float(shot.get("time_seconds_end") or start)
-        duration = max(0.0, end - start)
-        to_extract: List[float] = []
-        if not on_disk:
-            to_extract.append(start + duration / 2.0)
-        if duration > LONG_SHOT_SECONDS:
-            to_extract.append(start + duration * 2.0 / 3.0)
+        shot_windows = (windows or {}).get(int(shot["shot_index"])) or []
+        window_meta: List[Dict[str, Any]] = []
+        if shot_windows:
+            on_disk: List[Dict[str, Any]] = []
+            to_extract = []
+            for w in shot_windows:
+                w_start, w_end = float(w["start"]), float(w["end"])
+                w_dur = max(0.0, w_end - w_start)
+                times = [round(w_start + frac * w_dur, 3) for frac in (0.0, 0.25, 0.5, 0.75)]
+                window_meta.append({"start": w_start, "end": w_end, "times": times})
+                to_extract.extend(times)
+        else:
+            rows = _frames_for_shot(shot, context["frames"])
+            on_disk = [r for r in rows if r.get("frame_path") and os.path.isfile(str(r["frame_path"]))]
+            start = float(shot.get("time_seconds_start") or 0.0)
+            end = float(shot.get("time_seconds_end") or start)
+            duration = max(0.0, end - start)
+            to_extract = []
+            if not on_disk:
+                to_extract.append(start + duration / 2.0)
+            if duration > LONG_SHOT_SECONDS:
+                to_extract.append(start + duration * 2.0 / 3.0)
         count = len(on_disk) + len(to_extract)
         total_frames += count
         frame_plan.append({
@@ -261,6 +305,7 @@ def deepen_clip(
             "frames_to_extract": len(to_extract),
             "extract_times": to_extract,
             "rows": on_disk,
+            "windows": window_meta,
         })
 
     estimated_tokens = total_frames * ma.AVG_VISION_TOKENS_PER_FRAME
@@ -316,12 +361,15 @@ def deepen_clip(
                     "shot_index": plan["shot_index"],
                 })
             indices.append(int(row["frame_index"]))
+        is_scouting = bool(plan["windows"])
+        extracted_index_by_time: Dict[float, int] = {}
         for t in plan["extract_times"]:
             if not source or not os.path.isfile(source):
                 continue
             if not clip_dir:
                 continue
-            out_path = os.path.join(clip_dir, "frames", f"deep_shot{int(plan['shot_index']):03d}_{int(t * 1000):08d}.jpg")
+            prefix = "scout" if is_scouting else "deep_shot"
+            out_path = os.path.join(clip_dir, "frames", f"{prefix}{int(plan['shot_index']):03d}_{int(t * 1000):08d}.jpg")
             extracted = out_path if os.path.isfile(out_path) else _extract_frame(source, t, out_path)
             if not extracted:
                 continue
@@ -332,19 +380,32 @@ def deepen_clip(
                 "frame_index": synthetic_index,
                 "frame_path": path,
                 "time_seconds": t,
-                "selection_reason": "deep_pass_extraction",
+                "selection_reason": "scout_extraction" if is_scouting else "deep_pass_extraction",
                 "shot_index": plan["shot_index"],
             })
             indices.append(synthetic_index)
+            extracted_index_by_time[t] = synthetic_index
         shot = next(s for s in shots if s["shot_index"] == plan["shot_index"])
-        shot_table.append({
+        entry: Dict[str, Any] = {
             "shot_index": int(shot["shot_index"]),
             "shot_uuid": shot["shot_uuid"],
             "time_seconds_start": shot.get("time_seconds_start"),
             "time_seconds_end": shot.get("time_seconds_end"),
             "current_description": shot.get("description"),
             "frame_indices": indices,
-        })
+        }
+        if plan["windows"]:
+            entry["scout_windows"] = [
+                {
+                    "window_start_seconds": w["start"],
+                    "window_end_seconds": w["end"],
+                    "frame_indices": [
+                        extracted_index_by_time[t] for t in w["times"] if t in extracted_index_by_time
+                    ],
+                }
+                for w in plan["windows"]
+            ]
+        shot_table.append(entry)
 
     vision_token = _vision_token_for(clip_uuid, shot_uuids)
     commit_params: Dict[str, Any] = {
@@ -376,7 +437,8 @@ def deepen_clip(
         "shot_table": shot_table,
         "deep_shot_schema": deep_shot_schema(),
         "schema_reference": DEEP_SHOT_SCHEMA_REFERENCE,
-        "prompt": DEEP_SHOT_PROMPT,
+        "prompt": DEEP_SHOT_PROMPT + (SCOUT_PROMPT_ADDENDUM if any(
+            plan["windows"] for plan in frame_plan) else ""),
         "commit_action": {
             "tool": "media_analysis",
             "action": "commit_shot_vision",
@@ -394,6 +456,10 @@ def deepen_clip(
 
 
 _DEEP_GROUP_KEYS = ("visual", "content", "production", "editorial", "cuttability")
+# scout is list-shaped (one entry per candidate window), not dict-shaped like
+# the other groups — kept separate so the dict-only isinstance check above
+# doesn't need broadening for every other (accidentally list-valued) group.
+_DEEP_LIST_GROUP_KEYS = ("scout",)
 
 
 def commit_shot_vision(
@@ -485,6 +551,9 @@ def commit_shot_vision(
             entries_by_index[int(db_shot["shot_index"])] = target
         for group in _DEEP_GROUP_KEYS:
             if isinstance(entry.get(group), dict):
+                target[group] = entry[group]
+        for group in _DEEP_LIST_GROUP_KEYS:
+            if isinstance(entry.get(group), list):
                 target[group] = entry[group]
         if isinstance(entry.get("confidence"), dict):
             target["confidence"] = entry["confidence"]

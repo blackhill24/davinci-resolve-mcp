@@ -2,12 +2,12 @@
   "version": 2,
   "layers": 3,
   "root_nav": "CLAUDE.md",
-  "synced": "2026-07-30",
+  "synced": "2026-07-31",
   "_root_structure": "4c31c2025e3cd06d",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "d806c2cf31ecda22",
+      "fingerprint": "009a43f884cd431d",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -694,7 +694,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "a6e42f0c3f330901",
+      "fingerprint": "533c7cfd80225d08",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -785,6 +785,7 @@
         "tests/domains/auto_edit/live_auto_edit_validation.py",
         "tests/domains/auto_edit/live_edit_engine_validation.py",
         "tests/domains/auto_edit/live_montage_probe.py",
+        "tests/domains/auto_edit/live_montage_quality.py",
         "tests/domains/auto_edit/test_auto_edit.py",
         "tests/domains/auto_edit/test_auto_edit_polish.py",
         "tests/domains/auto_edit/test_auto_edit_tool.py",

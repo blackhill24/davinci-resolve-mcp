@@ -1068,6 +1068,38 @@ def _auto_edit_build_rows(plan: Dict[str, Any], record_offset: int = 0) -> List[
             })
     return rows
 
+def _compute_beat_alignment(
+    segments: List[Dict[str, Any]], item_starts: List[int], *,
+    item_offset: int = 0, record_offset: int = 0,
+) -> Dict[str, Any]:
+    """Pure/offline-testable (issue #181, phase 6/6 of the montage-quality
+    epic): verify each built V1 item's actual start frame — already
+    timeline-start-relative — matches its plan segment's ``record_start_frame``
+    exactly. Phase 2 guarantees ``record_start_frame`` is itself a beat-grid
+    frame, so an exact per-segment match upholds "every item lands on a beat"
+    more precisely than a bare set-membership check would.
+
+    ``item_offset`` skips the intro title's own item (item 0) when one was
+    built; ``record_offset`` is that same title's frame footprint, added to
+    every expected position. Segments beyond ``item_starts`` (or vice versa)
+    are simply not compared — a count mismatch shows up in ``checked``
+    being smaller than ``len(segments)``, not as a spurious deviation.
+    """
+    deviations: List[Dict[str, Any]] = []
+    checked = 0
+    for i, actual in enumerate(item_starts):
+        seg_idx = i - item_offset
+        if seg_idx < 0 or seg_idx >= len(segments):
+            continue
+        expected = int(segments[seg_idx].get("record_start_frame", 0)) + record_offset
+        checked += 1
+        if actual != expected:
+            deviations.append({
+                "segment": seg_idx, "expected": expected, "actual": actual,
+                "deviation_frames": actual - expected,
+            })
+    return {"checked": checked, "deviations": deviations}
+
 def _auto_edit_ffprobe_ok(path: str) -> Tuple[bool, str]:
     """Light ffprobe validation; degrades to extension-only when absent."""
     import shutil as _shutil
@@ -1540,6 +1572,24 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             p.get("timeline_name") or p.get("timelineName")
             or ((plan.get("titles") or [{}])[0].get("text") if plan.get("titles") else None)
             or "Auto Edit"))
+
+        # A new timeline inherits the PROJECT's current default frame rate,
+        # which may not match the footage's own fps (plan["fps"]) — every
+        # record-frame position below is computed assuming the footage's fps,
+        # so a mismatched timeline silently stretches real time (live
+        # finding: a montage planned for 899 frames read back as 1123 actual
+        # frames because the timeline defaulted to 23.976/24fps against
+        # 29.97fps footage). The Resolve API docs document exactly this
+        # pattern as `Project:SetSetting('timelineFrameRate', x)` — setting
+        # it on the ALREADY-CREATED Timeline object returned False live
+        # (Studio 21.0.2.4), so this must happen on the project, before
+        # CreateEmptyTimeline. Verified by read-back rather than trusting the
+        # SetSetting return value alone.
+        try:
+            fps_set_ok = bool(proj.SetSetting("timelineFrameRate", str(fps)))
+        except Exception:
+            fps_set_ok = False
+
         tl = mp.CreateEmptyTimeline(name)
         if not tl:
             return _err("Failed to create timeline")
@@ -1550,6 +1600,19 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             return _err(f"Created timeline '{name}' but could not make it current; "
                         "refusing to build, which would target the wrong timeline")
         timeline_start = _timeline_start_frame(tl)
+        build_errors: List[Dict[str, Any]] = []
+
+        try:
+            match = re.search(r"\d+(?:\.\d+)?", str(tl.GetSetting("timelineFrameRate") or ""))
+            actual_fps = float(match.group(0)) if match else None
+        except Exception:
+            actual_fps = None
+        if actual_fps is not None and abs(actual_fps - fps) > 0.01:
+            build_errors.append({
+                "error": f"timeline frame rate is {actual_fps}, not the footage's {fps} — "
+                         "every record-frame position in this build lands at the wrong real-world time"
+                         + ("" if fps_set_ok else " (Project.SetSetting(timelineFrameRate) returned False)"),
+            })
 
         # 1) Intro title at the head of V1 — the only reliable placement.
         title_result = None
@@ -1610,7 +1673,6 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                 if row.get("clip_id") in translated:
                     row["clip_id"] = translated[row["clip_id"]]
         built = []
-        build_errors = []
         punch_targets = []
         for i, row in enumerate(rows):
             append_ci = dict(row)
@@ -1623,6 +1685,28 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                     build_errors.append({"index": i, "error": f"media pool clip not found for {clip_path!r}"})
                     continue
                 append_ci["clip_id"] = clip.GetUniqueId()
+                # Audio-only media (this is always the music row — video
+                # segments resolve via clip_id above, never clip_path) gets
+                # stamped with a "FPS" clip property at import time that need
+                # not match the timeline's own fps (audio has no true
+                # frames). AppendToTimeline's startFrame/endFrame trim is
+                # interpreted in THAT stamped rate, not the timeline's — live
+                # finding: a 899-frame/29.97fps trim (intended as 30.0s)
+                # played back as 37.4s because the music clip was stamped at
+                # 24fps. Every frame count here was computed assuming the
+                # footage's fps, so rescale into the clip's own stamped
+                # units, verified by reading it back rather than assuming it
+                # matches.
+                try:
+                    clip_fps_raw = clip.GetClipProperty("FPS") or clip.GetClipProperty("Frame Rate")
+                    clip_fps_match = re.search(r"\d+(?:\.\d+)?", str(clip_fps_raw or ""))
+                    clip_fps = float(clip_fps_match.group(0)) if clip_fps_match else None
+                except Exception:
+                    clip_fps = None
+                if clip_fps and clip_fps > 0 and abs(clip_fps - fps) > 0.01:
+                    ratio = clip_fps / fps
+                    append_ci["start_frame"] = int(round(float(append_ci["start_frame"]) * ratio))
+                    append_ci["end_frame"] = int(round(float(append_ci["end_frame"]) * ratio))
             ci_row, row_err = _build_append_clip_info_dict(root_folder, append_ci, i, timeline_start)
             if row_err:
                 build_errors.append({"index": i, "error": row_err.get("error")})
@@ -1671,6 +1755,44 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             except Exception as exc:
                 punch_results.append({"error": f"{type(exc).__name__}: {exc}"})
 
+        # Beat-alignment readback (issue #181, phase 6/6 of the montage-
+        # quality epic): the offline suite was green while cuts landed on
+        # arbitrary 16th notes and record frames drifted, because nothing
+        # asserted a cut lands where the PLAN says it lands. Phase 2 adds
+        # that invariant at plan level; this is the built-timeline-level
+        # check (_compute_beat_alignment, pure/testable), and it runs on
+        # every montage build, not only in tests. A deviation is a build
+        # error, not a warning — surfaced in build_errors the same way every
+        # other build failure already is.
+        beat_alignment = None
+        if plan.get("grid_available"):
+            segments = plan.get("segments") or []
+            try:
+                beat_items = tl.GetItemListInTrack("video", 1) or []
+            except Exception as exc:
+                beat_items = []
+                build_errors.append(
+                    {"error": f"beat-alignment readback: GetItemListInTrack failed: {type(exc).__name__}: {exc}"})
+            base = int(timeline_start or 0)
+            item_starts: List[int] = []
+            item_start_errors: List[Dict[str, Any]] = []
+            for idx, item in enumerate(beat_items):
+                try:
+                    item_starts.append(int(item.GetStart()) - base)
+                except Exception as exc:
+                    item_start_errors.append(
+                        {"item_index": idx, "error": f"GetStart failed: {type(exc).__name__}: {exc}"})
+                    item_starts.append(-1)  # sentinel: reads as a deviation, never silently skipped
+            item_offset = 1 if record_offset > 0 else 0
+            beat_alignment = _compute_beat_alignment(
+                segments, item_starts, item_offset=item_offset, record_offset=record_offset)
+            beat_alignment["deviations"] = item_start_errors + beat_alignment["deviations"]
+            if beat_alignment["deviations"]:
+                build_errors.append({
+                    "error": f"{len(beat_alignment['deviations'])} item(s) off the beat grid "
+                             f"after build: {beat_alignment['deviations']}",
+                })
+
         readback = _edit_engine_capture(tl)
         try:
             usage = _timeline_versioning.capture_timeline_clip_usage(tl)
@@ -1688,6 +1810,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             # positions by this record_offset so cross-dissolves/lower-thirds
             # line up with the built timeline's record frames.
             "title": title_result,
+            "beat_alignment": beat_alignment,
             **readback,
         })
         if plan.get("brief_id"):
@@ -1705,6 +1828,8 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             "plan_id": plan["plan_id"],
             "next": "finish(plan_id, render={target_dir}) to grade/subtitle/render",
         }
+        if beat_alignment is not None:
+            out["beat_alignment"] = beat_alignment
         if bed_note:
             out["music_bed_note"] = bed_note
         return out
@@ -1742,30 +1867,78 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             if 0 <= seg_idx < len(segments):
                 yield item, seg_idx, segments[seg_idx]
 
-    def _ensure_fusion_tool(comp, tool_type, name):
+    def _fusion_locked(comp, fn):
+        """Run `fn()` inside its own Lock/Unlock cycle — the pattern every
+        proven Fusion mutation in fusion_composition/actions.py uses
+        (_safe_connect_fusion_tools, _safe_set_fusion_inputs)."""
+        comp.Lock()
+        try:
+            return fn()
+        finally:
+            comp.Unlock()
+
+    def _fusion_expression_set_ok(input_obj, expr, *, time=0):
+        """Set `expr` on a Fusion Input and verify by read-back. SetExpression's
+        own return is NOT trustworthy — fusion_composition/actions.py's
+        _fusion_comp_bulk_set_expressions (the proven, live-verified path)
+        discards it entirely and treats "no exception" as success; the live
+        finding here confirms why: every SetExpression call in this function
+        returned False even when creation, rename, wiring, AND expression were
+        all applied within one unbroken Lock cycle. GetExpression readback is
+        the real check (matches the repo's #113 Tier 3 doctrine)."""
+        input_obj.SetExpression(str(expr), time)
+        try:
+            return bool(input_obj.GetExpression(time))
+        except Exception:
+            return False
+
+    def _fusion_input_set_ok(tool, input_name, value, *, tol=1e-3):
+        """Set `value` on a Fusion tool input and verify by read-back —
+        SetInput's own return is not trustworthy, same doctrine as
+        _fusion_expression_set_ok."""
+        tool.SetInput(input_name, value)
+        try:
+            readback = tool.GetInput(input_name)
+        except Exception:
+            return False
+        if readback is None:
+            return False
+        try:
+            return abs(float(readback) - float(value)) <= tol
+        except (TypeError, ValueError):
+            return readback == value
+
+    def _ensure_fusion_tool_locked(comp, tool_type, name):
+        """Find-or-create `name`. MUST be called from inside an ALREADY-OPEN
+        comp.Lock() cycle (see _fusion_locked) — live finding: even AddTool
+        immediately followed by SetAttrs(TOOLS_Name) in the SAME Lock/Unlock
+        cycle (matching fusion_composition/actions.py's _safe_add_fusion_tool,
+        position (-1, -1)) still leaves every LATER call on that tool
+        (ConnectInput/SetExpression/SetInput) returning False once the lock
+        is released and reacquired — even back-to-back with no other work in
+        between. The only recipe that held up live end-to-end is doing
+        creation AND all of a tool's wiring/expression calls inside ONE
+        unbroken Lock/Unlock cycle. Returns (tool, tool_warning)."""
         tool = comp.FindTool(name)
         if tool:
             return tool, None
         try:
-            tool = comp.AddTool(tool_type, -32768, -32768)
+            tool = comp.AddTool(tool_type, -1, -1)
         except Exception as exc:
             return None, f"AddTool({tool_type}) failed: {type(exc).__name__}: {exc}"
         if not tool:
             return None, f"AddTool({tool_type}) returned no tool"
         try:
-            renamed = bool(tool.SetAttrs({"TOOLS_Name": name}))
+            tool.SetAttrs({"TOOLS_Name": name})
+            renamed = tool.GetAttrs().get("TOOLS_Name") == name
         except Exception as exc:
             renamed = False
-            renamed_error = f"{type(exc).__name__}: {exc}"
-        else:
-            renamed_error = None
         if not renamed:
             # Not fatal — the tool is usable unnamed — but comp.FindTool(name)
             # won't find it next time, which would add a DUPLICATE tool on a
             # later finish() call against the same comp. Surface it rather
             # than silently reporting success (#111 finding 5/6's shape).
-            return tool, f"AddTool({tool_type}) succeeded but SetAttrs(TOOLS_Name) failed" + (
-                f": {renamed_error}" if renamed_error else "")
+            return tool, f"AddTool({tool_type}) succeeded but SetAttrs(TOOLS_Name) failed"
         return tool, None
 
     def _apply_montage_motion(tl, plan, *, title_offset, look=True):
@@ -1811,12 +1984,28 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                     comp = None
 
             upstream_name = "MediaIn1"
-            if motion and comp:
-                transform, tool_warning = _ensure_fusion_tool(comp, "Transform", _MOTION_TRANSFORM_TOOL)
-                if tool_warning:
-                    errors.append(f"segment {seg_idx}: {tool_warning}")
-                if transform is not None:
-                    try:
+            comp_undo_started = False
+            if comp is not None:
+                # Groups this item's edits into one undo step. Deliberately
+                # NOT held locked for the whole item — a single Lock/Unlock
+                # cycle spanning AddTool through a later SetExpression on the
+                # SAME tool still returned False live (Studio 21.0.2.4); only
+                # per-mutation Lock/Unlock cycles (see _fusion_locked) took
+                # effect, matching fusion_composition/actions.py's copy_tool.
+                try:
+                    comp.StartUndo(f"MCP montage motion segment {seg_idx}")
+                    comp_undo_started = True
+                except Exception:
+                    comp_undo_started = False
+            try:
+                if motion and comp:
+                    def _do_transform():
+                        transform, tool_warning = _ensure_fusion_tool_locked(
+                            comp, "Transform", _MOTION_TRANSFORM_TOOL)
+                        if tool_warning:
+                            errors.append(f"segment {seg_idx}: {tool_warning}")
+                        if transform is None:
+                            return None
                         media_in = comp.FindTool("MediaIn1")
                         media_out = comp.FindTool("MediaOut1")
                         if media_in:
@@ -1830,41 +2019,56 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                             record_start_frame=int(seg.get("record_start_frame", 0)),
                             clip_length_frames=record_len,
                         )
-                        if bool(transform["Size"].SetExpression(expr)):
+                        # SetExpression's `time` argument matches the
+                        # existing, live-verified fusion_comp.bulk_set_expressions
+                        # convention (op.get("time", 0)) — never call it with
+                        # only the expression string.
+                        return _fusion_expression_set_ok(transform["Size"], expr, time=0)
+                    try:
+                        ok = _fusion_locked(comp, _do_transform)
+                        if ok:
                             motion_applied += 1
                             upstream_name = _MOTION_TRANSFORM_TOOL
-                        else:
-                            errors.append(f"segment {seg_idx}: SetExpression(Size) returned False")
+                        elif ok is False:
+                            errors.append(f"segment {seg_idx}: SetExpression(Size) readback empty after set")
                     except Exception as exc:
                         errors.append(f"segment {seg_idx}: motion expression failed: {type(exc).__name__}: {exc}")
 
-            if flash and comp:
-                flash_tool, tool_warning = _ensure_fusion_tool(comp, "BrightnessContrast", _MOTION_FLASH_TOOL)
-                if tool_warning:
-                    errors.append(f"segment {seg_idx}: {tool_warning}")
-                if flash_tool is not None:
-                    try:
+                if flash and comp:
+                    def _do_flash():
+                        flash_tool, tool_warning = _ensure_fusion_tool_locked(
+                            comp, "BrightnessContrast", _MOTION_FLASH_TOOL)
+                        if tool_warning:
+                            errors.append(f"segment {seg_idx}: {tool_warning}")
+                        if flash_tool is None:
+                            return None
                         upstream = comp.FindTool(upstream_name) or comp.FindTool("MediaIn1")
                         media_out = comp.FindTool("MediaOut1")
                         if upstream:
                             flash_tool.ConnectInput("Input", upstream)
                         if media_out:
                             media_out.ConnectInput("Input", flash_tool)
-                        if bool(flash_tool["Gain"].SetExpression(_montage_motion_mod.build_flash_expression())):
+                        flash_expr = _montage_motion_mod.build_flash_expression()
+                        return _fusion_expression_set_ok(flash_tool["Gain"], flash_expr, time=0)
+                    try:
+                        ok = _fusion_locked(comp, _do_flash)
+                        if ok:
                             flash_applied += 1
-                        else:
-                            errors.append(f"segment {seg_idx}: SetExpression(Gain) returned False")
+                        elif ok is False:
+                            errors.append(f"segment {seg_idx}: SetExpression(Gain) readback empty after set")
                     except Exception as exc:
                         errors.append(f"segment {seg_idx}: flash expression failed: {type(exc).__name__}: {exc}")
 
-            if look and comp:
-                mask, mask_warning = _ensure_fusion_tool(comp, "EllipseMask", _VIGNETTE_MASK_TOOL)
-                vignette, vignette_warning = _ensure_fusion_tool(comp, "BrightnessContrast", _VIGNETTE_TOOL)
-                for w in (mask_warning, vignette_warning):
-                    if w:
-                        errors.append(f"segment {seg_idx}: {w}")
-                if mask is not None and vignette is not None:
-                    try:
+                if look and comp:
+                    def _do_vignette():
+                        mask, mask_warning = _ensure_fusion_tool_locked(comp, "EllipseMask", _VIGNETTE_MASK_TOOL)
+                        vignette, vignette_warning = _ensure_fusion_tool_locked(
+                            comp, "BrightnessContrast", _VIGNETTE_TOOL)
+                        for w in (mask_warning, vignette_warning):
+                            if w:
+                                errors.append(f"segment {seg_idx}: {w}")
+                        if mask is None or vignette is None:
+                            return None
                         upstream = comp.FindTool(upstream_name) or comp.FindTool("MediaIn1")
                         media_out = comp.FindTool("MediaOut1")
                         if upstream:
@@ -1872,24 +2076,25 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                         vignette.ConnectInput("EffectMask", mask)
                         if media_out:
                             media_out.ConnectInput("Input", vignette)
-                        ok = (
-                            bool(vignette.SetInput("ApplyMaskInverted", 1))
-                            and bool(vignette.SetInput("Gain", _VIGNETTE_GAIN))
-                        )
+                        return (_fusion_input_set_ok(vignette, "ApplyMaskInverted", 1)
+                                and _fusion_input_set_ok(vignette, "Gain", _VIGNETTE_GAIN))
+                    try:
+                        ok = _fusion_locked(comp, _do_vignette)
                         if ok:
                             upstream_name = _VIGNETTE_TOOL
-                        else:
-                            errors.append(f"segment {seg_idx}: vignette SetInput returned False")
+                        elif ok is False:
+                            errors.append(f"segment {seg_idx}: vignette SetInput readback mismatch after set")
                     except Exception as exc:
                         errors.append(f"segment {seg_idx}: vignette setup failed: {type(exc).__name__}: {exc}")
 
-                noise, noise_warning = _ensure_fusion_tool(comp, "FastNoise", _GRAIN_NOISE_TOOL)
-                grain_merge, merge_warning = _ensure_fusion_tool(comp, "Merge", _GRAIN_MERGE_TOOL)
-                for w in (noise_warning, merge_warning):
-                    if w:
-                        errors.append(f"segment {seg_idx}: {w}")
-                if noise is not None and grain_merge is not None:
-                    try:
+                    def _do_grain():
+                        noise, noise_warning = _ensure_fusion_tool_locked(comp, "FastNoise", _GRAIN_NOISE_TOOL)
+                        grain_merge, merge_warning = _ensure_fusion_tool_locked(comp, "Merge", _GRAIN_MERGE_TOOL)
+                        for w in (noise_warning, merge_warning):
+                            if w:
+                                errors.append(f"segment {seg_idx}: {w}")
+                        if noise is None or grain_merge is None:
+                            return None
                         upstream = comp.FindTool(upstream_name) or comp.FindTool("MediaIn1")
                         media_out = comp.FindTool("MediaOut1")
                         if upstream:
@@ -1897,23 +2102,32 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                         grain_merge.ConnectInput("Foreground", noise)
                         if media_out:
                             media_out.ConnectInput("Input", grain_merge)
-                        if bool(grain_merge.SetInput("Blend", _GRAIN_BLEND)):
+                        return _fusion_input_set_ok(grain_merge, "Blend", _GRAIN_BLEND)
+                    try:
+                        ok = _fusion_locked(comp, _do_grain)
+                        if ok:
                             look_applied += 1
                             upstream_name = _GRAIN_MERGE_TOOL
-                        else:
-                            errors.append(f"segment {seg_idx}: grain SetInput(Blend) returned False")
+                        elif ok is False:
+                            errors.append(f"segment {seg_idx}: grain SetInput(Blend) readback mismatch after set")
                     except Exception as exc:
                         errors.append(f"segment {seg_idx}: grain setup failed: {type(exc).__name__}: {exc}")
 
-                try:
-                    top_ok = bool(item.SetProperty("CropTop", _LETTERBOX_CROP_RATIO))
-                    bottom_ok = bool(item.SetProperty("CropBottom", _LETTERBOX_CROP_RATIO))
-                    if top_ok and bottom_ok:
-                        letterbox_applied += 1
-                    else:
-                        errors.append(f"segment {seg_idx}: SetProperty(CropTop/CropBottom) returned False")
-                except Exception as exc:
-                    errors.append(f"segment {seg_idx}: letterbox crop failed: {type(exc).__name__}: {exc}")
+                    try:
+                        top_ok = bool(item.SetProperty("CropTop", _LETTERBOX_CROP_RATIO))
+                        bottom_ok = bool(item.SetProperty("CropBottom", _LETTERBOX_CROP_RATIO))
+                        if top_ok and bottom_ok:
+                            letterbox_applied += 1
+                        else:
+                            errors.append(f"segment {seg_idx}: SetProperty(CropTop/CropBottom) returned False")
+                    except Exception as exc:
+                        errors.append(f"segment {seg_idx}: letterbox crop failed: {type(exc).__name__}: {exc}")
+            finally:
+                if comp_undo_started:
+                    try:
+                        comp.EndUndo(True)
+                    except Exception:
+                        pass
 
             if retime:
                 try:
@@ -1982,6 +2196,42 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         if grade:
             graded: Dict[str, Any] = {}
             items = tl.GetItemListInTrack("video", 1) or []
+            if grade.get("match"):
+                # Per-bucket "match" CDL (issue #179, phase 4/6 of the
+                # montage-quality epic) — stage 1 of a two-stage grade. Maps
+                # each V1 item back to its plan segment (item order mirrors
+                # segment order, offset by the intro title's record_offset —
+                # build_timeline records it in execution_summary.title) and
+                # applies THAT segment's bucket's CDL, so lighting conditions
+                # that can't intercut under one uniform CDL actually match.
+                # Purely additive: grade["cdl"]/["lut_path"]/["drx_path"]
+                # below are untouched and still apply uniformly (stage 2,
+                # the shared creative look) exactly as before.
+                match_map = grade["match"] if isinstance(grade["match"], dict) else {}
+                segments = plan.get("segments") or []
+                title_offset = int(
+                    ((plan.get("execution_summary") or {}).get("title") or {}).get("record_offset") or 0)
+                item_offset = 1 if title_offset > 0 else 0
+                ok_count = 0
+                by_bucket: Dict[str, int] = {}
+                match_errors = []
+                for i, item in enumerate(items):
+                    seg_idx = i - item_offset
+                    if seg_idx < 0 or seg_idx >= len(segments):
+                        continue
+                    bucket = segments[seg_idx].get("look_bucket")
+                    bucket_grade = match_map.get(bucket) if bucket else None
+                    if not isinstance(bucket_grade, dict) or not bucket_grade.get("cdl"):
+                        continue
+                    try:
+                        if item.SetCDL(_normalize_cdl(bucket_grade["cdl"])):
+                            ok_count += 1
+                            by_bucket[bucket] = by_bucket.get(bucket, 0) + 1
+                    except Exception as exc:
+                        match_errors.append(f"{type(exc).__name__}: {exc}")
+                graded["match"] = {"applied": ok_count, "of": len(items), "by_bucket": by_bucket}
+                if match_errors:
+                    graded["match_error"] = "; ".join(sorted(set(match_errors)))
             if grade.get("lut_path"):
                 ok_count = 0
                 for item in items:
@@ -2111,6 +2361,19 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             result["render"] = render_result
             if isinstance(render_result, dict) and render_result.get("success") is False:
                 result["success"] = False
+
+            # Visual QC pass (issue #181, phase 6/6 of the montage-quality
+            # epic): on by default for montage, matching phase 3's scouting
+            # posture. Purely additive to the render result — a failure or
+            # decline here never flips result["success"]; the mechanical
+            # beat-alignment readback (build_timeline) already ran regardless.
+            qc_opts = p.get("qc")
+            qc_enabled = not (
+                qc_opts is False or (isinstance(qc_opts, dict) and qc_opts.get("enabled") is False))
+            if (qc_enabled and _is_montage_plan(plan) and isinstance(render_result, dict)
+                    and render_result.get("success") and render_result.get("output_path")):
+                result["qc"] = _montage_edit_mod.build_qc_request(
+                    plan, render_result["output_path"], project_root)
         if result["success"] and plan.get("brief_id"):
             _auto_edit_mod.advance_brief(project_root, plan["brief_id"], "finished")
         return result
@@ -2293,6 +2556,21 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
 
+    if action == "commit_qc":
+        # Finishes the visual QC pass's host-vision handoff (issue #181,
+        # phase 6/6 of the montage-quality epic): the deferred payload from
+        # finish()'s `qc` field asked the host to look at frames and return
+        # findings; this normalizes them and, for one tied to a specific
+        # cut, returns a suggested revise_cut edit. Read-only against the
+        # plan (does not itself apply the edit) — no confirm-token needed.
+        _r, _proj, project_root, err = _auto_edit_project_context(p, need_resolve=False)
+        if err:
+            return err
+        plan = _edit_engine_mod.load_plan(project_root, _plan_id_param())
+        if not plan:
+            return _err(f"plan not found: {_plan_id_param()!r}")
+        return _montage_edit_mod.commit_qc_report(plan, p.get("qc_report"))
+
     if action == "list_briefs":
         _r, _proj, project_root, err = _auto_edit_project_context(p, need_resolve=False)
         if err:
@@ -2313,6 +2591,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         "build_timeline",
         "polish_timeline",
         "finish",
+        "commit_qc",
         "list_briefs",
     ])
 

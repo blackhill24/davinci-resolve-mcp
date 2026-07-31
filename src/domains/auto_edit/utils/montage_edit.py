@@ -63,9 +63,11 @@ from __future__ import annotations
 import bisect
 import json
 import os
+import statistics
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.core import timeline_brain_db
+from src.core.proc import safe_run
 from src.domains.auto_edit.utils import (
     auto_edit, cut_ir, edit_engine, montage_arrangement, montage_motion, music_analysis,
 )
@@ -211,6 +213,7 @@ def _candidate_shots(conn, clip_uuids: Sequence[str]) -> List[Dict[str, Any]]:
             "clip_uuid": str(shot["clip_uuid"]),
             "clip_name": clip.get("clip_name"),
             "resolve_clip_id": clip.get("resolve_clip_id"),
+            "file_path": clip.get("file_path"),
             "shot_uuid": shot.get("shot_uuid"),
             "shot_index": shot["shot_index"],
             "time_seconds_start": float(start),
@@ -222,6 +225,7 @@ def _candidate_shots(conn, clip_uuids: Sequence[str]) -> List[Dict[str, Any]]:
             "description": shot.get("description"),
             "preferred_in_point": preferred_in_point,
             "scout_in_point": scout_in_point,
+            "colour_signature": _scout_colour_signature(groups.get("scout")),
         })
     return candidates
 
@@ -288,6 +292,183 @@ def scout_handoff_if_needed(
     return _deep_vision().deepen_clip(
         project_root, clip_ref=clip_uuid, shot_indices=list(windows.keys()),
         windows=windows, confirm_token=confirm_token)
+
+
+# ── look bucketing: per-clip colour match (issue #179) ──────────────────────
+#
+# Desktop defined three hand-picked grade buckets and corrected each toward a
+# shared target so dusk/storm/midday footage would actually intercut; one
+# uniform grade cannot do that. This clusters source clips by a colour
+# signature (phase 3's scouted dominant_colour when available, else a cheap
+# ffmpeg brightness/tone read, else an honest neutral default — never a
+# fabricated contrast) and derives a per-bucket "match" CDL that pulls every
+# bucket toward the shared (median-brightness) target. The creative "look"
+# (a LUT/DRX) stays a SEPARATE, uniform stage 2 applied by `finish` — see its
+# `grade` branch in actions.py.
+
+_BRIGHTNESS_BANDS = (("dark", 0.35), ("mid", 0.65), ("bright", 1.01))
+_BAND_ORDER = {"dark": 0, "mid": 1, "bright": 2}
+MAX_LOOK_BUCKETS = 4
+_LOOK_TONE_TILT = 0.05  # per-channel slope nudge that neutralizes a warm/cool bias
+
+
+def _brightness_band(brightness: float) -> str:
+    for label, upper in _BRIGHTNESS_BANDS:
+        if brightness < upper:
+            return label
+    return "bright"
+
+
+def _scout_colour_signature(scout_entries: Any) -> Optional[Dict[str, Any]]:
+    """{"tone", "brightness", "exposure"} from the best USABLE scout window
+    for this shot (issue #178's per-window scout data, scored by
+    _scout_desirability — the same "best window" pick the in-point itself
+    uses), or None when it was never scouted — the ffmpeg fallback and
+    honest default take over in assign_look_buckets."""
+    if not isinstance(scout_entries, list):
+        return None
+    usable = [e for e in scout_entries if isinstance(e, dict) and e.get("usable")]
+    if not usable:
+        return None
+    best = max(usable, key=_scout_desirability)
+    dominant = best.get("dominant_colour")
+    if not isinstance(dominant, dict):
+        return None
+    tone = str(dominant.get("tone") or "").lower()
+    brightness = dominant.get("brightness")
+    if tone not in ("warm", "cool", "neutral") or not isinstance(brightness, (int, float)):
+        return None
+    return {"tone": tone, "brightness": float(brightness),
+            "exposure": str(best.get("exposure") or "good").lower()}
+
+
+def _ffmpeg_colour_signature(path: Optional[str], time_seconds: float) -> Optional[Dict[str, Any]]:
+    """Cheap tone/brightness fallback via ffmpeg raw-pixel decode — no
+    signalstats log parsing, no new dependency. Downscales to 8x8 and
+    averages RGB; None on any failure (missing file, no ffmpeg, bad decode)."""
+    if not path or not os.path.isfile(path):
+        return None
+    args = [
+        "ffmpeg", "-v", "error", "-ss", f"{max(0.0, time_seconds):.3f}", "-i", path,
+        "-frames:v", "1", "-vf", "scale=8:8", "-pix_fmt", "rgb24", "-f", "rawvideo", "-",
+    ]
+    try:
+        proc = safe_run(args, capture_output=True, timeout=30)
+    except Exception:
+        return None  # any ffmpeg failure degrades honestly to the caller's next fallback
+    raw = proc.stdout if proc.returncode == 0 else b""
+    n = len(raw) // 3
+    if n < 16:  # need enough of the 8x8 frame to trust an average
+        return None
+    r_sum = g_sum = b_sum = 0
+    for i in range(n):
+        r_sum += raw[3 * i]
+        g_sum += raw[3 * i + 1]
+        b_sum += raw[3 * i + 2]
+    r, g, b = (r_sum / n / 255.0, g_sum / n / 255.0, b_sum / n / 255.0)
+    brightness = (r + g + b) / 3.0
+    diff = r - b
+    tone = "warm" if diff > 0.03 else ("cool" if diff < -0.03 else "neutral")
+    exposure = "crushed" if brightness < 0.15 else ("clipped" if brightness > 0.9 else "good")
+    return {"tone": tone, "brightness": round(brightness, 3), "exposure": exposure}
+
+
+def assign_look_buckets(
+    candidates: List[Dict[str, Any]]
+) -> Tuple[Dict[str, str], Dict[str, Dict[str, Any]], str]:
+    """Cluster candidate clips into 2-4 look buckets.
+
+    Returns ``(bucket_of_clip_uuid, signature_of_clip_uuid, basis)``. One
+    signature per DISTINCT CLIP (a clip is normally shot under one lighting
+    condition) — scout data first, then the ffmpeg fallback, then an honest
+    neutral default. ``basis`` is ``"scout"``/``"ffmpeg_signature"``/
+    ``"default"``/``"mixed"`` for the caller to report honestly.
+    """
+    signatures: Dict[str, Dict[str, Any]] = {}
+    bases_used = set()
+    for c in candidates:
+        clip_uuid = c["clip_uuid"]
+        if clip_uuid in signatures:
+            continue
+        sig = c.get("colour_signature")
+        basis = "scout"
+        if not sig:
+            sig = _ffmpeg_colour_signature(c.get("file_path"), c["time_seconds_start"])
+            basis = "ffmpeg_signature"
+        if not sig:
+            sig = {"tone": "neutral", "brightness": 0.5, "exposure": "good"}
+            basis = "default"
+        bases_used.add(basis)
+        signatures[clip_uuid] = {**sig, "basis": basis}
+
+    keyed: Dict[Tuple[str, str], List[str]] = {}
+    for clip_uuid, sig in signatures.items():
+        key = (sig["tone"], _brightness_band(sig["brightness"]))
+        keyed.setdefault(key, []).append(clip_uuid)
+
+    if len(keyed) > MAX_LOOK_BUCKETS:
+        ranked = sorted(keyed, key=lambda k: -len(keyed[k]))
+        kept, dropped = ranked[:MAX_LOOK_BUCKETS], ranked[MAX_LOOK_BUCKETS:]
+        for key in dropped:
+            nearest = min(kept, key=lambda k: abs(_BAND_ORDER[k[1]] - _BAND_ORDER[key[1]]))
+            keyed[nearest].extend(keyed[key])
+        keyed = {k: v for k, v in keyed.items() if k in kept}
+
+    bucket_of_clip: Dict[str, str] = {}
+    for tone, band in keyed:
+        label = f"{tone}_{band}" if tone != "neutral" else f"neutral_{band}"
+        for clip_uuid in keyed[(tone, band)]:
+            bucket_of_clip[clip_uuid] = label
+
+    basis = bases_used.pop() if len(bases_used) == 1 else "mixed"
+    return bucket_of_clip, signatures, basis
+
+
+def _match_cdl(tone: str, brightness: float, target_brightness: float) -> Dict[str, Any]:
+    """A slope/offset/power CDL that neutralizes `tone`'s warm/cool bias and
+    pulls `brightness` toward `target_brightness` — stage 1 ("match")."""
+    offset = round(target_brightness - brightness, 4)
+    if tone == "warm":
+        slope = [1.0 - _LOOK_TONE_TILT, 1.0, 1.0 + _LOOK_TONE_TILT]
+    elif tone == "cool":
+        slope = [1.0 + _LOOK_TONE_TILT, 1.0, 1.0 - _LOOK_TONE_TILT]
+    else:
+        slope = [1.0, 1.0, 1.0]
+    return {
+        "NodeIndex": 1,
+        "Slope": [round(v, 4) for v in slope],
+        "Offset": [offset, offset, offset],
+        "Power": [1.0, 1.0, 1.0],
+        # SetCDL was live-verified (tests/live_api_gap_verification.py) only
+        # with all five keys present, Saturation included — omitting it is
+        # the live, not-mock, cause of a silent False return on every call.
+        "Saturation": 1.0,
+    }
+
+
+def compute_match_cdls(
+    signatures: Dict[str, Dict[str, Any]], bucket_of_clip: Dict[str, str]
+) -> Dict[str, Dict[str, Any]]:
+    """bucket label -> match CDL, pulling every bucket toward the shared
+    target (the MEDIAN bucket's brightness — derived from the buckets
+    themselves, not a fixed constant, so it adapts to whatever footage this
+    montage actually has)."""
+    per_bucket: Dict[str, List[Dict[str, Any]]] = {}
+    for clip_uuid, bucket in bucket_of_clip.items():
+        per_bucket.setdefault(bucket, []).append(signatures[clip_uuid])
+    bucket_avg: Dict[str, Dict[str, Any]] = {}
+    for bucket, sigs in per_bucket.items():
+        avg_brightness = sum(s["brightness"] for s in sigs) / len(sigs)
+        tones = [s["tone"] for s in sigs]
+        dominant_tone = max(set(tones), key=tones.count)
+        bucket_avg[bucket] = {"brightness": avg_brightness, "tone": dominant_tone}
+    if not bucket_avg:
+        return {}
+    target_brightness = statistics.median(v["brightness"] for v in bucket_avg.values())
+    return {
+        bucket: _match_cdl(sig["tone"], sig["brightness"], target_brightness)
+        for bucket, sig in bucket_avg.items()
+    }
 
 
 # ── energy curve (pacing + placement) ────────────────────────────────────────
@@ -511,6 +692,18 @@ def build_cut_list_for_brief(
     fps = candidates[0]["fps"]
     tempo = beats.get("tempo_bpm")
 
+    # Look buckets (issue #179): cluster source clips by colour signature and
+    # tag every candidate with its bucket, so segments carry look_bucket
+    # regardless of which cutting path (grid-locked or onset-snap) builds them.
+    bucket_of_clip, look_signatures, look_bucket_basis = assign_look_buckets(candidates)
+    for c in candidates:
+        c["look_bucket"] = bucket_of_clip.get(c["clip_uuid"])
+    match_cdls = compute_match_cdls(look_signatures, bucket_of_clip)
+    if look_bucket_basis != "scout":
+        problems.append(
+            f"look buckets derived from {look_bucket_basis} colour data (not scout) — "
+            "grades may be less precise than a scouted pass would give")
+
     # Hook: single highest-select_potential shot overall, prepended once.
     ranked_all = sorted(candidates, key=lambda c: -c["rank"])
     hook = ranked_all[0]
@@ -564,7 +757,7 @@ def build_cut_list_for_brief(
                 seg["beat_index"] = arrangement["beat_index"]
                 seg["beat_length"] = arrangement["beat_length"]
                 seg["section"] = arrangement["section"]
-                seg["look_bucket"] = None  # phase 4 (per-bucket CDLs) fills this in
+                seg["look_bucket"] = shot.get("look_bucket")
                 # Beat-locked motion (issue #180): only meaningful with a real
                 # tempo — grid_available already guarantees the beat grid, so
                 # tempo is always set whenever this branch runs.
@@ -660,12 +853,14 @@ def build_cut_list_for_brief(
                      *, in_point_basis: str = "shot_start") -> Dict[str, Any]:
             start_frame = int(round(src_start * fps))
             end_frame = max(start_frame + 1, int(round(src_end * fps)))
-            return cut_ir.make_cut_list_segment(
+            seg = cut_ir.make_cut_list_segment(
                 role=role, clip_id=shot["resolve_clip_id"], clip_uuid=shot["clip_uuid"],
                 source_start_frame=start_frame, source_end_frame=end_frame,
                 rationale=_rationale(shot),
                 evidence=_evidence(shot, "select_potential+pacing", in_point_basis=in_point_basis),
             )
+            seg["look_bucket"] = shot.get("look_bucket")
+            return seg
 
         hook_src_start, hook_in_point_basis = _preferred_src_start(hook, min_duration=hook_seconds)
         hook_src_end = min(hook["time_seconds_end"], hook_src_start + hook_seconds)
@@ -746,6 +941,11 @@ def build_cut_list_for_brief(
     plan["tempo_bpm"] = tempo
     plan["onset_count"] = len(onsets)
     plan["grid_available"] = grid_available
+    # Suggested per-bucket match CDLs (issue #179) — a stage-1 starting point
+    # for finish(grade={"match": ..., <shared look>}); the caller may take
+    # these as-is or override them before applying.
+    plan["look_buckets"] = match_cdls
+    plan["look_bucket_basis"] = look_bucket_basis
     if grid_available:
         # Grid-locked segments already carry a correct, beat-quantised
         # record_start_frame from the arrangement schedule — re-walking (as
@@ -830,3 +1030,176 @@ def render_montage_summary(plan: Dict[str, Any]) -> str:
         ]
     lines += ["", "_Approve to build; revise with structured notes (reorder/keep/drop)._"]
     return "\n".join(lines)
+
+
+# ── visual QC pass (issue #181, phase 6/6 of the montage-quality epic) ──────
+#
+# Claude Desktop QC'd by looking — it rendered check frames and inspected
+# them before declaring the montage done; we declared success on
+# output_path existing. This extracts a frame just after every cut boundary
+# plus an evenly-sampled contact sheet from the ACTUAL RENDERED FILE (the
+# real deliverable, not the Resolve timeline), routes them through the same
+# host_chat_paths deferred-payload shape deep_vision already uses (estimate/
+# frame-prep here, host reads frames, then commits back), and — for a
+# finding that maps to a specific cut — proposes a revise_cut edit so the
+# loop can close. On by default for montage (finish's `qc` param), matching
+# phase 3's scouting posture; declining the handoff just means the QC report
+# never arrives — the mechanical beat-alignment readback (build_timeline)
+# already ran regardless, and finish's own render result is untouched.
+
+QC_SCHEMA = {
+    "findings": "[{kind: exposure_outlier|grade_mismatch|unreadable|repeated_shot, "
+                "frame_path, segment_index: <int or null>, why: <short free text>, "
+                "severity: low|medium|high}]",
+    "overall": "pass|needs_revision",
+}
+QC_PROMPT = (
+    "Visual QC pass on a finished montage render. Look at each frame in "
+    "frame_paths — cut_frames were extracted just after each cut boundary, "
+    "contact_sheet samples the whole render evenly. Flag: exposure outliers, "
+    "shots that do not match the surrounding grade, unreadable or "
+    "mid-transition frames, and shots that look repeated. For a finding tied "
+    "to a specific cut, set segment_index to that cut_frames entry's "
+    "segment_index (null otherwise). Return strict JSON only: "
+    '{"overall": "pass"|"needs_revision", "findings": [...]}. Then call the '
+    "tool in commit_action with that JSON as qc_report."
+)
+DEFAULT_QC_BOUNDARY_OFFSET_FRAMES = 2
+DEFAULT_QC_CONTACT_SHEET_COUNT = 8
+_QC_DROP_KINDS = {"repeated_shot", "unreadable"}
+
+
+def _sampling_and_frames():
+    from src.domains.media_analysis.utils import sampling_and_frames
+    return sampling_and_frames
+
+
+def _analysis_memory():
+    from src.domains.media_analysis.utils import analysis_memory
+    return analysis_memory
+
+
+def build_qc_request(
+    plan: Dict[str, Any], render_path: str, project_root: str, *,
+    boundary_offset_frames: int = DEFAULT_QC_BOUNDARY_OFFSET_FRAMES,
+    contact_sheet_count: int = DEFAULT_QC_CONTACT_SHEET_COUNT,
+) -> Dict[str, Any]:
+    """Extract QC frames from the rendered output and build the deferred
+    host-vision payload. Never touches source media — only the finished
+    render — and writes exclusively under the analysis root.
+
+    Returns ``{success, status: "pending_host_analysis", frame_paths,
+    cut_frames, contact_sheet, schema, prompt, commit_action}`` on success,
+    or an honest ``{success: False, error}`` when the render is missing or
+    no frame could be extracted — this never blocks `finish`, which attaches
+    whatever this returns to its own result and moves on regardless.
+    """
+    if not render_path or not os.path.isfile(render_path):
+        return {"success": False, "error": f"render output not found: {render_path!r}"}
+    segments = plan.get("segments") or []
+    if not segments:
+        return {"success": False, "error": "plan has no segments to QC"}
+    fps = float(plan.get("fps") or 24.0)
+    saf = _sampling_and_frames()
+    qc_dir = os.path.join(
+        _analysis_memory().memory_dir(project_root), "auto_edit", "qc",
+        str(plan.get("plan_id") or "unknown"))
+    os.makedirs(qc_dir, exist_ok=True)
+
+    cut_frames: List[Dict[str, Any]] = []
+    for i, seg in enumerate(segments):
+        if i == 0:
+            continue  # the hook has no PRECEDING cut to check
+        record_frame = int(seg.get("record_start_frame", 0))
+        t = (record_frame + boundary_offset_frames) / fps
+        out_path = os.path.join(qc_dir, f"cut_{i:03d}.jpg")
+        if saf._export_analysis_frame(render_path, t, out_path):
+            cut_frames.append({"segment_index": i, "frame_path": out_path, "time_seconds": round(t, 3)})
+
+    total_frames = max(
+        (int(s.get("record_start_frame", 0)) + (int(s["source_end_frame"]) - int(s["source_start_frame"]))
+         for s in segments),
+        default=0)
+    duration = total_frames / fps if total_frames and fps else 0.0
+    contact_sheet: List[Dict[str, Any]] = []
+    for k in range(contact_sheet_count if duration > 0 else 0):
+        t = duration * (k + 0.5) / contact_sheet_count
+        out_path = os.path.join(qc_dir, f"contact_{k:03d}.jpg")
+        if saf._export_analysis_frame(render_path, t, out_path):
+            contact_sheet.append({"frame_path": out_path, "time_seconds": round(t, 3)})
+
+    frame_paths = [c["frame_path"] for c in cut_frames] + [c["frame_path"] for c in contact_sheet]
+    if not frame_paths:
+        return {"success": False, "error": "no frames could be extracted from the render for QC"}
+
+    return {
+        "success": True,
+        "status": "pending_host_analysis",
+        "provider": "host_chat_paths",
+        "mode": "montage_qc",
+        "render_path": render_path,
+        "cut_frames": cut_frames,
+        "contact_sheet": contact_sheet,
+        "frame_paths": frame_paths,
+        "schema": QC_SCHEMA,
+        "prompt": QC_PROMPT,
+        "commit_action": {
+            "tool": "auto_edit",
+            "action": "commit_qc",
+            "params": {"plan_id": plan.get("plan_id"),
+                       "qc_report": "<host chat: {overall, findings}>"},
+        },
+        "instructions": (
+            "Read every file under frame_paths as a local image, then call the "
+            "tool in commit_action with qc_report set to your findings. "
+            "Skipping the commit leaves the QC pass incomplete — surface that "
+            "rather than silently stopping."
+        ),
+    }
+
+
+def commit_qc_report(plan: Dict[str, Any], qc_report: Any) -> Dict[str, Any]:
+    """Normalize the host's QC findings and, for one tied to a specific cut
+    (a repeated or unreadable shot), propose a ``revise_cut`` ``drop`` edit.
+    Exposure/grade-mismatch findings are reported but have no corresponding
+    revise_cut op (there is no "re-grade this one cut" edit) — they surface
+    for a human to act on rather than fabricating an edit that doesn't exist.
+    """
+    if isinstance(qc_report, str):
+        try:
+            qc_report = json.loads(qc_report)
+        except json.JSONDecodeError as exc:
+            return {"success": False, "error": f"qc_report was a string but not valid JSON: {exc}"}
+    if not isinstance(qc_report, dict):
+        return {"success": False, "error": "qc_report must be an object with overall/findings"}
+    findings = qc_report.get("findings")
+    if not isinstance(findings, list):
+        return {"success": False, "error": "qc_report.findings must be a list"}
+
+    segments = plan.get("segments") or []
+    normalized: List[Dict[str, Any]] = []
+    suggested_edits: List[Dict[str, Any]] = []
+    for entry in findings:
+        if not isinstance(entry, dict):
+            continue
+        kind = str(entry.get("kind") or "").lower()
+        seg_idx = entry.get("segment_index")
+        finding = {
+            "kind": kind,
+            "frame_path": entry.get("frame_path"),
+            "segment_index": seg_idx if isinstance(seg_idx, int) else None,
+            "why": entry.get("why"),
+            "severity": str(entry.get("severity") or "medium").lower(),
+        }
+        if (isinstance(seg_idx, int) and 0 <= seg_idx < len(segments) and kind in _QC_DROP_KINDS):
+            edit = {"op": "drop", "index": seg_idx}
+            finding["suggested_edit"] = edit
+            suggested_edits.append(edit)
+        normalized.append(finding)
+
+    overall = str(qc_report.get("overall") or ("needs_revision" if normalized else "pass")).lower()
+    return {
+        "success": True,
+        "report": {"overall": overall, "findings": normalized},
+        "suggested_edits": suggested_edits,
+    }

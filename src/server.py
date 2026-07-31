@@ -5129,6 +5129,7 @@ from src.domains.auto_edit.actions import (
     _auto_edit_build_rows,
     _auto_edit_ffprobe_ok,
     _auto_edit_project_context,
+    _compute_beat_alignment,
     _edit_engine_capture,
     _edit_engine_collect_items,
     _edit_engine_find_slot_item,

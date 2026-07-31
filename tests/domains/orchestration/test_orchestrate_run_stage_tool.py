@@ -222,6 +222,52 @@ class RunStageEditTests(OrchestrateRunStageBase):
         self.assertTrue(out.get("success"), out)
         self.assertEqual(out.get("waiting_on"), "G1_approval")
 
+    def test_montage_plan_cut_call_disables_scout(self):
+        # #187: montage's in-point scout handoff (#178) defers planning and
+        # returns {status: "pending_host_analysis", ...} with no plan_id when
+        # scout isn't disabled. Orchestrate has no interactive host turn at
+        # this point, so it must pass scout=False rather than crash on
+        # planned["plan_id"].
+        job_id = self._start_job(genre="montage")
+        self._to_edit(job_id)
+        orchestrate.set_stage_foreign_keys(self.root, job_id, "edit", brief_id="b1")
+
+        def _fake_auto_edit(action, params=None, ctx=None):
+            if action == "brief_status":
+                return {"success": True, "brief": {"state": "ready"}}
+            if action == "plan_cut":
+                self.assertEqual((params or {}).get("scout"), False,
+                                 "orchestrate must pass scout=False to plan_cut")
+                return {"success": True, "plan_id": "p1", "summary": "# Montage cut list"}
+            raise AssertionError(f"unexpected auto_edit action: {action}")
+
+        with mock.patch.object(_dom_auto_edit, "auto_edit", mock.AsyncMock(side_effect=_fake_auto_edit)):
+            out = self._run_stage({"job_id": job_id, "stage": "edit"})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out.get("plan_id"), "p1")
+        job = orchestrate.load_job(self.root, job_id)
+        self.assertEqual(job["stages"]["edit"]["foreign_keys"]["plan_id"], "p1")
+
+    def test_plan_cut_deferred_response_without_plan_id_does_not_crash(self):
+        # Defensive path: even with scout=False, a future plan_cut response
+        # shape without plan_id must surface as "waiting_on", not KeyError.
+        job_id = self._start_job(genre="montage")
+        self._to_edit(job_id)
+        orchestrate.set_stage_foreign_keys(self.root, job_id, "edit", brief_id="b1")
+
+        def _fake_auto_edit(action, params=None, ctx=None):
+            if action == "brief_status":
+                return {"success": True, "brief": {"state": "ready"}}
+            if action == "plan_cut":
+                return {"success": True, "status": "pending_host_analysis", "frame_paths": ["/tmp/f.jpg"]}
+            raise AssertionError(f"unexpected auto_edit action: {action}")
+
+        with mock.patch.object(_dom_auto_edit, "auto_edit", mock.AsyncMock(side_effect=_fake_auto_edit)):
+            out = self._run_stage({"job_id": job_id, "stage": "edit"})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out.get("waiting_on"), "plan_cut")
+        self.assertEqual(out.get("status"), "pending_host_analysis")
+
 
 class RunStageConformTests(OrchestrateRunStageBase):
     def _to_conform(self, job_id):

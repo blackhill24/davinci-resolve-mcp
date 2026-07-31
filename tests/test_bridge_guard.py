@@ -31,7 +31,7 @@ import threading
 import time
 import unittest
 
-from src.core.live_connection import _bridge_held, _bridge_lock, bridge_guard, bridge_serialized
+from src.core.live_connection import _bridge_held, _bridge_lock, bridge_guard, bridge_release, bridge_serialized
 
 
 class BridgeGuardMutualExclusionTest(unittest.TestCase):
@@ -155,6 +155,113 @@ class BridgeGuardReentrancyTest(unittest.TestCase):
 
         self.assertFalse(asyncio.run(drive()),
                          "the inner guard released the outer guard's lock")
+
+
+class BridgeReleaseTest(unittest.TestCase):
+    """`bridge_release()` — media_analysis's carve-out for ffmpeg/Whisper passes
+    nested inside an otherwise-guarded body (#167 finding 2, second half:
+    wrapping the whole tool like auto_edit/orchestrate would hold the bridge
+    hostage for the duration of work that touches no Resolve API at all).
+    """
+
+    def test_another_holder_can_enter_while_released(self):
+        # The whole point: a long non-Resolve pass inside a guarded body must
+        # not block a concurrent sync tool body / background_jobs worker from
+        # draining the bridge.
+        entered = threading.Event()
+
+        def other_holder():
+            entered.wait(1.0)
+            with _bridge_lock:
+                pass
+
+        async def drive():
+            async with bridge_guard():
+                async with bridge_release():
+                    other = threading.Thread(target=other_holder)
+                    other.start()
+                    entered.set()
+                    other.join(1.0)
+                    self.assertFalse(other.is_alive(),
+                                     "another holder could not acquire the bridge while released")
+
+        asyncio.run(drive())
+
+    def test_the_lock_is_held_again_after_the_release_block_exits(self):
+        async def drive():
+            async with bridge_guard():
+                async with bridge_release():
+                    pass
+                # bridge_release() must have re-acquired before returning control.
+                return _bridge_lock.acquire(blocking=False)
+
+        self.assertFalse(asyncio.run(drive()),
+                         "the lock was not held again after bridge_release() exited")
+
+    def test_reacquires_even_if_the_released_body_raises(self):
+        async def drive():
+            with self.assertRaises(RuntimeError):
+                async with bridge_guard():
+                    async with bridge_release():
+                        raise RuntimeError("long non-Resolve work failed")
+            # Guard's own finally already released by now; the lock must be free.
+            return _bridge_lock.acquire(blocking=False)
+
+        self.assertTrue(asyncio.run(drive()),
+                        "the lock leaked after an exception inside bridge_release()")
+        _bridge_lock.release()
+
+    def test_a_noop_outside_a_guard(self):
+        # _publish_clip_metadata_from_analysis is called both from within a
+        # guarded dispatch and, in principle, could run standalone — the
+        # release must not explode or touch a lock it doesn't hold.
+        async def drive():
+            async with bridge_release():
+                pass
+            return True
+
+        self.assertTrue(asyncio.run(drive()))
+        self.assertTrue(_bridge_lock.acquire(blocking=False),
+                        "a standalone bridge_release() touched the shared lock")
+        _bridge_lock.release()
+
+    def test_mutual_exclusion_still_holds_around_the_release_window(self):
+        # Resolve reads before the release and Resolve writes after it must
+        # still be serialized against a concurrent sync tool body.
+        inside = 0
+        peak = 0
+        counter_lock = threading.Lock()
+
+        def enter():
+            nonlocal inside, peak
+            with counter_lock:
+                inside += 1
+                peak = max(peak, inside)
+            time.sleep(0.02)
+            with counter_lock:
+                inside -= 1
+
+        def sync_tool_body():
+            with _bridge_lock:
+                enter()
+
+        async def guarded_with_release():
+            async with bridge_guard():
+                enter()  # "Resolve read"
+                async with bridge_release():
+                    await asyncio.sleep(0.02)  # "ffmpeg/Whisper pass"
+                enter()  # "Resolve write"
+
+        async def drive():
+            threads = [threading.Thread(target=sync_tool_body) for _ in range(4)]
+            for thread in threads:
+                thread.start()
+            await asyncio.gather(*(guarded_with_release() for _ in range(4)))
+            for thread in threads:
+                thread.join()
+
+        asyncio.run(drive())
+        self.assertEqual(1, peak, "two callers were inside the bridge at once")
 
 
 class BridgeSerializedDecoratorTest(unittest.TestCase):

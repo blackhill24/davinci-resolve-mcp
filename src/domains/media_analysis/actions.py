@@ -254,6 +254,8 @@ from src.core.timeline_lookup import (
 from src.core.live_connection import (
     get_resolve,
     _destructive_versioning_provider,
+    bridge_guard,
+    bridge_release,
 )
 from src.core.tool_kernel import (
     ConfigParseError,
@@ -2381,11 +2383,12 @@ async def _publish_clip_metadata_from_analysis(
         if plan.get("capability_gaps") and media_analysis_plan_requires_capabilities(plan):
             return _media_analysis_missing_capabilities_response(plan, action_label="metadata publish analysis")
 
-        manifest = await execute_media_analysis_plan_async(
-            plan,
-            params=analysis_params,
-            capabilities=caps,
-        )
+        async with bridge_release():
+            manifest = await execute_media_analysis_plan_async(
+                plan,
+                params=analysis_params,
+                capabilities=caps,
+            )
         if not manifest.get("success"):
             return {"success": False, "manifest": manifest, "plan": plan}
         if manifest.get("vision_pending"):
@@ -2432,7 +2435,8 @@ async def _publish_clip_metadata_from_analysis(
         detection_params.update(slate_detection)
         detection_params["target"] = normalized_target
         detection_params.setdefault("prefer_event_type", "slate_clap")
-        detection = detect_media_sync_events(records, detection_params)
+        async with bridge_release():
+            detection = detect_media_sync_events(records, detection_params)
 
     fields = p.get("fields") or list(_MEDIA_ANALYSIS_DEFAULT_PUBLISH_FIELDS)
     if not isinstance(fields, list):
@@ -3231,10 +3235,12 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
         }
         return guidance
 
-    pm, proj, err = _check()
+    async with bridge_guard():
+        pm, proj, err = _check()
+        if not err:
+            project_name, project_id = _project_name_and_id(proj)
     if err:
         return _e2_wrap(err)
-    project_name, project_id = _project_name_and_id(proj)
     if p.get("project_name") or p.get("projectName"):
         project_name = p.get("project_name") or p.get("projectName")
     if p.get("project_id") or p.get("projectId"):
@@ -3655,64 +3661,70 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
         return cleanup_media_analysis_artifacts(project_root, frames_only=bool(p.get("frames_only", True)))
 
     if action == "review_timeline_markers":
-        tl = proj.GetCurrentTimeline()
-        if not tl:
-            return _err("No current timeline")
-        review = _timeline_marker_thumbnail_review(proj, tl, p)
-        if not review.get("success"):
+        async with bridge_guard():
+            tl = proj.GetCurrentTimeline()
+            if not tl:
+                return _err("No current timeline")
+            review = _timeline_marker_thumbnail_review(proj, tl, p)
+            if not review.get("success"):
+                return review
+            vision = p.get("vision") or {}
+            if _media_analysis_bool(vision.get("enabled"), default=False):
+                provider = vision.get("provider") or HOST_CHAT_PATHS_PROVIDER
+                if provider in HOST_CHAT_VISION_PROVIDERS:
+                    review["vision_review"] = _media_analysis_host_chat_image_review_payload(
+                        review.get("path"),
+                        {
+                            "timeline": {"name": tl.GetName(), "id": tl.GetUniqueId()},
+                            "samples": review.get("samples", []),
+                            "review_prompt": review.get("review_prompt"),
+                        },
+                        vision,
+                    )
+                else:
+                    review["vision_review"] = {
+                        "success": False,
+                        "status": "skipped",
+                        "provider": provider,
+                        "reason": f"Timeline marker image review uses host_chat_paths; unknown provider '{provider}'.",
+                    }
             return review
-        vision = p.get("vision") or {}
-        if _media_analysis_bool(vision.get("enabled"), default=False):
-            provider = vision.get("provider") or HOST_CHAT_PATHS_PROVIDER
-            if provider in HOST_CHAT_VISION_PROVIDERS:
-                review["vision_review"] = _media_analysis_host_chat_image_review_payload(
-                    review.get("path"),
-                    {
-                        "timeline": {"name": tl.GetName(), "id": tl.GetUniqueId()},
-                        "samples": review.get("samples", []),
-                        "review_prompt": review.get("review_prompt"),
-                    },
-                    vision,
-                )
-            else:
-                review["vision_review"] = {
-                    "success": False,
-                    "status": "skipped",
-                    "provider": provider,
-                    "reason": f"Timeline marker image review uses host_chat_paths; unknown provider '{provider}'.",
-                }
-        return review
 
     if action == "detect_sync_events":
-        records, normalized_target, warnings, target_err = _media_analysis_sync_event_records(proj, p)
-        if target_err:
-            if warnings:
-                target_err["warnings"] = warnings
-            return target_err
-        result = detect_media_sync_events(records or [], p)
-        result["target"] = normalized_target
-        if warnings:
-            result.setdefault("warnings", [])
-            result["warnings"] = warnings + list(result.get("warnings") or [])
-        return result
-
-    if action == "add_sync_event_markers":
-        detection = p.get("detection") or p.get("detections")
-        if not isinstance(detection, dict):
+        async with bridge_guard():
             records, normalized_target, warnings, target_err = _media_analysis_sync_event_records(proj, p)
             if target_err:
                 if warnings:
                     target_err["warnings"] = warnings
                 return target_err
-            detection = detect_media_sync_events(records or [], p)
-            detection["target"] = normalized_target
+            async with bridge_release():
+                result = detect_media_sync_events(records or [], p)
+            result["target"] = normalized_target
             if warnings:
-                detection.setdefault("warnings", [])
-                detection["warnings"] = warnings + list(detection.get("warnings") or [])
-        return _apply_sync_event_markers(proj, detection, p)
+                result.setdefault("warnings", [])
+                result["warnings"] = warnings + list(result.get("warnings") or [])
+            return result
+
+    if action == "add_sync_event_markers":
+        async with bridge_guard():
+            detection = p.get("detection") or p.get("detections")
+            if not isinstance(detection, dict):
+                records, normalized_target, warnings, target_err = _media_analysis_sync_event_records(proj, p)
+                if target_err:
+                    if warnings:
+                        target_err["warnings"] = warnings
+                    return target_err
+                async with bridge_release():
+                    detection = detect_media_sync_events(records or [], p)
+                detection["target"] = normalized_target
+                if warnings:
+                    detection.setdefault("warnings", [])
+                    detection["warnings"] = warnings + list(detection.get("warnings") or [])
+            return _apply_sync_event_markers(proj, detection, p)
 
     if action == "publish_clip_metadata":
-        return await _publish_clip_metadata_from_analysis(proj, p, ctx)
+        async with bridge_guard():
+            return await _publish_clip_metadata_from_analysis(proj, p, ctx)
 
     if action == "commit_vision":
         visual = p.get("visual") or p.get("visual_analysis") or p.get("visualAnalysis")
@@ -3759,7 +3771,8 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 publish_params["_pre_resolved_report_paths"] = {
                     str(committed_clip_id): committed_report_path,
                 }
-            commit["metadata_publish"] = await _publish_clip_metadata_from_analysis(proj, publish_params, ctx)
+            async with bridge_guard():
+                commit["metadata_publish"] = await _publish_clip_metadata_from_analysis(proj, publish_params, ctx)
         else:
             commit["metadata_publish"] = {
                 "success": True,
@@ -3781,11 +3794,12 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
             return _err(p["target"]["_invalid_target"])
         mp = None
         target_type = str(p["target"].get("type") or p.get("target_type") or "clip").strip().lower()
-        if target_type != "file":
-            mp = proj.GetMediaPool()
-            if not mp:
-                return _err("Failed to get MediaPool")
-        records, normalized_target, warnings, target_err = _media_analysis_records_from_target(mp, p, project=proj)
+        async with bridge_guard():
+            if target_type != "file":
+                mp = proj.GetMediaPool()
+                if not mp:
+                    return _err("Failed to get MediaPool")
+            records, normalized_target, warnings, target_err = _media_analysis_records_from_target(mp, p, project=proj)
         if target_err:
             if warnings:
                 target_err["warnings"] = warnings
@@ -3844,12 +3858,13 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
             return _err(target["_invalid_target"])
         target_type = str(target.get("type") or p.get("target_type") or "clip").strip().lower()
         mp = None
-        if target_type != "file":
-            mp = proj.GetMediaPool()
-            if not mp:
-                return _err("Failed to get MediaPool")
         p["target"] = target
-        records, normalized_target, warnings, target_err = _media_analysis_records_from_target(mp, p, project=proj)
+        async with bridge_guard():
+            if target_type != "file":
+                mp = proj.GetMediaPool()
+                if not mp:
+                    return _err("Failed to get MediaPool")
+            records, normalized_target, warnings, target_err = _media_analysis_records_from_target(mp, p, project=proj)
         if target_err:
             if warnings:
                 target_err["warnings"] = warnings
@@ -3888,11 +3903,12 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
             return _err(target["_invalid_target"])
         target_type = str(target.get("type") or p.get("target_type") or "clip").strip().lower()
         mp = None
-        if target_type != "file":
-            mp = proj.GetMediaPool()
-            if not mp:
-                return _e2_wrap(_err("Failed to get MediaPool"))
-        records, normalized_target, warnings, target_err = _media_analysis_records_from_target(mp, p, project=proj)
+        async with bridge_guard():
+            if target_type != "file":
+                mp = proj.GetMediaPool()
+                if not mp:
+                    return _e2_wrap(_err("Failed to get MediaPool"))
+            records, normalized_target, warnings, target_err = _media_analysis_records_from_target(mp, p, project=proj)
         if target_err:
             if warnings:
                 target_err["warnings"] = warnings
@@ -3969,7 +3985,8 @@ async def media_analysis(action: str, params: Optional[Dict[str, Any]] = None, c
                 publish_params["target"] = normalized_target
                 if not _has_any_param(publish_params, "dry_run", "dryRun"):
                     publish_params["dry_run"] = False
-                publish_result = await _publish_clip_metadata_from_analysis(proj, publish_params, ctx)
+                async with bridge_guard():
+                    publish_result = await _publish_clip_metadata_from_analysis(proj, publish_params, ctx)
                 result["metadata_publish"] = _compact_metadata_publish_for_response(publish_result, verbose=verbose)
                 result["success"] = bool(result["success"] and publish_result.get("success"))
             return _e2_wrap(result)

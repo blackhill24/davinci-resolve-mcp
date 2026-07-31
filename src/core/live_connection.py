@@ -97,6 +97,40 @@ async def bridge_guard():
         _bridge_lock.release()
 
 
+@asynccontextmanager
+async def bridge_release():
+    """Temporarily give up `_bridge_lock` inside an already-held `bridge_guard()`.
+
+    For long non-Resolve work nested inside a guarded body (ffmpeg/Whisper
+    passes in `media_analysis` — #167 finding 2's second half: guarding whole
+    tools like `media_analysis` would hold the bridge hostage for the duration
+    of work that touches no Resolve API at all). Wrap just that call:
+
+        async with bridge_guard():
+            ... Resolve reads ...
+            async with bridge_release():
+                await long_non_resolve_work()
+            ... Resolve writes ...
+
+    A no-op if the current task isn't holding the lock (so it's safe to use
+    inside a helper that's sometimes called from a guarded body and sometimes
+    called standalone). Re-acquires before returning control, so code after
+    the `async with` can keep assuming the outer guard's invariant holds.
+    """
+    if not _bridge_held.get():
+        yield
+        return
+    import anyio
+
+    token = _bridge_held.set(False)
+    _bridge_lock.release()
+    try:
+        yield
+    finally:
+        await anyio.to_thread.run_sync(_bridge_lock.acquire)
+        _bridge_held.reset(token)
+
+
 def bridge_serialized(fn):
     """Decorate an async tool so its whole body runs under `bridge_guard()`.
 

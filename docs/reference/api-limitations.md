@@ -12,7 +12,7 @@ that none exists).
 
 **Verified on:** DaVinci Resolve Studio 21.0.0
 
-**Totals:** 20 missing capabilities, 13 bugs / unreliable behaviors.
+**Totals:** 21 missing capabilities, 13 bugs / unreliable behaviors.
 
 The authoritative source is the runtime-queryable `api_truth` ledger
 (`resolve_control api_truth "<query>"`); this document is generated from
@@ -187,6 +187,15 @@ equivalent, blocking full automation.
 - **Workaround / current handling:** Use GetTrackTypeAndIndex(), which IS present and returns (track_type, track_index) — the same information the GetType/GetMediaType call sites wanted. src/core/timeline_lookup.py:_timeline_item_track_info is the shared helper.
 - **Reference:** [issue #142](https://github.com/samuelgursky/davinci-resolve-mcp/issues/142)
 - **Tags:** missing-method, timeline-item
+
+### MediaPoolItem.RemoveMotionBlur / Folder.RemoveMotionBlur
+
+- **Object:** `MediaPoolItem, MediaPool Folder`
+- **Signature:** `(deblurOption) -> MediaPoolItem | [{1: orig, 2: new}, ...] | False/None`
+- **Behavior:** The GPU deblur declines instantly (returns False/None in ~0.0s, no render attempted) when the GPU lacks enough free VRAM — confirmed live on Resolve Studio 21.0.2.4 across four combinations of clip content and `deblur_option` (issue #188). The scripting API surfaces no error detail: no exception, no reason string, just a bare falsy return identical to any other failure mode. The docs' troubleshooting note for Studio/AI functions ("invoke from the GUI and check for error dialogs") is the only source of the real cause; RemoveMotionBlur is not in the doc's list of Extras-gated functions, but that list has previously been found to undercount the real surface. Empirically needs roughly 12GB free VRAM; a box with ~8GB usable fails 100% of the time regardless of load or content.
+- **Workaround / current handling:** Check free VRAM via `nvidia-smi` before calling and return a specific 'insufficient VRAM' error instead of letting the bare False/None reach the caller.
+- **Reference:** [issue #188](https://github.com/samuelgursky/davinci-resolve-mcp/issues/188)
+- **Tags:** silent-failure, undocumented-requirement, gpu, resolve-21
 
 ## Bugs / Unreliable Behavior (please fix)
 

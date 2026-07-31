@@ -1,6 +1,7 @@
 """Folder-oriented tools for media pool folders."""
 
 from src.granular.common import *  # noqa: F401,F403
+from src.core.gpu_vram import insufficient_vram_error as _insufficient_vram_error
 
 resolve = ResolveProxy()
 
@@ -447,6 +448,9 @@ def folder_remove_motion_blur(folder_path: str = "", deblur_option: Optional[Dic
     )
     if gate:
         return gate
+    vram_error = _insufficient_vram_error()
+    if vram_error:
+        return vram_error
     created = []
     with ledger_timed("remove_motion_blur") as _rec:
         result = folder.RemoveMotionBlur(deblur)

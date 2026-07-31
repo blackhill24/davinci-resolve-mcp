@@ -1212,6 +1212,34 @@ API_TRUTH: List[Dict[str, Any]] = [
         "issue": 20,
         "mitigation": ["folder() compound action (server.py)", "granular/folder.py"],
     },
+    {
+        "symbol": "MediaPoolItem.RemoveMotionBlur / Folder.RemoveMotionBlur",
+        "object": "MediaPoolItem, MediaPool Folder",
+        "signature": "(deblurOption) -> MediaPoolItem | [{1: orig, 2: new}, ...] | False/None",
+        "reality": "The GPU deblur declines instantly (returns False/None in "
+                   "~0.0s, no render attempted) when the GPU lacks enough free "
+                   "VRAM — confirmed live on Resolve Studio 21.0.2.4 across four "
+                   "combinations of clip content and `deblur_option` (issue #188). "
+                   "The scripting API surfaces no error detail: no exception, no "
+                   "reason string, just a bare falsy return identical to any "
+                   "other failure mode. The docs' troubleshooting note for "
+                   "Studio/AI functions (\"invoke from the GUI and check for "
+                   "error dialogs\") is the only source of the real cause; "
+                   "RemoveMotionBlur is not in the doc's list of Extras-gated "
+                   "functions, but that list has previously been found to "
+                   "undercount the real surface. Empirically needs roughly "
+                   "12GB free VRAM; a box with ~8GB usable fails 100% of the "
+                   "time regardless of load or content.",
+        "recommended": "Check free VRAM via `nvidia-smi` before calling and "
+                       "return a specific 'insufficient VRAM' error instead of "
+                       "letting the bare False/None reach the caller.",
+        "tags": ["silent-failure", "undocumented-requirement", "gpu", "resolve-21"],
+        "submit": "missing",
+        "issue": 188,
+        "mitigation": ["core/gpu_vram.py", "granular/media_pool_item.py",
+                       "granular/folder.py",
+                       "domains/media_pool_ingest/actions.py"],
+    },
 ]
 
 

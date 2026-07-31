@@ -60,9 +60,16 @@ def is_unsupported(out):
     """True when Resolve declined the op for lack of the build/Extra rather than
     for lack of a token — the 21+ guard fires BEFORE the confirm gate, so this
     has to be told apart from a gate refusal or the refusal check reads as red on
-    a box that simply lacks the feature."""
+    a box that simply lacks the feature.
+
+    Also true for #188's insufficient-VRAM precondition error (identified by
+    the `required_vram_mib` key `gpu_vram.insufficient_vram_error` always
+    includes): a GPU below the deblur's VRAM floor is the same "not available
+    on this box" bucket as a missing build/Extra, not a code defect to fail on.
+    """
     err = str(out.get("error", "")) if isinstance(out, dict) else ""
-    return "21+" in err or bool(out.get("unavailable"))
+    return ("21+" in err or bool(out.get("unavailable"))
+            or (isinstance(out, dict) and "required_vram_mib" in out))
 
 
 def confirm_dance(label, call, count_clips, results):

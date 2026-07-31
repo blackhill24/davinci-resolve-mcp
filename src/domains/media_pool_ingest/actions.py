@@ -124,6 +124,7 @@ from src.core.destructive_hook import destructive_op as _destructive_op
 import uuid as _ledger_uuid
 from src.core import resolve_ai_ledger as _resolve_ai_ledger
 from src.core import resolve_ai_governance as _resolve_ai_governance
+from src.core.gpu_vram import insufficient_vram_error as _insufficient_vram_error
 import hashlib as _hashlib
 import time as _time
 import uuid as _uuid
@@ -2551,6 +2552,9 @@ def folder(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, An
         blocked = _consume_confirm_token(action="folder.remove_motion_blur", params=p)
         if blocked:
             return blocked
+        vram_error = _insufficient_vram_error()
+        if vram_error:
+            return vram_error
         with _ai_ledger_timed("remove_motion_blur") as _rec:
             result = f.RemoveMotionBlur(deblur)
             _rec.success = bool(result)
@@ -2935,6 +2939,9 @@ def media_pool_item(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         blocked = _consume_confirm_token(action="media_pool_item.remove_motion_blur", params=p)
         if blocked:
             return blocked
+        vram_error = _insufficient_vram_error()
+        if vram_error:
+            return vram_error
         with _ai_ledger_timed("remove_motion_blur", clip_id=p.get("clip_id")) as _rec:
             new_clip = clip.RemoveMotionBlur(deblur)
             _rec.success = bool(new_clip)

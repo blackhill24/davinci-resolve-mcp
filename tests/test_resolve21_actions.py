@@ -203,10 +203,15 @@ class Resolve21FolderActionsTest(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self._orig_root = _core_tool_kernel._ai_ledger_root
         _core_tool_kernel._ai_ledger_root = lambda: self._tmp.name
+        # Default to "enough VRAM" so these tests don't depend on the real
+        # host GPU's free memory at test-run time (#188).
+        self._orig_vram_check = _dom_media_pool_ingest._insufficient_vram_error
+        _dom_media_pool_ingest._insufficient_vram_error = lambda: None
 
     def tearDown(self):
         _dom_media_pool_ingest._get_mp = self._orig_get_mp
         _core_tool_kernel._ai_ledger_root = self._orig_root
+        _dom_media_pool_ingest._insufficient_vram_error = self._orig_vram_check
         self._tmp.cleanup()
 
     def test_op_is_recorded_in_ledger(self):
@@ -261,6 +266,17 @@ class Resolve21FolderActionsTest(unittest.TestCase):
         self.assertEqual(len(out["created"]), 1)
         self.assertEqual(out["created"][0]["new"], "a_deblurred.mov")
 
+    def test_remove_motion_blur_blocked_on_insufficient_vram(self):
+        _dom_media_pool_ingest._insufficient_vram_error = lambda: {
+            "error": "not enough VRAM", "free_vram_mib": 4000, "required_vram_mib": 12000,
+        }
+        pending = compound.folder("remove_motion_blur", {"deblur_option": {}})
+        token = pending["confirm_token"]
+        out = compound.folder("remove_motion_blur", {"deblur_option": {}, "confirm_token": token})
+        self.assertIn("error", out)
+        self.assertNotIn("success", out)
+        self.assertEqual(self.folder.calls, [])  # RemoveMotionBlur never called
+
     def test_unknown_action_lists_new_actions(self):
         out = compound.folder("bogus", {})
         self.assertIn("analyze_for_slate", str(out))
@@ -278,11 +294,16 @@ class Resolve21ClipActionsTest(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self._orig_root = _core_tool_kernel._ai_ledger_root
         _core_tool_kernel._ai_ledger_root = lambda: self._tmp.name
+        # Default to "enough VRAM" so these tests don't depend on the real
+        # host GPU's free memory at test-run time (#188).
+        self._orig_vram_check = _dom_media_pool_ingest._insufficient_vram_error
+        _dom_media_pool_ingest._insufficient_vram_error = lambda: None
 
     def tearDown(self):
         _dom_media_pool_ingest._get_mp = self._orig_get_mp
         _dom_media_pool_ingest._find_clip = self._orig_find_clip
         _core_tool_kernel._ai_ledger_root = self._orig_root
+        _dom_media_pool_ingest._insufficient_vram_error = self._orig_vram_check
         self._tmp.cleanup()
 
     def test_remove_motion_blur_records_clip_id_in_ledger(self):
@@ -315,6 +336,17 @@ class Resolve21ClipActionsTest(unittest.TestCase):
     def test_speaker_detection_passthrough(self):
         compound.media_pool_item("transcribe_audio", {"clip_id": "c1", "use_speaker_detection": False})
         self.assertIn(("TranscribeAudio", (False,)), self.clip.calls)
+
+    def test_remove_motion_blur_blocked_on_insufficient_vram(self):
+        _dom_media_pool_ingest._insufficient_vram_error = lambda: {
+            "error": "not enough VRAM", "free_vram_mib": 4000, "required_vram_mib": 12000,
+        }
+        pending = compound.media_pool_item("remove_motion_blur", {"clip_id": "c1"})
+        token = pending["confirm_token"]
+        out = compound.media_pool_item("remove_motion_blur", {"clip_id": "c1", "confirm_token": token})
+        self.assertIn("error", out)
+        self.assertNotIn("success", out)
+        self.assertEqual(self.clip.calls, [])  # RemoveMotionBlur never called
 
     def test_legacy_clip_version_guarded(self):
         self.clip = LegacyClip()

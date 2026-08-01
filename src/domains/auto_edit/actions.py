@@ -2829,6 +2829,47 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             real_offline = _auto_edit_mod.dropped_source_clips(
                 baseline_linked=int(baseline_media.get("linked", 0)),
                 polished_linked=int(media.get("linked", 0)))
+
+            # "went offline" vs "no longer present" (issue #202): the media-link
+            # diff above cannot tell an item that's still on the track but lost
+            # its Media Pool link apart from an item that's simply gone. V1's own
+            # item COUNT can: it only drops when an item vanished outright.
+            def _v1_item_count(timeline_obj):
+                if timeline_obj is None:
+                    return None
+                try:
+                    items = timeline_obj.GetItemListInTrack(
+                        "video", _auto_edit_mod.SPEECH_VIDEO_TRACK) or []
+                    return len(items)
+                except Exception:
+                    return None
+
+            built_v1_count = _v1_item_count(tl)
+            polished_v1_count = _v1_item_count(imp_tl)
+            missing_items = (
+                max(0, built_v1_count - polished_v1_count)
+                if built_v1_count is not None and polished_v1_count is not None
+                else None
+            )
+
+            # Gap check (issue #202 acceptance criteria): never ship a gap
+            # silently. detect_gaps_overlaps already exists (timeline_edit) —
+            # reuse it against the polished timeline's own snapshot.
+            gaps_out: Optional[Dict[str, Any]] = None
+            if imp_tl is not None:
+                try:
+                    from src.domains.timeline_conform_interchange.actions import (
+                        _detect_gaps_overlaps_from_snapshot, _timeline_conform_snapshot)
+                    snapshot = _timeline_conform_snapshot(imp_tl, {})
+                    gaps_report = _detect_gaps_overlaps_from_snapshot(snapshot, {})
+                    gaps_out = {
+                        "count": gaps_report["gap_count"],
+                        "frames": sum(g.get("duration", 0) for g in gaps_report["gaps"]),
+                        "positions": gaps_report["gaps"],
+                    }
+                except Exception as exc:
+                    gaps_out = {"error": f"gap check failed: {type(exc).__name__}: {exc}"}
+
             out = {
                 "success": True,
                 "polished_timeline": final_name,
@@ -2846,10 +2887,29 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                         "BUILT timeline by default — pass finish(target='polished') to "
                         "render this one instead",
             }
-            if real_offline:
-                out["warning"] = (
-                    f"{real_offline} source clip(s) went offline after the drt round-trip "
+            if gaps_out is not None:
+                out["gaps"] = gaps_out
+            warnings: List[str] = []
+            if missing_items:
+                warnings.append(
+                    f"{missing_items} item(s) present on the built timeline's V"
+                    f"{_auto_edit_mod.SPEECH_VIDEO_TRACK} are no longer present on the "
+                    f"polished timeline ({built_v1_count} -> {polished_v1_count}) — they "
+                    "did not go offline, they are simply absent.")
+            # A missing V1 item is also a linked-media drop, so don't double-report
+            # the same loss under both messages.
+            offline_only = max(0, real_offline - (missing_items or 0))
+            if offline_only:
+                warnings.append(
+                    f"{offline_only} source clip(s) went offline after the drt round-trip "
                     "(beyond the intro title and added lower-thirds) — check media relinking.")
+            if gaps_out and gaps_out.get("count"):
+                warnings.append(
+                    f"{gaps_out['count']} gap(s) totalling {gaps_out['frames']} frame(s) on "
+                    "the polished timeline — these will render as black frames; see `gaps` "
+                    "for positions.")
+            if warnings:
+                out["warning"] = " | ".join(warnings)
             _edit_engine_mod.mark_plan_executed(project_root, plan["plan_id"], {
                 **exec_summary,
                 "polished": {

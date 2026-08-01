@@ -67,6 +67,31 @@ test('retimeClip ripple shifts later clips by the duration delta', async () => {
   assert.strictEqual(grab(clips[1], 'Start'), '86600');
 });
 
+test('retimeClip preserveDuration keeps Duration at the clip\'s OWN current value, ignoring newDuration', async () => {
+  // issue #202: a caller's predicted newDuration (e.g. a plan's record length)
+  // can drift from what the .drt actually has for this clip (rounding,
+  // upstream ops). preserveDuration must win — Duration stays 100 (this
+  // clip's real value), never the wrong 250 the caller asked for, so no gap
+  // opens on the track when ripple is off.
+  const buf = await synthDrp();
+  const res = await retimeClip(buf, {
+    track: 1, clipIndex: 0, speed: 0.4, newDuration: 250, preserveDuration: true,
+  });
+  assert.strictEqual(res.oldDuration, 100);
+  assert.strictEqual(res.newDuration, 100);
+  const clips = await clipXmls(res.buffer);
+  assert.strictEqual(grab(clips[0], 'Duration'), '100');
+  // Neighbor's Start is untouched — nothing to ripple, no gap possible.
+  assert.strictEqual(grab(clips[1], 'Start'), '86500');
+});
+
+test('retimeClip preserveDuration without speed is rejected', async () => {
+  const buf = await synthDrp();
+  await assert.rejects(
+    () => retimeClip(buf, { track: 1, clipIndex: 0, newDuration: 100, preserveDuration: true }),
+    /preserveDuration requires opts.speed/);
+});
+
 test('retimeClip speed 1 on a retimed clip resets to the identity form', async () => {
   const buf = await synthDrp({ timemapHex: RETIMED_50 });
   const res = await retimeClip(buf, { track: 1, clipIndex: 0, speed: 1 });

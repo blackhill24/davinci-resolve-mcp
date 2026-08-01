@@ -965,10 +965,11 @@ def plan_polish_ops(
 
     Speed ramps (MONTAGE only): a segment carrying phase 2's ``retime`` flag gets
     a ``retime_clip`` op at ``montage_motion.MONTAGE_RETIME_SPEED``'s speed for
-    its section, with ``newDuration`` pinned to the segment's own record length
-    and ``ripple`` off so the beat grid survives. This is the only place a speed
-    change can be authored — the scripting API has none. Suppress with
-    ``options["no_retime"]``.
+    its section, with ``preserveDuration`` so the vendor op holds the clip at
+    its OWN current Duration (read from the .drt, not predicted from this
+    function) and ``ripple`` off so the beat grid survives. This is the only
+    place a speed change can be authored — the scripting API has none.
+    Suppress with ``options["no_retime"]``.
 
     ``record_offset`` is the intro-title footprint that ``build_timeline``
     prepended to V1, so op positions match the exported timeline's record frames.
@@ -1093,10 +1094,14 @@ def plan_polish_ops(
     # so this is the only place the ramp can be authored. finish()'s motion pass
     # only sets the interpolation quality (RetimeProcess=optical_flow) for it.
     #
-    # newDuration is pinned to the segment's OWN record length so the beat grid
-    # survives, and ripple stays off so nothing downstream drifts — a montage's
-    # every cut is already placed on a beat frame, and a rippling retime would
-    # walk all of them off the grid.
+    # Duration must not move — a montage's every cut is already placed on a
+    # beat frame, and any duration change (with ripple off, by design, so
+    # nothing downstream drifts) opens a gap on the track (issue #202).
+    # `preserveDuration` tells the vendor op to read the clip's OWN Duration
+    # straight off the exported .drt and hold it there, ignoring whatever this
+    # function predicts — the built item's actual duration can drift from
+    # `record_len` (beat-grid rounding, index drift from earlier ops in the
+    # chain), and that drift is exactly what was opening the gaps.
     if is_montage and not opts.get("no_retime"):
         item_offset = 1 if offset > 0 else 0
         for i, seg in enumerate(segments):
@@ -1128,6 +1133,7 @@ def plan_polish_ops(
                     "clipIndex": i + item_offset,
                     "speed": speed,
                     "newDuration": record_len,
+                    "preserveDuration": True,
                     "ripple": False,
                 },
                 "kind": "speed_ramp",

@@ -384,13 +384,33 @@ class MontageSpeedRampTest(unittest.TestCase):
     def test_record_duration_is_pinned_so_the_beat_grid_survives(self):
         # newDuration must equal the segment's own record length: the default
         # (oldDuration * oldSpeed / speed) would stretch the clip and walk every
-        # downstream cut off its beat frame.
+        # downstream cut off its beat frame. preserveDuration=True (issue #202)
+        # is what actually enforces this against the built .drt's ground truth —
+        # newDuration alone is only ever a prediction that can drift.
         plan = self._retime_plan()
         ops = self._retime_ops(auto_edit.plan_polish_ops(plan))
         seg = plan["segments"][1]
         record_len = seg["source_end_frame"] - seg["source_start_frame"]
         self.assertEqual(ops[0]["args"]["newDuration"], record_len)
+        self.assertIs(ops[0]["args"]["preserveDuration"], True)
         self.assertIs(ops[0]["args"]["ripple"], False)
+
+    def test_preserve_duration_set_even_when_record_length_does_not_divide_evenly(self):
+        # issue #202: a mixed-fps plan carries an explicit record_length_frames
+        # that need not divide evenly against anything (unlike same-fps plans,
+        # where record length is just a source-frame span). preserveDuration
+        # must still be set — it's what makes newDuration's exact value
+        # irrelevant to whether a gap opens, regardless of how it was rounded.
+        plan = _plan([
+            _seg("A", 0, role="montage_hook", section="intro"),
+            _seg("B", 48, role="montage", section="build", retime=True,
+                 record_length_frames=17),  # not a clean multiple of anything
+            _seg("C", 96, role="montage", section="mid"),
+        ])
+        ops = self._retime_ops(auto_edit.plan_polish_ops(plan))
+        self.assertEqual(len(ops), 1)
+        self.assertEqual(ops[0]["args"]["newDuration"], 17)
+        self.assertIs(ops[0]["args"]["preserveDuration"], True)
 
     def test_clip_index_accounts_for_the_intro_title(self):
         plan = self._retime_plan()

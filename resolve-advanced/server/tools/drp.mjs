@@ -101,6 +101,10 @@ const S = {
     keyframes: z.array(z.object({ recordSec: z.number(), sourceSec: z.number() })).optional()
       .describe('variable-speed ramp points (ordered, implicit (0,0) start excluded); requires newDuration'),
     newDuration: z.number().int().positive().optional().describe('explicit new record duration in frames'),
+    preserveDuration: z.boolean().optional()
+      .describe('constant-speed only: ignore newDuration and keep the clip\'s OWN current '
+        + 'Duration (read from this .drt) exactly — use when the caller wants a duration change '
+        + 'from speed alone to be impossible, e.g. a beat-locked cut whose position must not move'),
     sourceDurationSec: z.number().positive().optional(),
     ripple: z.boolean().optional(),
     ...sel,

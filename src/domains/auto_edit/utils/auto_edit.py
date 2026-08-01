@@ -76,6 +76,28 @@ DEFAULT_LOWER_THIRD_FRAMES = 96    # lower-third on-screen duration (~4s @ 24fps
 SPEECH_VIDEO_TRACK = 1             # V1 carries speech (build_timeline)
 DEFAULT_MUSIC_AUDIO_TRACK = 2      # A2 carries the music bed (build_timeline)
 
+# Montage transition placement (#208): a section-boundary cut gets a
+# transition when the ENTERING section is one of these; every other cut
+# (including entering accelerate/high) stays a hard cut — "a 1-beat cut with
+# a transition on it is mush" on those runs, per the issue's own acceptance
+# criteria. The value is the INTENDED transition type; only "cross_dissolve"
+# is actually captured today (place-transition.js has no other bundled
+# template), so every op still requests "cross_dissolve" from Resolve — the
+# intended label is carried through so a future template capture (still open
+# on #208) only has to change the type lookup, not this placement rule.
+MONTAGE_TRANSITION_ENTERING_SECTION: Dict[str, str] = {
+    "drop": "dip_to_colour",
+    "breathe": "cross_dissolve",
+    "low": "cross_dissolve",
+    "outro": "cross_dissolve",
+}
+MONTAGE_HARD_CUT_SECTIONS = frozenset({"accelerate", "high"})
+# "never two within N beats" (#208) — keeps transitions as punctuation
+# instead of a style, even on an arrangement with several close boundaries.
+MONTAGE_MIN_BEATS_BETWEEN_TRANSITIONS = 8
+# "a longer dissolve into outro" (#208) — everything else uses dissolve_frames as-is.
+MONTAGE_TRANSITION_DURATION_MULTIPLIER: Dict[str, float] = {"outro": 2.0}
+
 MUSIC_BED_CONSENT_LINE = (
     "Music-bed render consent: approving WITH music-bed consent renders a "
     "derivative ducked audio file (ffmpeg) under the analysis root; without "
@@ -1068,15 +1090,17 @@ def plan_polish_ops(
         if isinstance(ov.get("over_segment_index"), int)
     }
 
-    # Montage (issue #180, phase 5/6 of the montage-quality epic): phase 2
-    # guarantees every cut is a source change, so the talking-head
-    # source-change heuristic below would dissolve the ENTIRE edit — the
-    # opposite of the punchy beat-cut montage it's meant to be. Montage plans
-    # default to no_dissolves and, when dissolves are explicitly re-enabled,
-    # use a musically motivated list instead: only a cut that OPENS a
-    # "breathe" section (arrangement.py's long hold after a dense run) gets
-    # one — never between two accelerate/high-energy cuts. Talking-head is
-    # untouched: same default, same source-change heuristic as always.
+    # Montage (issue #180, phase 5/6 of the montage-quality epic; placement
+    # rewritten in #208): phase 2 guarantees every cut is a source change, so
+    # the talking-head source-change heuristic below would dissolve the
+    # ENTIRE edit — the opposite of the punchy beat-cut montage it's meant to
+    # be. Montage plans default to no_dissolves and, when dissolves are
+    # explicitly re-enabled, use a musically motivated list instead: a
+    # transition at a SECTION BOUNDARY (`MONTAGE_TRANSITION_ENTERING_SECTION`)
+    # with real handle media on both sides, spaced at least
+    # `MONTAGE_MIN_BEATS_BETWEEN_TRANSITIONS` beats apart — never inside an
+    # accelerate/high run. Talking-head is untouched: same default, same
+    # source-change heuristic as always.
     is_montage = any(seg.get("role") in cut_ir.MONTAGE_SEGMENT_ROLES for seg in segments)
     no_dissolves = opts.get("no_dissolves")
     if no_dissolves is None:
@@ -1085,6 +1109,7 @@ def plan_polish_ops(
         dissolve_on_beat = bool(opts.get("dissolve_on_beat_change"))
         explicit = opts.get("dissolve_at_segments")
         explicit_set = set(explicit) if isinstance(explicit, (list, tuple)) else None
+        last_montage_transition_beat: Optional[int] = None
         for i in range(1, len(segments)):
             prev, seg = segments[i - 1], segments[i]
             reason: Optional[str] = None
@@ -1094,8 +1119,58 @@ def plan_polish_ops(
             elif seg.get("transition_in"):
                 reason = f"segment {i} carries a transition_in flag"
             elif is_montage:
-                if seg.get("section") == "breathe" and prev.get("section") != "breathe":
-                    reason = f"segment {i} opens a breathe section"
+                entering = seg.get("section")
+                is_boundary = (
+                    entering in MONTAGE_TRANSITION_ENTERING_SECTION
+                    and entering not in MONTAGE_HARD_CUT_SECTIONS
+                    and entering != prev.get("section"))
+                if not is_boundary:
+                    continue
+                if i in covered_segment_idxs:
+                    notes.append(
+                        f"segment {i}: transition skipped — b-roll overlay already smooths this cut")
+                    continue
+                beat_index = seg.get("beat_index")
+                if (last_montage_transition_beat is not None and isinstance(beat_index, int)
+                        and (beat_index - last_montage_transition_beat) < MONTAGE_MIN_BEATS_BETWEEN_TRANSITIONS):
+                    notes.append(
+                        f"segment {i}: transition skipped — opens a {entering} section but sits "
+                        f"within {MONTAGE_MIN_BEATS_BETWEEN_TRANSITIONS} beats of the last placed one")
+                    continue
+                # dissolve_frames was already validated positive above; the
+                # multiplier is a positive constant, so this is always positive.
+                dur = int(round(dissolve_frames * MONTAGE_TRANSITION_DURATION_MULTIPLIER.get(entering, 1.0)))
+                half = dur // 2
+                # Handle safety (#208): only place a transition where the
+                # OUTGOING clip's own shot has real source frames past its
+                # chosen end, and the INCOMING clip's own shot has real source
+                # frames before its chosen start — never manufactured, never
+                # reaching into a different (scene-cut) shot's content. This
+                # is a SAFETY CHECK against existing slack, not active
+                # handle extension (trimming the .drt clip items to carve out
+                # more) — see #208 for that follow-up.
+                tail_margin = max(0, int(prev.get("source_limit_frame", prev.get("source_end_frame", 0)))
+                                   - int(prev.get("source_end_frame", 0)))
+                head_margin = max(0, int(seg.get("source_start_frame", 0))
+                                   - int(seg.get("source_floor_frame", seg.get("source_start_frame", 0))))
+                if tail_margin < half or head_margin < half:
+                    notes.append(
+                        f"segment {i}: transition skipped — opens a {entering} section but has no "
+                        f"handle media (needs {half}f on each side; has {tail_margin}f tail / "
+                        f"{head_margin}f head)")
+                    continue
+                rec = int(seg.get("record_start_frame", 0)) + offset
+                ops.append({
+                    "op": "place_transition",
+                    "args": {"track": SPEECH_VIDEO_TRACK, "atFrame": rec, "durationFrames": dur},
+                    "kind": "cross_dissolve",
+                    "intended_type": MONTAGE_TRANSITION_ENTERING_SECTION[entering],
+                    "segment_index": i,
+                    "reason": f"segment {i} opens a {entering} section",
+                })
+                if isinstance(beat_index, int):
+                    last_montage_transition_beat = beat_index
+                continue
             elif prev.get("clip_uuid") != seg.get("clip_uuid"):
                 reason = f"source change {prev.get('clip_uuid')!r}→{seg.get('clip_uuid')!r}"
             elif dissolve_on_beat and seg.get("story_beat") and \

@@ -153,10 +153,14 @@ class MontageDissolveTest(unittest.TestCase):
         self.assertEqual(out["transitions"], 0)
 
     def test_montage_dissolves_into_breathe_section_only(self):
+        # #208: a section-boundary transition needs real handle media on
+        # both sides — source_limit_frame (B's tail) / source_floor_frame
+        # (C's head) give it 12f of margin each, comfortably above the 6f
+        # (half of DEFAULT_DISSOLVE_FRAMES) the check requires.
         plan = _plan([
             _seg("A", 0, role="montage_hook", section="intro"),
-            _seg("B", 48, role="montage", section="high"),
-            _seg("C", 96, role="montage", section="breathe"),  # dissolve INTO this
+            _seg("B", 48, role="montage", section="high", source_limit_frame=60),
+            _seg("C", 96, role="montage", section="breathe", source_floor_frame=-12),  # dissolve INTO this
             _seg("D", 144, role="montage", section="breathe"),  # already in breathe — no dissolve
             _seg("E", 192, role="montage", section="mid"),  # leaving breathe — no dissolve
         ])
@@ -165,6 +169,88 @@ class MontageDissolveTest(unittest.TestCase):
         op = next(o for o in out["ops"] if o["op"] == "place_transition")
         self.assertEqual(op["segment_index"], 2)
         self.assertIn("breathe", op["reason"])
+        self.assertEqual(op["args"]["durationFrames"], auto_edit.DEFAULT_DISSOLVE_FRAMES)
+        self.assertEqual(op["intended_type"], "cross_dissolve")
+
+    def test_montage_hard_cut_sections_never_get_a_transition(self):
+        # Even with generous handle margin, entering accelerate/high stays a
+        # hard cut — "a 1-beat cut with a transition on it is mush" (#208).
+        for hard_section in ("accelerate", "high"):
+            with self.subTest(section=hard_section):
+                plan = _plan([
+                    _seg("A", 0, role="montage_hook", section="breathe", source_limit_frame=200),
+                    _seg("B", 48, role="montage", section=hard_section, source_floor_frame=-200),
+                ])
+                out = auto_edit.plan_polish_ops(plan, options={"no_dissolves": False})
+                self.assertEqual(out["transitions"], 0)
+
+    def test_montage_transition_skipped_without_handle_margin(self):
+        # Same breathe boundary as above, but no margin at all (plain _seg
+        # defaults) — the transition must be skipped, not silently placed as
+        # a freeze/black edge, and the note must name the segment.
+        plan = _plan([
+            _seg("A", 0, role="montage_hook", section="high"),
+            _seg("B", 48, role="montage", section="breathe"),
+        ])
+        out = auto_edit.plan_polish_ops(plan, options={"no_dissolves": False})
+        self.assertEqual(out["transitions"], 0)
+        self.assertTrue(any(
+            "segment 1" in n and "handle media" in n for n in out["notes"]))
+
+    def test_montage_outro_gets_a_longer_dissolve(self):
+        plan = _plan([
+            _seg("A", 0, role="montage_hook", section="mid", source_limit_frame=200),
+            _seg("B", 48, role="montage", section="outro", source_floor_frame=-200),
+        ])
+        out = auto_edit.plan_polish_ops(plan, options={"no_dissolves": False})
+        op = next(o for o in out["ops"] if o["op"] == "place_transition")
+        self.assertEqual(op["args"]["durationFrames"], auto_edit.DEFAULT_DISSOLVE_FRAMES * 2)
+
+    def test_montage_drop_boundary_reports_its_intended_type(self):
+        # Only cross_dissolve is captured today (#208 leaves new template
+        # capture open), but the placement rule still records the INTENDED
+        # type so a future capture only needs to change the type lookup.
+        plan = _plan([
+            _seg("A", 0, role="montage_hook", section="build", source_limit_frame=200),
+            _seg("B", 48, role="montage", section="drop", source_floor_frame=-200),
+        ])
+        out = auto_edit.plan_polish_ops(plan, options={"no_dissolves": False})
+        op = next(o for o in out["ops"] if o["op"] == "place_transition")
+        self.assertEqual(op["kind"], "cross_dissolve")
+        self.assertEqual(op["intended_type"], "dip_to_colour")
+
+    def test_montage_transitions_are_spaced_apart(self):
+        # Two boundaries a single beat apart — well inside
+        # MONTAGE_MIN_BEATS_BETWEEN_TRANSITIONS — only the first fires.
+        plan = _plan([
+            _seg("A", 0, role="montage_hook", section="high", beat_index=0,
+                 source_limit_frame=200),
+            _seg("B", 48, role="montage", section="breathe", beat_index=2,
+                 source_limit_frame=200, source_floor_frame=-200),
+            _seg("C", 96, role="montage", section="low", beat_index=3,
+                 source_floor_frame=-200),
+        ])
+        out = auto_edit.plan_polish_ops(plan, options={"no_dissolves": False})
+        self.assertEqual(out["transitions"], 1)
+        self.assertEqual(out["ops"][0]["segment_index"], 1)
+        self.assertTrue(any(
+            "segment 2" in n and "beats of the last placed one" in n for n in out["notes"]))
+
+    def test_montage_transitions_beyond_spacing_both_fire(self):
+        # Same shape, but far enough apart (beat_index gap >= the minimum) —
+        # both boundaries get a transition.
+        plan = _plan([
+            _seg("A", 0, role="montage_hook", section="high", beat_index=0,
+                 source_limit_frame=200),
+            _seg("B", 48, role="montage", section="breathe",
+                 beat_index=auto_edit.MONTAGE_MIN_BEATS_BETWEEN_TRANSITIONS,
+                 source_limit_frame=200, source_floor_frame=-200),
+            _seg("C", 96, role="montage", section="low",
+                 beat_index=auto_edit.MONTAGE_MIN_BEATS_BETWEEN_TRANSITIONS * 2,
+                 source_floor_frame=-200),
+        ])
+        out = auto_edit.plan_polish_ops(plan, options={"no_dissolves": False})
+        self.assertEqual(out["transitions"], 2)
 
     def test_montage_explicit_dissolve_at_segments_still_overrides(self):
         # no_dissolves is montage's master switch (defaults on); an explicit

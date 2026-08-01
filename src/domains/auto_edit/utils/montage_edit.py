@@ -1128,6 +1128,12 @@ def build_cut_list_for_brief(
                 # shot into the track's tail. Without it the tail extension
                 # would have to guess, and montage never fabricates coverage.
                 seg["source_limit_frame"] = int(round(float(shot["time_seconds_end"]) * shot_fps))
+                # Symmetric floor (#208): how far back this shot's own source
+                # starts. Together with source_limit_frame this bounds how many
+                # real, in-shot frames sit on either side of this segment's
+                # chosen span — the handle margin a transition can safely use
+                # without reaching into a different (scene-cut) shot's content.
+                seg["source_floor_frame"] = int(round(float(shot["time_seconds_start"]) * shot_fps))
                 seg["beat_index"] = arrangement["beat_index"]
                 seg["beat_length"] = arrangement["beat_length"]
                 seg["section"] = arrangement["section"]

@@ -325,5 +325,59 @@ class GetCutSummaryMontageTests(unittest.TestCase):
         self.assertNotIn("Excerpt", out["summary"])
 
 
+class VisionDefaultTests(unittest.TestCase):
+    """#193 phase 1 — the first-run blocker.
+
+    Montage's whole candidate pool is the `shots` table, whose only writer is
+    fed by `visual.shot_descriptions`; nothing but the vision pass produces
+    one. Vision-off montage therefore analysed "successfully" and then died in
+    plan_cut with an error that named nothing about vision.
+    """
+
+    def test_montage_defaults_vision_on(self):
+        enabled, warning = auto_edit.resolve_vision_default("montage", None)
+        self.assertTrue(enabled)
+        self.assertIsNone(warning)
+
+    def test_montage_defaults_vision_on_with_other_options(self):
+        # An options dict that simply doesn't mention vision must not read as
+        # an opt-out — this is the shape a host passing sampling_mode sends.
+        enabled, warning = auto_edit.resolve_vision_default(
+            "montage", {"sampling_mode": "adaptive_capped"})
+        self.assertTrue(enabled)
+        self.assertIsNone(warning)
+
+    def test_talking_head_still_defaults_vision_off(self):
+        for options in (None, {}, {"sampling_mode": "adaptive_capped"}):
+            enabled, warning = auto_edit.resolve_vision_default("talking_head", options)
+            self.assertFalse(enabled, options)
+            self.assertIsNone(warning, options)
+
+    def test_explicit_true_is_honoured_on_both_genres(self):
+        for genre in ("montage", "talking_head"):
+            enabled, warning = auto_edit.resolve_vision_default(genre, {"vision": True})
+            self.assertTrue(enabled, genre)
+            self.assertIsNone(warning, genre)
+
+    def test_explicit_false_on_montage_is_honoured_but_warned(self):
+        # Honoured, not overridden: the caller may be running the vision pass
+        # separately. But it is the one combination that cannot plan, so it
+        # must say so here rather than failing two steps later.
+        enabled, warning = auto_edit.resolve_vision_default("montage", {"vision": False})
+        self.assertFalse(enabled)
+        self.assertIsNotNone(warning)
+        self.assertIn("vision", warning)
+        self.assertIn("plan_cut", warning)
+
+    def test_explicit_false_on_talking_head_is_silent(self):
+        enabled, warning = auto_edit.resolve_vision_default("talking_head", {"vision": False})
+        self.assertFalse(enabled)
+        self.assertIsNone(warning)
+
+    def test_every_vision_required_genre_is_a_real_genre(self):
+        # Guards the constant against a typo silently disabling the default.
+        self.assertTrue(auto_edit.VISION_REQUIRED_GENRES <= auto_edit.GENRES)
+
+
 if __name__ == "__main__":
     unittest.main()

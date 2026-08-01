@@ -266,6 +266,41 @@ class BuildCutListLookBucketTests(MontageEditBase):
                 "onsets": onsets, "onset_count": len(onsets), "tempo_bpm": 120.0,
                 "grid_available": False}
 
+    def test_no_shot_rows_error_names_vision_as_the_cause(self):
+        """#193 phase 1 — the vision-off signature.
+
+        A clip that was analysed WITHOUT the vision pass has a clips row and
+        zero shots rows, because `shots` is written only from
+        `visual.shot_descriptions`. That produced a bare "no usable shots"
+        error that named nothing about vision and offered no route out, two
+        steps after the decision that caused it.
+        """
+        self._ingest_clip(clip_id="resolve-novis", name="NV.mp4", path="/media/nv.mp4",
+                          clip_dir="nv-dir", shots=[])
+        brief = {"files": ["/media/nv.mp4"], "music": "/media/track.wav"}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats",
+                                return_value=self._mock_beats()):
+            out = montage_edit.build_cut_list_for_brief(self.root, brief)
+        self.assertFalse(out["success"], out)
+        self.assertIn("vision", out["error"])
+        self.assertIn("start_brief", out["error"])
+        self.assertIn("vision", out["remediation"])
+
+    def test_too_few_shots_error_also_points_at_vision_first(self):
+        # One usable shot is not enough for a montage. Unlike the zero-rows
+        # case this has several causes, so vision is offered as the first
+        # thing to check rather than asserted.
+        self._ingest_clip(
+            clip_id="resolve-one", name="ONE.mp4", path="/media/one.mp4", clip_dir="one-dir",
+            shots=[_shot(1, 0.0, 3.0, select_potential="high", pacing="kinetic")])
+        brief = {"files": ["/media/one.mp4"], "music": "/media/track.wav"}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats",
+                                return_value=self._mock_beats()):
+            out = montage_edit.build_cut_list_for_brief(self.root, brief)
+        if not out["success"]:
+            self.assertIn("vision", out["error"])
+            self.assertIn("remediation", out)
+
     def test_every_segment_carries_a_look_bucket_and_plan_carries_cdls(self):
         files = self._seed_pool()
         brief = {"files": files, "music": "/media/track.wav"}

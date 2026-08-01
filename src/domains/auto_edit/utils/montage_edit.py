@@ -682,7 +682,19 @@ def build_cut_list_for_brief(
 
     candidates = _candidate_shots(conn, clip_uuids)
     if not candidates:
-        return {"success": False, "error": "no usable shots found for the candidate clips",
+        # Name the cause here (#193 phase 1). Zero shot rows has ONE realistic
+        # explanation: the vision pass never ran. The `shots` table has exactly
+        # one writer (analysis_store), fed by `visual.shot_descriptions`, which
+        # only the vision path produces — no scene-detection or technical pass
+        # writes a shot row. Without this the host sees a dead end two steps
+        # after the decision that caused it.
+        return {"success": False,
+                "error": "no usable shots found for the candidate clips — this almost always "
+                         "means the vision pass never ran, and montage builds its entire shot "
+                         "pool from vision-derived shot descriptions. Re-run start_brief with "
+                         'options={"vision": true} (montage now defaults it on), or run '
+                         "media_analysis with vision enabled over these clips, then plan_cut.",
+                "remediation": "start_brief(..., genre=\"montage\", options={\"vision\": true})",
                 "problems": problems}
     if not any(c.get("scout_in_point") is not None for c in candidates):
         # Honest degradation (issue #178): no shot in this brief has scouted
@@ -977,7 +989,15 @@ def build_cut_list_for_brief(
                 "rather than repeating a shot or fabricating coverage")
 
     if len(segments) < 2:
-        return {"success": False, "error": "not enough distinct shots to build a montage",
+        # Unlike the zero-candidates case above this has several causes (a very
+        # short track, tier exhaustion, MIN_SHOT_SECONDS filtering), so vision
+        # is offered as the first thing to check rather than asserted (#193).
+        return {"success": False,
+                "error": "not enough distinct shots to build a montage — check first that the "
+                         'vision pass ran (start_brief options={"vision": true}); it is the only '
+                         "producer of the shot pool. Otherwise the candidates were filtered out "
+                         "by shot length or select_potential tier — see problems.",
+                "remediation": "start_brief(..., genre=\"montage\", options={\"vision\": true})",
                 "problems": problems}
 
     music = {

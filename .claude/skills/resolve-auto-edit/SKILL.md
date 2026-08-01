@@ -12,14 +12,35 @@ approval (`approve_cut`) sits between planning and execution.
 ## The loop
 
 1. `auto_edit(action="start_brief", params={files, music?, genre?, deliverable?,
-   target_duration_seconds?, title_text?})` — validates media, scaffolds
+   target_duration_seconds?, title_text?, options?})` — validates media, scaffolds
    Footage/Music bins, kicks the analysis batch.
    **`genre` selects the decision layer**: `"talking_head"` (default) or
    `"montage"`. Montage additionally *requires* `music` — its length sets the
    runtime; `target_duration_seconds` still applies there but only as a **cap**
    (`min(track, target)`), never to stretch past the track. Montage ignores
    `title_text` — its plans carry no titles (see step 5 for how to add one).
-   `deliverable` defaults to `"youtube_1080p"`.
+
+   **`options` — vision is what makes a montage possible at all.** Montage
+   builds its entire candidate pool, and its `select_potential` ranking, from
+   vision-derived shot descriptions: the `shots` table has one writer, fed only
+   by the vision pass. **`genre="montage"` therefore defaults `options.vision`
+   to `true`** (talking-head still defaults it off — transcription carries that
+   genre). Passing `options={"vision": false}` on a montage is honoured but
+   warned about, and it will fail at step 3. `start_brief` returns
+   `vision_enabled` — check it. Other keys: `options={"sampling_mode": …}`.
+
+   **Failure signature to recognise:** a `plan_cut` error of `"no usable
+   shots"` or `"not enough distinct shots"` means the vision pass never ran.
+   Both errors now carry a `remediation` string. The fix is to re-run
+   `start_brief` with `options={"vision": true}`, or to run `media_analysis`
+   with vision enabled over the same clips — not to retry `plan_cut`.
+
+   **`deliverable` is a stored label only** — it is validated and saved, and
+   nothing downstream reads it. It does not select an output spec, so
+   `"youtube_1080p"` (the default) does not make the render 1080p. The render is
+   controlled at step 8 by `render={target_dir, format?, codec?, settings?}`;
+   discover valid values with `render(probe_render_matrix)` or
+   `render(list_presets)`.
 2. Poll `brief_status(brief_id)`. While the job runs, complete any
    `commit_vision` handoffs the analysis requests (host reads frames, returns
    JSON) — deep passes feed better cut decisions.

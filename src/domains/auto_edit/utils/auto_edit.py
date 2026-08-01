@@ -33,6 +33,12 @@ BRIEF_KIND = "auto_edit_brief"
 # here — this module stays unaware of montage's own rules to avoid a
 # circular import (montage_edit already imports this module).
 GENRES = {"talking_head", "montage"}
+# Genres whose candidate pool is vision-derived and which therefore cannot plan
+# at all without the vision pass (#193 phase 1). Montage reads the `shots`
+# table, whose only writer is fed by `visual.shot_descriptions` — a vision-only
+# artifact. Keep this next to GENRES: a new vision-planned genre must be added
+# here or it inherits talking-head's vision-off default and fails in plan_cut.
+VISION_REQUIRED_GENRES = {"montage"}
 BRIEF_STATES = (
     "created", "analyzing", "ready", "planned", "approved", "built", "finished",
 )
@@ -130,6 +136,37 @@ def validate_brief_inputs(
     if title_text is not None and not isinstance(title_text, str):
         errors.append("title_text must be a string when given")
     return errors
+
+
+def resolve_vision_default(
+    genre: Any, options: Any = None,
+) -> Tuple[bool, Optional[str]]:
+    """Decide whether ``start_brief`` kicks its analysis batch with the vision
+    pass on, and warn when the caller has asked for something that cannot work.
+
+    Returns ``(enabled, warning_or_None)``.
+
+    Vision is off by default because it needs an interactive host to commit
+    frames, which an autonomous brief cannot satisfy — except for the genres in
+    ``VISION_REQUIRED_GENRES``, which have no candidate pool without it. For
+    those, off is not a conservative default but a guaranteed failure two steps
+    later in ``plan_cut``, so the default flips. An explicit
+    ``options={"vision": False}`` is always honoured — the caller may be
+    analysing those clips separately — but on a vision-required genre it is
+    warned about at the step where it is still cheap to fix.
+    """
+    opts = options if isinstance(options, dict) else {}
+    requires_vision = str(genre) in VISION_REQUIRED_GENRES
+    if "vision" not in opts:
+        return requires_vision, None
+    enabled = bool(opts.get("vision"))
+    if requires_vision and not enabled:
+        return False, (
+            f'genre="{genre}" with options={{"vision": false}}: this genre builds its shot '
+            "pool from vision-derived shot descriptions, so plan_cut will fail with "
+            '"no usable shots found for the candidate clips". Re-run start_brief with '
+            'options={"vision": true} unless these clips already carry a vision pass.')
+    return enabled, None
 
 
 def create_brief(

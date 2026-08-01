@@ -64,6 +64,8 @@ from src.domains.media_analysis.utils.capabilities_and_planning import (
     analysis_request_signature,
     build_plan,
     detect_capabilities,
+    record_is_audio_only,
+    visual_analysis_completed,
     vision_is_pending_host_analysis,
 )
 from src.domains.media_analysis.utils.technical_probe import (
@@ -356,6 +358,30 @@ class TimelineProjectStub:
 
     def GetCurrentTimeline(self):
         return self.timeline
+
+
+class RecordIsAudioOnlyTest(unittest.TestCase):
+    """#207: media_type gating that keeps a vision pass from being requested
+    against (and then failing) an audio-only clip."""
+
+    def test_audio_media_type_detected_case_insensitively(self):
+        self.assertTrue(record_is_audio_only({"media_type": "Audio"}))
+        self.assertTrue(record_is_audio_only({"media_type": "AUDIO"}))
+        self.assertTrue(record_is_audio_only({"media_type": "  audio  "}))
+
+    def test_video_and_missing_media_type_are_not_audio(self):
+        self.assertFalse(record_is_audio_only({"media_type": "Video"}))
+        self.assertFalse(record_is_audio_only({"media_type": None}))
+        self.assertFalse(record_is_audio_only({}))
+        self.assertFalse(record_is_audio_only(None))
+
+    def test_not_applicable_status_is_not_a_completed_vision_pass(self):
+        """not_applicable must count neither as completed (it extracted
+        nothing) nor — critically, checked at the execute_engine call site —
+        as a failure, the same as skipped/disabled/pending_host_analysis."""
+        vision = {"success": True, "status": "not_applicable",
+                  "reason": "clip is audio-only; visual analysis does not apply"}
+        self.assertFalse(visual_analysis_completed(vision))
 
 
 class MediaAnalysisPlanningTests(unittest.TestCase):
@@ -3369,6 +3395,69 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
             self.assertTrue(clip_row["visual"]["frame_paths"])
             self.assertEqual(clip_row["visual"]["commit_action"]["action"], "commit_vision")
             self.assertEqual(sorted(os.listdir(source_dir)), ["synthetic_requires_vision.mp4"])
+
+    def _write_synthetic_audio(self, source):
+        cmd = [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "sine=frequency=1000:duration=2",
+            "-c:a", "aac", source,
+        ]
+        subprocess.run(cmd, check=True)
+
+    def test_execute_does_not_fail_audio_clip_for_missing_vision(self):
+        """#207: analyze_bin resolves the parent Master folder recursively and
+        can pick up an audio-only clip (e.g. the music bin) alongside video —
+        requesting vision on it must not fail that clip or the manifest."""
+        if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+            self.skipTest("ffmpeg/ffprobe not installed")
+        with tempfile.TemporaryDirectory() as tmp:
+            source_dir = os.path.join(tmp, "source")
+            analysis_dir = os.path.join(tmp, "davinci-resolve-mcp-analysis-audio-vision")
+            os.makedirs(source_dir)
+            source = os.path.join(source_dir, "synthetic_audio_only.m4a")
+            self._write_synthetic_audio(source)
+
+            records = [{
+                "clip_id": "clip-audio-only",
+                "clip_name": "synthetic_audio_only.m4a",
+                "file_path": source,
+                "media_id": "media-audio-only",
+                "media_type": "Audio",
+            }]
+            params = {
+                "analysis_root": analysis_dir,
+                "depth": "standard",
+                "dry_run": False,
+                "session_only": True,
+                "cleanup_frames": False,
+                "max_analysis_frames": 1,
+                "transcription": {"enabled": False},
+                "vision": {"enabled": True, "provider": HOST_CHAT_PATHS_PROVIDER},
+            }
+            caps = detect_capabilities(env={})
+            plan = build_plan(
+                project_name="Example Project",
+                project_id="project-audio-only",
+                records=records,
+                target={"type": "file", "path": source},
+                params=params,
+                capabilities=caps,
+            )
+
+            manifest = execute_plan(plan, params=params, capabilities=caps)
+
+            self.assertTrue(plan["success"])
+            self.assertTrue(manifest["success"], manifest)
+            self.assertEqual(manifest["failed_clip_count"], 0)
+            self.assertEqual(manifest["successful_clip_count"], 1)
+            self.assertNotIn("error", manifest)
+            clip_row = manifest["clips"][0]
+            self.assertTrue(clip_row["success"], clip_row)
+            self.assertNotIn("vision_status", clip_row)
+            with open(clip_row["analysis_json"], "r", encoding="utf-8") as handle:
+                analysis = json.load(handle)
+            self.assertEqual(analysis["visual"]["status"], "not_applicable")
+            self.assertTrue(analysis["visual"]["success"])
 
     def test_execute_with_custom_vision_runner_writes_structured_visual_report(self):
         """A custom vision_runner (e.g. a future provider) can short-circuit the

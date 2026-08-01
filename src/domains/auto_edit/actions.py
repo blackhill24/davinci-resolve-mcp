@@ -2510,6 +2510,17 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         render = p.get("render") if isinstance(p.get("render"), dict) else None
         motion_opts = p.get("motion") if isinstance(p.get("motion"), dict) else None
         if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+            # #207: motion={} / subtitles={} are the documented way to turn
+            # each pass ON WITH DEFAULTS — bool({}) is False, so a plain
+            # truthiness check reported the headline effect as disabled right
+            # before the confirm gate that authorizes it. Show what will
+            # actually happen instead of coercing "present but empty" into
+            # "absent". grade has no such case: an empty grade dict has
+            # nothing in it to apply (no lut_path/cdl/drx_path/match) and
+            # empty-vs-absent are genuinely equivalent there.
+            motion_preview: Dict[str, Any] = {"enabled": motion_opts is not None}
+            if motion_opts is not None:
+                motion_preview["look"] = bool(motion_opts.get("look", True))
             return _issue_confirm_token(
                 action="auto_edit.finish", params=p,
                 preview={
@@ -2519,8 +2530,8 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                     "timeline": built_name,
                     "target": target,
                     "grade": {k: v for k, v in (grade or {}).items() if k != "cdl"},
-                    "subtitles": bool(subtitles),
-                    "motion": bool(motion_opts),
+                    "subtitles": {"enabled": subtitles is not None},
+                    "motion": motion_preview,
                     "render_target": (render or {}).get("target_dir"),
                 },
             )
@@ -2699,7 +2710,12 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                 f"{montage_map_stats['item_count']} V1 items for "
                 f"{montage_map_stats['planned_segments']} plan segments.")
 
-        if subtitles:
+        if subtitles is not None:
+            # Matches motion_opts's contract just above: subtitles={} is a
+            # legitimate "generate with default settings" request (#207) —
+            # `if subtitles:` silently did nothing for it, the same bug the
+            # confirm-token preview had, but here it meant the real pass
+            # never ran at all rather than just misreporting it.
             result["subtitles"] = _safe_create_subtitles(tl, subtitles)
 
         if render:

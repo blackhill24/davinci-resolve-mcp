@@ -535,6 +535,17 @@ def vision_requested(options: Dict[str, Any]) -> bool:
     return _coerce_bool((options.get("vision") or {}).get("enabled"), default=False)
 
 
+def record_is_audio_only(record: Dict[str, Any]) -> bool:
+    """True when the clip's own media_type marks it audio (#207).
+
+    An audio clip has no picture, so a vision pass over it always comes back
+    with zero sampled frames — that used to be indistinguishable from a real
+    vision failure and failed the whole clip (and the batch manifest) even
+    though every applicable layer succeeded.
+    """
+    return str((record or {}).get("media_type") or "").strip().lower() == "audio"
+
+
 def vision_is_pending_host_analysis(vision: Dict[str, Any]) -> bool:
     if not isinstance(vision, dict):
         return False
@@ -547,7 +558,7 @@ def visual_analysis_completed(vision: Dict[str, Any]) -> bool:
     if not vision.get("success"):
         return False
     status = str(vision.get("status") or "").strip().lower()
-    if status in {"skipped", "disabled", "pending_host_analysis"}:
+    if status in {"skipped", "disabled", "pending_host_analysis", "not_applicable"}:
         return False
     return bool(
         vision.get("clip_summary")

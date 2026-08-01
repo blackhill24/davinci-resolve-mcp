@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from src.domains.media_analysis.utils import analysis_memory
 
 from src.domains.media_analysis.utils.analysis_index_build import build_analysis_index
-from src.domains.media_analysis.utils.capabilities_and_planning import analysis_request_signature, detect_capabilities, vision_is_pending_host_analysis, vision_requested, vision_uses_chat_context, visual_analysis_completed
+from src.domains.media_analysis.utils.capabilities_and_planning import analysis_request_signature, detect_capabilities, record_is_audio_only, vision_is_pending_host_analysis, vision_requested, vision_uses_chat_context, visual_analysis_completed
 from src.domains.media_analysis.utils.caps_gating import ANALYSIS_VERSION, AVG_VISION_TOKENS_PER_FRAME, DEFAULT_DEPTH, DEFAULT_TRANSCRIPTION_ENABLED, _annotate_clip_vision_failure, _annotate_manifest_caps_refusal, _annotate_partial_success, _coerce_bool, _resolve_source_trust
 from src.domains.media_analysis.utils.clip_identity_registry import _is_relative_to, normalize_path, update_analysis_registry
 from src.domains.media_analysis.utils.marker_plan import _analysis_fps, _build_clip_marker_plan
@@ -356,10 +356,22 @@ async def execute_plan_async(
                 _write_json(artifacts["motion_json"], motion)
 
         transcript = _transcribe(source, artifacts, options, caps)
-        vision = await _maybe_run_vision_analysis(record, motion, options, artifacts, caps, vision_runner)
+        # An audio clip has no picture — a vision pass over it always comes
+        # back with zero sampled frames, indistinguishable from a real
+        # failure. Skip the call outright rather than run it just to report
+        # it as not-applicable (#207).
+        clip_is_audio = record_is_audio_only(record)
+        if vision_requested(options) and clip_is_audio:
+            vision: Dict[str, Any] = {
+                "success": True, "status": "not_applicable",
+                "reason": "clip is audio-only; visual analysis does not apply",
+            }
+        else:
+            vision = await _maybe_run_vision_analysis(record, motion, options, artifacts, caps, vision_runner)
         vision_pending = vision_is_pending_host_analysis(vision)
         vision_failed = (
             vision_requested(options)
+            and not clip_is_audio
             and not vision_pending
             and not visual_analysis_completed(vision)
         )

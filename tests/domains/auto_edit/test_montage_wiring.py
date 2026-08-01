@@ -425,8 +425,13 @@ class PolishedItemMappingTests(unittest.TestCase):
         return segs
 
     def _map(self, items, segments, title_offset=0):
-        return list(s._map_montage_items_to_segments(
-            items, segments, title_offset, record_offset=title_offset))
+        pairs, _stats = s._map_montage_items_to_segments(
+            items, segments, title_offset, record_offset=title_offset)
+        return pairs
+
+    def _map_with_stats(self, items, segments, title_offset=0):
+        return s._map_montage_items_to_segments(
+            items, segments, title_offset, record_offset=title_offset)
 
     def test_built_timeline_maps_one_to_one(self):
         segments = self._segments(4)
@@ -470,6 +475,50 @@ class PolishedItemMappingTests(unittest.TestCase):
         segments = self._segments(3)
         pairs = self._map([_Opaque() for _ in range(3)], segments)
         self.assertEqual([p[1] for p in pairs], [0, 1, 2])
+
+    def test_stats_report_no_unmatched_when_every_segment_is_found(self):
+        # issue #203: the happy path must carry zero unmatched segments and
+        # matched_segments == planned_segments == item_count.
+        segments = self._segments(4)
+        items = [self._Item(i * 24) for i in range(4)]
+        _pairs, stats = self._map_with_stats(items, segments)
+        self.assertEqual(stats["mode"], "record_frame")
+        self.assertEqual(stats["item_count"], 4)
+        self.assertEqual(stats["planned_segments"], 4)
+        self.assertEqual(stats["matched_segments"], 4)
+        self.assertEqual(stats["unmatched_segment_indices"], [])
+
+    def test_stats_name_unmatched_segments_when_the_polished_timeline_lost_items(self):
+        # issue #203's own scenario: polish_timeline dropped an item, so V1
+        # has fewer items than the plan has segments. A record-frame match
+        # that isn't total (any dropped item) untrusts itself and falls to
+        # the positional walk (the existing, unchanged, "trust only a full
+        # explanation" gate) — the mapper must still say WHICH segments it
+        # couldn't find, not just silently match fewer.
+        segments = self._segments(4)
+        # Segment 2's item never made it onto the polished timeline; the
+        # positional walk (item_offset=0 here) pairs items 0,1,2 to segments
+        # 0,1,2 and never reaches segment 3 — it has no 4th item to consume.
+        items = [self._Item(0), self._Item(24), self._Item(72)]
+        pairs, stats = self._map_with_stats(items, segments)
+        self.assertEqual(stats["mode"], "positional")
+        self.assertEqual(stats["item_count"], 3)
+        self.assertEqual(stats["planned_segments"], 4)
+        self.assertEqual(stats["matched_segments"], 3)
+        self.assertEqual(stats["unmatched_segment_indices"], [3])
+        self.assertEqual(sorted(p[1] for p in pairs), [0, 1, 2])
+
+    def test_stats_report_unmatched_on_the_positional_fallback_path_too(self):
+        class _Opaque:
+            def GetStart(self):
+                return None
+
+        segments = self._segments(4)
+        # Only 3 opaque items for 4 segments (no title offset): positional
+        # walk pairs indices 0, 1, 2 and never reaches segment 3.
+        _pairs, stats = self._map_with_stats([_Opaque() for _ in range(3)], segments)
+        self.assertEqual(stats["mode"], "positional")
+        self.assertEqual(stats["unmatched_segment_indices"], [3])
 
 
 class MontageCameraAudioTests(unittest.TestCase):

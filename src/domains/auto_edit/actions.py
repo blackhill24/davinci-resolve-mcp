@@ -1095,6 +1095,15 @@ def _map_montage_items_to_segments(items, segments, title_offset, *, record_offs
     and a transition's own start matches no segment, so it drops out
     instead of consuming a segment. Falls back to the proven positional
     walk when start frames can't be read.
+
+    Returns ``(pairs, stats)``: ``pairs`` is a list of ``(item, seg_idx, seg)``
+    triples (the matching logic is unchanged — this only stops discarding
+    what it already knew). ``stats`` is ``{"mode", "item_count",
+    "planned_segments", "matched_segments", "unmatched_segment_indices"}`` —
+    a caller that used to read `len(items)` as its denominator silently
+    reported "0 applied" and "N of N" for a segment that was simply dropped,
+    indistinguishable from a segment that legitimately had no directive
+    (issue #203).
     """
     item_offset = 1 if title_offset > 0 else 0
     starts = []
@@ -1124,13 +1133,29 @@ def _map_montage_items_to_segments(items, segments, title_offset, *, record_offs
         # Only trust it if it explains essentially the whole cut; a partial
         # match means the assumption is off and positional is the safer bet.
         if len(matched) >= len(segments):
-            for pair in matched:
-                yield pair
-            return
+            unmatched = [i for i in range(len(segments)) if i not in used]
+            return matched, {
+                "mode": "record_frame",
+                "item_count": len(items),
+                "planned_segments": len(segments),
+                "matched_segments": len(used),
+                "unmatched_segment_indices": unmatched,
+            }
+    pairs = []
+    matched_idxs = set()
     for i, item in enumerate(items):
         seg_idx = i - item_offset
         if 0 <= seg_idx < len(segments):
-            yield item, seg_idx, segments[seg_idx]
+            pairs.append((item, seg_idx, segments[seg_idx]))
+            matched_idxs.add(seg_idx)
+    unmatched = [i for i in range(len(segments)) if i not in matched_idxs]
+    return pairs, {
+        "mode": "positional",
+        "item_count": len(items),
+        "planned_segments": len(segments),
+        "matched_segments": len(matched_idxs),
+        "unmatched_segment_indices": unmatched,
+    }
 
 
 def _compute_beat_alignment(
@@ -2100,6 +2125,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         (never left at the project default); the speed ramp itself is authored
         by polish_timeline's retime_clip op, which the scripting API cannot do.
         """
+        nonlocal montage_map_stats
         segments = plan.get("segments") or []
         fps = float(plan.get("fps") or 24.0)
         items = tl.GetItemListInTrack("video", 1) or []
@@ -2111,8 +2137,20 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         look_applied = 0
         letterbox_applied = 0
         errors: List[str] = []
-        for item, seg_idx, seg in _map_montage_items_to_segments(
-                items, segments, title_offset, record_offset=title_offset):
+        # Denominators are what the PLAN asked for, not what the mapper
+        # matched — a segment the mapper couldn't find an item for still
+        # counts toward "planned" (issue #203). Flags on unmatched segments
+        # are tallied separately below for the shortfall warning.
+        planned_motion = sum(1 for seg in segments if seg.get("motion"))
+        planned_flash = sum(1 for seg in segments if seg.get("flash"))
+        planned_shake = sum(1 for seg in segments if seg.get("shake") and seg.get("motion"))
+        planned_fadeout = sum(1 for seg in segments if seg.get("fadeout"))
+        planned_retime = sum(1 for seg in segments if seg.get("retime"))
+        planned_look = len(segments) if look else 0
+
+        pairs, montage_map_stats = _map_montage_items_to_segments(
+            items, segments, title_offset, record_offset=title_offset)
+        for item, seg_idx, seg in pairs:
             motion = seg.get("motion")
             flash = bool(seg.get("flash"))
             retime = bool(seg.get("retime"))
@@ -2364,14 +2402,20 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                     errors.append(f"segment {seg_idx}: retime failed: {type(exc).__name__}: {exc}")
 
         result = {
-            "motion": {"applied": motion_applied},
-            "flash": {"applied": flash_applied},
-            "shake": {"applied": shake_applied},
-            "fadeout": {"applied": fadeout_applied},
-            "look": {"applied": look_applied, "letterbox_applied": letterbox_applied,
+            # `of` is the count of PLANNED segments carrying this flag — not
+            # the count of segments the mapper actually found an item for
+            # (issue #203). A segment the mapper couldn't match still counts
+            # here, so e.g. fadeout: {applied: 0, of: 1} is distinguishable
+            # from a plan that simply had no fadeout at all.
+            "motion": {"applied": motion_applied, "of": planned_motion},
+            "flash": {"applied": flash_applied, "of": planned_flash},
+            "shake": {"applied": shake_applied, "of": planned_shake},
+            "fadeout": {"applied": fadeout_applied, "of": planned_fadeout},
+            "look": {"applied": look_applied, "of": planned_look,
+                     "letterbox_applied": letterbox_applied, "letterbox_of": planned_look,
                      "note": "per-clip vignette/grain/letterbox — InsertGeneratorIntoTimeline "
                              "track targeting is unreliable (verified live), see module note"},
-            "retime": {"applied": retime_applied, "process": "optical_flow"},
+            "retime": {"applied": retime_applied, "of": planned_retime, "process": "optical_flow"},
         }
         if errors:
             result["errors"] = errors
@@ -2435,6 +2479,11 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             return _err(f"Could not make timeline '{built_name}' current; refusing to "
                         "grade/render, which would target the wrong timeline")
         result: Dict[str, Any] = {"success": True, "timeline": built_name, "target": target}
+        # Set by grade.match and/or the motion pass below when either maps
+        # V1 items back to plan segments — whichever ran last wins, but both
+        # read the same items/segments/title_offset so they agree when both
+        # run (issue #203's evidence: grade + motion in the same finish call).
+        montage_map_stats: Optional[Dict[str, Any]] = None
 
         if grade:
             graded: Dict[str, Any] = {}
@@ -2468,8 +2517,9 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                 # polished timeline's cross-dissolve items don't shift every
                 # shot after the first dissolve onto the wrong bucket (#193
                 # phase 6.2.5). This loop used to walk positions inline.
-                for item, _seg_idx, seg in _map_montage_items_to_segments(
-                        items, segments, title_offset, record_offset=title_offset):
+                pairs, montage_map_stats = _map_montage_items_to_segments(
+                    items, segments, title_offset, record_offset=title_offset)
+                for item, _seg_idx, seg in pairs:
                     bucket = seg.get("look_bucket")
                     bucket_grade = match_map.get(bucket) if bucket else None
                     if not isinstance(bucket_grade, dict):
@@ -2490,7 +2540,13 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                             by_bucket[bucket] = by_bucket.get(bucket, 0) + 1
                     except Exception as exc:
                         match_errors.append(f"{type(exc).__name__}: {exc}")
-                graded["match"] = {"applied": ok_count, "of": len(items), "by_bucket": by_bucket}
+                # `of` is the PLANNED segment count, not len(items) — a
+                # polished timeline can have fewer V1 items than the plan has
+                # segments (issue #203), and len(items) silently absorbed that
+                # shortfall into a denominator that then read as "complete."
+                graded["match"] = {"applied": ok_count, "of": len(segments), "by_bucket": by_bucket}
+                if montage_map_stats["unmatched_segment_indices"]:
+                    graded["match"]["unmatched_segments"] = montage_map_stats["unmatched_segment_indices"]
                 # Report the destructive combinations rather than letting the
                 # host read `applied: N/N` and believe the match survived
                 # (#193 phase 2.2). Named here, at the moment they are known.
@@ -2565,6 +2621,28 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             title_offset = int(((plan.get("execution_summary") or {}).get("title") or {}).get("record_offset") or 0)
             result.update(_apply_montage_motion(
                 tl, plan, title_offset=title_offset, look=bool(motion_opts.get("look", True))))
+
+        # Top-level shortfall warning (issue #203): grade.match and/or the
+        # motion pass above set montage_map_stats when either mapped V1 items
+        # back to plan segments. Compose ONE warning naming exactly which
+        # flags were lost on the unmatched segments, rather than making a
+        # host diff per-field `applied`/`of` counts by hand to notice.
+        if montage_map_stats and montage_map_stats["unmatched_segment_indices"]:
+            unmatched_idxs = montage_map_stats["unmatched_segment_indices"]
+            segments_for_warning = plan.get("segments") or []
+            lost_counts = {
+                "motion": sum(1 for i in unmatched_idxs if segments_for_warning[i].get("motion")),
+                "flash": sum(1 for i in unmatched_idxs if segments_for_warning[i].get("flash")),
+                "fadeout": sum(1 for i in unmatched_idxs if segments_for_warning[i].get("fadeout")),
+                "retime": sum(1 for i in unmatched_idxs if segments_for_warning[i].get("retime")),
+            }
+            lost_desc = ", ".join(
+                f"{n} {flag}" for flag, n in lost_counts.items() if n) or "no flagged directives"
+            result["warning"] = (
+                f"{len(unmatched_idxs)} plan segment(s) had no matching timeline item on "
+                f"{built_name!r} — {lost_desc} not applied. The {target} timeline has "
+                f"{montage_map_stats['item_count']} V1 items for "
+                f"{montage_map_stats['planned_segments']} plan segments.")
 
         if subtitles:
             result["subtitles"] = _safe_create_subtitles(tl, subtitles)

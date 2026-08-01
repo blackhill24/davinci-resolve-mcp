@@ -391,6 +391,40 @@ class TitleRevisionBeatLockTests(unittest.TestCase):
         self.assertTrue(out["plan"].get("beat_lock_broken"))
 
 
+class SkillDocRelaysTheGatesTests(unittest.TestCase):
+    """#193 phase 4 — the three flags a montage host must relay.
+
+    A green plan can still be a structurally different cut than the user
+    asked for (`grid_available: false`), a revision can silently be off the
+    grid (`beat_lock_broken`), and a colour match can report `applied: N/N`
+    while changing nothing (`look_bucket_basis: "default"`). None of the three
+    was named in the skill, so the host could not report any of them. This
+    guards the doc against drifting back.
+    """
+
+    def _skill(self):
+        return (pathlib.Path(__file__).resolve().parents[3]
+                / ".claude" / "skills" / "resolve-auto-edit" / "SKILL.md").read_text(encoding="utf-8")
+
+    def test_skill_names_every_flag_the_host_must_relay(self):
+        skill = self._skill()
+        for key in ("grid_available", "beat_lock_broken", "look_bucket_basis"):
+            self.assertIn(key, skill, f"SKILL.md never names {key}")
+
+    def test_skill_explains_the_no_grid_montage(self):
+        skill = self._skill()
+        # The consequence, not just the flag name.
+        self.assertIn("MIN_TEMPO_CONFIDENCE", skill)
+        self.assertIn("onset-density", skill)
+
+    def test_every_relayed_flag_is_really_on_the_plan(self):
+        # The doc must not name keys the planner doesn't produce.
+        source = (pathlib.Path(__file__).resolve().parents[3] / "src" / "domains"
+                  / "auto_edit" / "utils" / "montage_edit.py").read_text(encoding="utf-8")
+        self.assertIn('plan["grid_available"]', source)
+        self.assertIn('plan["look_bucket_basis"]', source)
+
+
 class ScoutTokenRoundTripTests(unittest.TestCase):
     """#193 phase 2.4 — the scout offer renamed its token on the way back.
 

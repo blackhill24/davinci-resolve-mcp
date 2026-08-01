@@ -68,6 +68,21 @@ Changing any other parameter invalidates the token and you get a fresh one.
    back under a key the action does not read is silent — you get the identical
    offer again, forever, with no error — so if a second `plan_cut` returns the
    same offer, that is the bug to check first.
+   **After `plan_cut`, read `plan["grid_available"]` and say which montage the
+   user actually got.** It is not a detail — it selects between two
+   structurally different cuts, and everything downstream rides on it:
+
+   | `grid_available` | what you got | what that means downstream |
+   |---|---|---|
+   | `true` | a beat-locked cut: shots start on beats, sections arranged into intro/build/drop/breathe/high/accelerate/outro | `motion={}` gives the full beat-locked pass; `retime`/`flash`/`shake`/`fadeout` flags exist; the summary carries Section + Beats; `beat_alignment` appears in the build readback |
+   | `false` | an onset-density cut: cut lengths follow how busy the audio is, no arrangement at all | segments carry no `motion` and no arrangement flags, so `motion={}` applies **only** vignette/grain/letterbox, `polish_timeline` has nothing to author, and there are no speed ramps, flashes or shakes to promise |
+
+   The gate is the tempo confidence: below `MIN_TEMPO_CONFIDENCE` the tempogram's
+   winner didn't beat the runner-up clearly enough to schedule an arrangement on,
+   so no beat grid is produced at all. `plan["problems"]` says so in words. This
+   is honest degradation, not a failure — but telling the user "cut to the beat"
+   when `grid_available` is `false` is a false claim, so don't.
+
 4. **Show the summary to the user verbatim.** This is the checkpoint artifact.
    Talking-head: runtime, segment table with transcript excerpts, removed-cut
    counts, title, music line and the music-bed consent line. Montage renders a
@@ -158,6 +173,15 @@ Changing any other parameter invalidates the token and you get a fresh one.
      matched. If you want both a shot match and a strong look, use
      `match` + `lut_path`; if the look is a DRX or a single uniform CDL, drop
      `match` rather than stacking them.
+     **Read `plan["look_bucket_basis"]` before reporting a match.** It says what
+     the buckets were actually derived from: `scout` (scouted dominant colour —
+     the good case), `ffmpeg_signature` (a cheap brightness/tone read),
+     `mixed`, or `default`. On `default` no colour data existed at all, every
+     clip landed in one neutral bucket, and the match CDL is an identity — yet
+     `finish` still returns `{"applied": 13, "of": 13}`, because that counts
+     SetCDL calls that succeeded, not shots that changed. Say "colour matching
+     did not actually run" in that case rather than reporting a successful
+     match that changed nothing.
    - `qc` runs on montage after a successful render, returning a host-vision
      handoff. Disable with `qc=false`.
    - On Linux, `subtitles` hits a `SUBTITLE_GENERATION_CRASH_GUARD` refusal
@@ -187,11 +211,11 @@ knob, say so instead of inventing one.
 | "leave it clean / no effects" | omit `motion` entirely |
 | "cinematic" | `motion={}` — vignette, grain and letterbox ride along |
 | "lose the letterbox/grain" | `motion={"look": false}` |
-| "make the shots match" | `grade={"match": plan["look_buckets"]}` — the plan already computed them |
+| "make the shots match" | `grade={"match": plan["look_buckets"]}` — the plan already computed them. Check `plan["look_bucket_basis"]` first: on `default` there was no colour data, so the match is an identity CDL that changes nothing (and still reports `applied: N/N`) |
 | "apply my LUT / this look" | `grade={"lut_path": …}` — the only look that composes ON TOP of `match` (SetLUT is a separate node control). A uniform `cdl` or a `drx_path` REPLACES the per-bucket match, so pick one: `match`+`lut_path`, or `cdl`/`drx_path` without `match`. Check `grade.match.overwritten_by` in the result |
-| "add dissolves" | `polish_timeline(options={"no_dissolves": false})` — montage suppresses them by default |
-| "add some slow-mo" | already planned — but you don't place it: `retime` is raised on `build` and `accelerate` sections only. `polish_timeline` authors the real ramp, so render it with `finish(target="polished")` |
-| "flash / shake on that hit" | not addressable either — `flash` fires on every section-opening downbeat, `shake` on `drop`/`high`, `fadeout` on the outro's last shot. Take them or leave them (`motion` omitted) |
+| "add dissolves" | `polish_timeline(options={"no_dissolves": false})` — montage suppresses them by default. Only a cut opening a `breathe` section gets one, and `breathe` is an arrangement section, so this does nothing unless `grid_available` is true |
+| "add some slow-mo" | already planned — but you don't place it: `retime` is raised on `build` and `accelerate` sections only, which exist **only when `grid_available` is true**. `polish_timeline` authors the real ramp, so render it with `finish(target="polished")`. On a non-grid plan there is no slow-mo to render and no parameter that adds one |
+| "flash / shake on that hit" | not addressable either — `flash` fires on every section-opening downbeat, `shake` on `drop`/`high`, `fadeout` on the outro's last shot. Take them or leave them (`motion` omitted). All three are arrangement flags: on a plan with `grid_available: false` none of them exist, and `motion={}` then applies only vignette/grain/letterbox |
 | "check it before you call it done" | let `qc` run, look at the frames, `commit_qc` |
 | "just render it" | `finish(render={target_dir}, qc=false)` |
 

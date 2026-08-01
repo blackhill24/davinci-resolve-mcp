@@ -50,6 +50,28 @@ MOTION_ZOOM_RANGE: Dict[str, Tuple[float, float]] = {
 }
 DEFAULT_ZOOM_RANGE = (1.0, 1.02)
 
+# Per-shot zoom variation (#193 phase 6.2.2). Every shot in a section used to
+# get the IDENTICAL range and every move was a push in — no pull-outs, no
+# variation, which reads as mechanical however well the cuts land.
+#
+# The variation is a deterministic function of the shot's index, never random:
+# a plan is a saved, re-loadable artifact that a revision re-derives, so the
+# same cut must produce the same move every time it is planned. The cycle
+# alternates direction and scales the span, and it starts on a push so the
+# hook still opens by pushing in.
+#
+# Pull-outs are safe: every range in MOTION_ZOOM_RANGE sits at or above 1.0,
+# so reversing one eases from zoomed-in back to frame rather than under-scanning
+# past the edges.
+ZOOM_VARIATION_CYCLE: Tuple[Tuple[bool, float], ...] = (
+    (False, 1.00),   # push in, full span
+    (True, 0.85),    # pull out, slightly gentler
+    (False, 1.20),   # push in, further
+    (True, 1.00),    # pull out, full span
+    (False, 0.75),   # push in, subtle
+    (True, 1.20),    # pull out, further
+)
+
 # Decaying beat-pulse amplitude per section — bigger on the sections phase 2
 # already reads as high-energy (the same sections that get the `flash`/
 # `shake` flags).
@@ -97,13 +119,27 @@ MONTAGE_RETIME_SPEED: Dict[str, float] = {
 DEFAULT_RETIME_SPEED = 0.5
 
 
-def compute_motion_directive(section: Optional[str], *, beat_seconds: float) -> Dict[str, Any]:
+def compute_motion_directive(
+    section: Optional[str], *, beat_seconds: float, variation_index: int = 0,
+) -> Dict[str, Any]:
     """The ``{zoom_start, zoom_end, amp, beat_seconds}`` directive for a
     grid-locked segment's ``motion`` field. Only meaningful when the beat
     grid is confident (``beat_seconds > 0``) — callers leave ``motion: None``
     for fallback-mode segments, where there is no reliable beat to lock to.
+
+    ``variation_index`` (the segment's own index) selects this shot's entry in
+    ``ZOOM_VARIATION_CYCLE`` so the move alternates push/pull and changes
+    magnitude across a section instead of repeating one identical push.
+    Deterministic by design — a plan is re-derived on every revision and must
+    produce the same cut each time.
     """
     zoom_start, zoom_end = MOTION_ZOOM_RANGE.get(section or "", DEFAULT_ZOOM_RANGE)
+    # Vary the move per shot so a section isn't N identical pushes (#193).
+    reverse, scale = ZOOM_VARIATION_CYCLE[int(variation_index) % len(ZOOM_VARIATION_CYCLE)]
+    span = (zoom_end - zoom_start) * scale
+    zoom_start, zoom_end = ((zoom_start + span, zoom_start) if reverse
+                            else (zoom_start, zoom_start + span))
+    zoom_start, zoom_end = round(zoom_start, 6), round(zoom_end, 6)
     amp = MOTION_PULSE_AMP.get(section or "", DEFAULT_PULSE_AMP)
     return {
         "zoom_start": zoom_start,

@@ -5137,6 +5137,7 @@ from src.domains.auto_edit.actions import (
     _edit_engine_timeline_fps,
     _edit_engine_track_counts,
     _is_montage_plan,
+    _map_montage_items_to_segments,
     _strata_clip_ref,
     auto_edit,
     edit_engine,

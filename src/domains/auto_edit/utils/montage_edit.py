@@ -167,6 +167,18 @@ def _best_scout_in_point(scout_entries: Any) -> Optional[float]:
     return float(best["in_point_seconds"])
 
 
+# Coarse shot-size families for the variety rule (#193 phase 6.2.1). The
+# vision vocabulary is finer than the cut needs — what an audience reads is
+# wide-vs-close, so medium_close and close collapse together. "unknown" is a
+# real value, not a bucket to guess into: a shot with no size never blocks a
+# pick, it just carries no variety signal.
+_SHOT_SIZE_FAMILY: Dict[str, str] = {
+    "wide": "wide", "establishing": "wide", "medium_wide": "wide",
+    "medium": "medium", "insert": "medium",
+    "medium_close": "close", "close": "close", "extreme_close": "close",
+}
+
+
 def _candidate_shots(conn, clip_uuids: Sequence[str]) -> List[Dict[str, Any]]:
     """Every usable shot across the given clips, ranked by select_potential
     (shot-level deep vision, falling back to clip-level) with its pacing."""
@@ -201,6 +213,15 @@ def _candidate_shots(conn, clip_uuids: Sequence[str]) -> List[Dict[str, Any]]:
             fallback = _clip_level_select_potential(conn, str(shot["clip_uuid"]))
             if fallback:
                 rank = _SELECT_RANK.get(fallback, 0)
+        # Shot size (#193 phase 6.2.1). The vision pass records it per shot
+        # under `visual.shot_size`; nothing consumed it, so nothing alternated
+        # wide/medium/close — the loudest machine-cut tell. Normalised into
+        # coarse families because the raw vocabulary is finer than the edit
+        # needs: what reads on screen is wide-vs-close, not
+        # medium_close-vs-close.
+        visual = groups.get("visual") if isinstance(groups.get("visual"), dict) else {}
+        shot_size = _SHOT_SIZE_FAMILY.get(
+            str(visual.get("shot_size") or "").lower(), "unknown")
         pacing = str(editorial.get("pacing") or "unknown").lower()
         if pacing not in _PACING_ZONE:
             pacing = "unknown"
@@ -222,6 +243,7 @@ def _candidate_shots(conn, clip_uuids: Sequence[str]) -> List[Dict[str, Any]]:
             "fps": edit_engine._clip_fps(clip),
             "rank": rank,
             "pacing": pacing,
+            "shot_size": shot_size,
             "description": shot.get("description"),
             "preferred_in_point": preferred_in_point,
             "scout_in_point": scout_in_point,
@@ -555,7 +577,8 @@ class _ShotPool:
         self._rr_ptr = 0
 
     def _best_in_clip(self, clip_uuid: str, *, floor_rank: int, needed_seconds: float,
-                       density_ratio: float) -> Optional[Dict[str, Any]]:
+                       density_ratio: float,
+                       avoid_shot_size: Optional[str] = None) -> Optional[Dict[str, Any]]:
         shots = self._by_clip.get(clip_uuid, [])
         eligible = [s for s in shots
                     if s["rank"] >= floor_rank
@@ -564,13 +587,35 @@ class _ShotPool:
             return None
         zone_matches = [s for s in eligible if shot_fits_zone(s["pacing"], density_ratio)]
         pick_from = zone_matches or eligible
-        pick_from.sort(key=lambda s: (-s["rank"], -(s["time_seconds_end"] - s["cursor"])))
+        # Shot-size variety (#193 phase 6.2.1) is a TIEBREAK, never a filter:
+        # it sorts a differently-sized shot ahead of a same-sized one, but a
+        # higher-ranked shot still wins. Cutting wide/medium/close against
+        # each other is the single loudest difference between a hand cut and a
+        # machine one, and the vision pass already knew every shot's size —
+        # nothing had ever read it. "unknown" is neutral: it neither earns the
+        # bonus nor is penalised, so un-sized footage behaves exactly as before.
+        def _variety(shot: Dict[str, Any]) -> int:
+            if not avoid_shot_size or avoid_shot_size == "unknown":
+                return 0
+            size = shot.get("shot_size") or "unknown"
+            if size == "unknown":
+                return 0
+            return -1 if size != avoid_shot_size else 1
+
+        pick_from.sort(key=lambda s: (-s["rank"], _variety(s),
+                                      -(s["time_seconds_end"] - s["cursor"])))
         return pick_from[0]
 
     def pick(self, *, exclude_clip_uuid: Optional[str], floor_rank: int,
-             needed_seconds: float, density_ratio: float) -> Optional[Dict[str, Any]]:
+             needed_seconds: float, density_ratio: float,
+             avoid_shot_size: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Round-robin across clips (skipping `exclude_clip_uuid`), best shot
-        within the winning clip. Advances the rotation only on success."""
+        within the winning clip. Advances the rotation only on success.
+
+        `avoid_shot_size` is the previous cut's size family — a tiebreak that
+        prefers a different one, so the montage alternates wide/medium/close
+        instead of running several same-sized shots together.
+        """
         n = len(self._clip_order)
         for step in range(n):
             i = (self._rr_ptr + step) % n
@@ -579,7 +624,7 @@ class _ShotPool:
                 continue
             shot = self._best_in_clip(
                 clip_uuid, floor_rank=floor_rank, needed_seconds=needed_seconds,
-                density_ratio=density_ratio)
+                density_ratio=density_ratio, avoid_shot_size=avoid_shot_size)
             if shot is not None:
                 self._rr_ptr = (i + 1) % n
                 return shot
@@ -860,7 +905,8 @@ def build_cut_list_for_brief(
         if schedule:
             def _grid_segment(role: str, shot: Dict[str, Any], src_start_seconds: float,
                                record_start_frame: int, record_len: int,
-                               arrangement: Dict[str, Any], *, in_point_basis: str = "shot_start") -> Dict[str, Any]:
+                               arrangement: Dict[str, Any], *, in_point_basis: str = "shot_start",
+                               variation_index: int = 0) -> Dict[str, Any]:
                 # Source frames are in the SHOT'S OWN rate, the record length in
                 # the TIMELINE's — identical for a same-fps brief, and the only
                 # correct split once the brief is mixed (Resolve resamples
@@ -889,7 +935,13 @@ def build_cut_list_for_brief(
                 # tempo — grid_available already guarantees the beat grid, so
                 # tempo is always set whenever this branch runs.
                 seg["motion"] = (
-                    montage_motion.compute_motion_directive(arrangement["section"], beat_seconds=60.0 / tempo)
+                    montage_motion.compute_motion_directive(
+                        arrangement["section"], beat_seconds=60.0 / tempo,
+                        # The SHOT's ordinal, not its beat_index: cut lengths
+                        # are all even, so beat_index is always even and an
+                        # index-based cycle would only ever land on half its
+                        # entries (every move a push in). #193 phase 6.2.2.
+                        variation_index=variation_index)
                     if tempo else None
                 )
                 # Copy the arrangement's whole flag vocabulary, not a
@@ -911,8 +963,10 @@ def build_cut_list_for_brief(
             hook_src_start, _, hook_in_point_basis = _ShotPool.take(hook_internal, hook_record_len / fps)
             segments = [_grid_segment("montage_hook", hook, hook_src_start,
                                       beat_frames[hook_entry["beat_index"]], hook_record_len, hook_entry,
-                                      in_point_basis=hook_in_point_basis)]
+                                      in_point_basis=hook_in_point_basis,
+                                      variation_index=0)]
             last_clip_uuid = hook["clip_uuid"]
+            last_shot_size = hook.get("shot_size") or "unknown"
 
             max_density = max(
                 (local_onset_density(onsets, t) for t in trimmed_grid), default=0.0) or 1.0
@@ -933,7 +987,8 @@ def build_cut_list_for_brief(
                 while floor < len(_SELECT_TIERS) and chosen is None:
                     chosen = pool.pick(
                         exclude_clip_uuid=last_clip_uuid, floor_rank=_SELECT_RANK[_SELECT_TIERS[floor]],
-                        needed_seconds=needed_seconds, density_ratio=density_ratio)
+                        needed_seconds=needed_seconds, density_ratio=density_ratio,
+                        avoid_shot_size=last_shot_size)
                     floor += 1
 
                 if chosen is None:
@@ -944,7 +999,8 @@ def build_cut_list_for_brief(
                     while floor < len(_SELECT_TIERS) and chosen is None:
                         chosen = pool.pick(
                             exclude_clip_uuid=None, floor_rank=_SELECT_RANK[_SELECT_TIERS[floor]],
-                            needed_seconds=needed_seconds, density_ratio=density_ratio)
+                            needed_seconds=needed_seconds, density_ratio=density_ratio,
+                            avoid_shot_size=last_shot_size)
                         floor += 1
 
                 if chosen is None:
@@ -954,8 +1010,9 @@ def build_cut_list_for_brief(
                 src_start, _, in_point_basis = _ShotPool.take(chosen, needed_seconds)
                 segments.append(_grid_segment(
                     "montage", chosen, src_start, record_start_frame, record_len, entry,
-                    in_point_basis=in_point_basis))
+                    in_point_basis=in_point_basis, variation_index=len(segments)))
                 last_clip_uuid = chosen["clip_uuid"]
+                last_shot_size = chosen.get("shot_size") or "unknown"
 
             if truncated:
                 problems.append(
@@ -1143,7 +1200,13 @@ def render_montage_summary(plan: Dict[str, Any]) -> str:
     Mirrors auto_edit.render_cut_summary's shape, adapted to montage's
     fields: no transcript excerpt/smoothing columns (montage has neither),
     a description/pacing column instead, plus the beat-grid stats
-    (tempo/onset count) auto_edit's talking-head plans don't carry."""
+    (tempo/onset count) auto_edit's talking-head plans don't carry.
+
+    The colour decision is part of the checkpoint (#193 phase 6.2.6). The
+    plan buckets every shot and computes a match CDL per bucket, and the
+    approving user could not see any of it — no bucket column, no count, no
+    statement of what the buckets were derived from. That decision is exactly
+    as reviewable as the cut, and this is the ONE moment it can be reviewed."""
     fps = float(plan.get("fps") or 24.0)
 
     def tc(frames: int) -> str:
@@ -1162,16 +1225,36 @@ def render_montage_summary(plan: Dict[str, Any]) -> str:
         f"**Onsets detected:** {plan.get('onset_count', 0)}",
         "",
     ]
+    # Colour-match line: how many buckets, and — critically — what they were
+    # derived from. On `default` the match CDL is an identity, so saying
+    # "3 buckets" without the basis would read as a match that happened.
+    buckets = plan.get("look_buckets") or {}
+    basis = str(plan.get("look_bucket_basis") or "unknown")
+    if buckets:
+        _BASIS_NOTE = {
+            "scout": "from scouted dominant colour — the precise case",
+            "ffmpeg_signature": "from a cheap ffmpeg brightness/tone read",
+            "mixed": "part scouted, part ffmpeg-derived",
+            "default": "NO colour data was available — every shot fell into one "
+                       "neutral bucket and the match CDL is an identity, so colour "
+                       "matching will not actually change anything",
+        }
+        lines += [
+            f"**Colour match:** {len(buckets)} look bucket(s), basis `{basis}` "
+            f"({_BASIS_NOTE.get(basis, 'basis not recognised')}). Applied only if you "
+            f"pass `grade={{\"match\": plan[\"look_buckets\"]}}` at finish.",
+            "",
+        ]
     grid_available = bool(plan.get("grid_available"))
     if grid_available:
         lines += [
-            "| # | Record | Source (frames) | Role | Section | Beats | Description | Pacing |",
-            "|---|--------|-----------------|------|---------|-------|--------------|--------|",
+            "| # | Record | Source (frames) | Role | Section | Beats | Look | Description | Pacing |",
+            "|---|--------|-----------------|------|---------|-------|------|--------------|--------|",
         ]
     else:
         lines += [
-            "| # | Record | Source (frames) | Role | Description | Pacing |",
-            "|---|--------|-----------------|------|--------------|--------|",
+            "| # | Record | Source (frames) | Role | Look | Description | Pacing |",
+            "|---|--------|-----------------|------|------|--------------|--------|",
         ]
     for i, seg in enumerate(plan.get("segments") or []):
         evidence = seg.get("evidence") or {}
@@ -1184,7 +1267,7 @@ def render_montage_summary(plan: Dict[str, Any]) -> str:
         )
         if grid_available:
             row += f"| {seg.get('section') or '—'} | {seg.get('beat_length', '—')} "
-        row += f"| {description} | {pacing or '—'} |"
+        row += f"| {seg.get('look_bucket') or '—'} | {description} | {pacing or '—'} |"
         lines.append(row)
     problems = plan.get("problems") or []
     if problems:

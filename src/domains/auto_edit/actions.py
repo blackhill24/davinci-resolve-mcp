@@ -1078,6 +1078,61 @@ def _auto_edit_build_rows(plan: Dict[str, Any], record_offset: int = 0) -> List[
             })
     return rows
 
+def _map_montage_items_to_segments(items, segments, title_offset, *, record_offset=0):
+    """Pair each V1 item with the plan segment it was built from — shared
+    by the grade `match` stage and the motion/flash/retime stage below.
+
+    Positional mapping (item i -> segment i - title_offset) is correct on
+    a BUILT timeline, where V1 holds exactly the title plus one item per
+    segment. It is wrong on a POLISHED one: a cross-dissolve is itself a
+    V1 item, so every shot after the first dissolve shifted by one and got
+    another shot's look bucket and beat directive — and SKILL.md actively
+    steers hosts into `finish(target="polished", grade={"match": ...},
+    motion={})`, the exact combination that trips it (#193 phase 6.2.5).
+
+    So match by RECORD FRAME when the item starts allow it: each segment's
+    record_start_frame (+ the title's footprint) is where its item begins,
+    and a transition's own start matches no segment, so it drops out
+    instead of consuming a segment. Falls back to the proven positional
+    walk when start frames can't be read.
+    """
+    item_offset = 1 if title_offset > 0 else 0
+    starts = []
+    try:
+        starts = [_frame_int(item.GetStart()) for item in items]
+    except Exception:
+        starts = []
+    # Every start must be a real frame number. A Resolve build that can't
+    # report them (or a double that doesn't) falls back to the positional
+    # walk rather than mapping against Nones.
+    if starts and all(isinstance(x, int) and not isinstance(x, bool) for x in starts):
+        timeline_start = min(starts)
+        by_frame = {}
+        for idx, seg in enumerate(segments):
+            expected = int(seg.get("record_start_frame", 0)) + record_offset
+            by_frame.setdefault(expected, idx)
+        used = set()
+        matched = []
+        for item, start in zip(items, starts):
+            # Item starts are absolute; segment frames are timeline-start
+            # relative, so normalise before looking up.
+            seg_idx = by_frame.get(start - timeline_start)
+            if seg_idx is None or seg_idx in used:
+                continue
+            used.add(seg_idx)
+            matched.append((item, seg_idx, segments[seg_idx]))
+        # Only trust it if it explains essentially the whole cut; a partial
+        # match means the assumption is off and positional is the safer bet.
+        if len(matched) >= len(segments):
+            for pair in matched:
+                yield pair
+            return
+    for i, item in enumerate(items):
+        seg_idx = i - item_offset
+        if 0 <= seg_idx < len(segments):
+            yield item, seg_idx, segments[seg_idx]
+
+
 def _compute_beat_alignment(
     segments: List[Dict[str, Any]], item_starts: List[int], *,
     item_offset: int = 0, record_offset: int = 0,
@@ -1915,17 +1970,6 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
     _GRAIN_BLEND = 0.06         # grain opacity
     _LETTERBOX_CROP_RATIO = 0.06  # top+bottom crop fraction of frame height
 
-    def _map_montage_items_to_segments(items, segments, title_offset):
-        """item order on V1 mirrors segment order, offset by the intro
-        title's own item (build_timeline records its footprint as
-        execution_summary.title.record_offset) — shared by the grade `match`
-        stage and the motion/flash/retime stage below."""
-        item_offset = 1 if title_offset > 0 else 0
-        for i, item in enumerate(items):
-            seg_idx = i - item_offset
-            if 0 <= seg_idx < len(segments):
-                yield item, seg_idx, segments[seg_idx]
-
     def _fusion_locked(comp, fn):
         """Run `fn()` inside its own Lock/Unlock cycle — the pattern every
         proven Fusion mutation in fusion_composition/actions.py uses
@@ -2033,7 +2077,8 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         look_applied = 0
         letterbox_applied = 0
         errors: List[str] = []
-        for item, seg_idx, seg in _map_montage_items_to_segments(items, segments, title_offset):
+        for item, seg_idx, seg in _map_montage_items_to_segments(
+                items, segments, title_offset, record_offset=title_offset):
             motion = seg.get("motion")
             flash = bool(seg.get("flash"))
             retime = bool(seg.get("retime"))
@@ -2363,15 +2408,16 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                 segments = plan.get("segments") or []
                 title_offset = int(
                     ((plan.get("execution_summary") or {}).get("title") or {}).get("record_offset") or 0)
-                item_offset = 1 if title_offset > 0 else 0
                 ok_count = 0
                 by_bucket: Dict[str, int] = {}
                 match_errors = []
-                for i, item in enumerate(items):
-                    seg_idx = i - item_offset
-                    if seg_idx < 0 or seg_idx >= len(segments):
-                        continue
-                    bucket = segments[seg_idx].get("look_bucket")
+                # Same mapping as the motion stage — record-frame based, so a
+                # polished timeline's cross-dissolve items don't shift every
+                # shot after the first dissolve onto the wrong bucket (#193
+                # phase 6.2.5). This loop used to walk positions inline.
+                for item, _seg_idx, seg in _map_montage_items_to_segments(
+                        items, segments, title_offset, record_offset=title_offset):
+                    bucket = seg.get("look_bucket")
                     bucket_grade = match_map.get(bucket) if bucket else None
                     if not isinstance(bucket_grade, dict):
                         continue

@@ -813,10 +813,49 @@ class BuildCutListGridLockedTests(MontageEditBase):
         for seg in out["plan"]["segments"]:
             motion = seg["motion"]
             self.assertIsNotNone(motion)
-            expected_zoom = montage_edit.montage_motion.MOTION_ZOOM_RANGE.get(
-                seg["section"], montage_edit.montage_motion.DEFAULT_ZOOM_RANGE)
-            self.assertEqual((motion["zoom_start"], motion["zoom_end"]), expected_zoom)
+            mm = montage_edit.montage_motion
+            base_start, base_end = mm.MOTION_ZOOM_RANGE.get(
+                seg["section"], mm.DEFAULT_ZOOM_RANGE)
+            # The move now varies per shot (#193 phase 6.2.2) — direction and
+            # magnitude — so it is the section's ENVELOPE that is fixed, not
+            # one exact pair. Both ends stay at or above 1.0 (a zoom below 1
+            # would under-scan past the frame edges) and inside the section's
+            # span scaled by the cycle's largest factor.
+            max_scale = max(scale for _rev, scale in mm.ZOOM_VARIATION_CYCLE)
+            ceiling = base_start + (base_end - base_start) * max_scale + 1e-6
+            for value in (motion["zoom_start"], motion["zoom_end"]):
+                self.assertGreaterEqual(value, 1.0)
+                self.assertLessEqual(value, ceiling)
             self.assertAlmostEqual(motion["beat_seconds"], beat_seconds, places=4)
+
+    def test_zoom_moves_vary_and_include_pull_outs(self):
+        # The loudest tell after shot size: every shot pushing in by the same
+        # amount. There must be both directions and more than one magnitude.
+        files = self._seed_pool()
+        beats = _grid_beats()
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        moves = [(s["motion"]["zoom_start"], s["motion"]["zoom_end"])
+                 for s in out["plan"]["segments"] if s.get("motion")]
+        self.assertTrue(any(e > s for s, e in moves), "no push-ins at all")
+        self.assertTrue(any(e < s for s, e in moves), "every move still pushes in")
+        self.assertGreater(len({round(abs(e - s), 6) for s, e in moves}), 1,
+                           "every move is the same magnitude")
+
+    def test_motion_directives_are_deterministic(self):
+        # A plan is re-derived on every revision; the same cut must produce
+        # the same move each time. No RNG in the variation.
+        files = self._seed_pool()
+        runs = []
+        for _ in range(2):
+            beats = _grid_beats()
+            with mock.patch.object(montage_edit.music_analysis, "detect_beats",
+                                    return_value=beats):
+                out = montage_edit.build_cut_list_for_brief(
+                    self.root, {"files": files, "music": "/media/track.wav"})
+            runs.append([(s.get("motion") or {}).get("zoom_start") for s in out["plan"]["segments"]])
+        self.assertEqual(runs[0], runs[1])
 
     def test_small_pool_fills_full_runtime_no_truncation(self):
         # 3 clips / 8 shots (~24s of raw material, the _seed_pool fixture) —

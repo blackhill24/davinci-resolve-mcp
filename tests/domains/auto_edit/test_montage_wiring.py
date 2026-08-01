@@ -391,6 +391,87 @@ class TitleRevisionBeatLockTests(unittest.TestCase):
         self.assertTrue(out["plan"].get("beat_lock_broken"))
 
 
+class PolishedItemMappingTests(unittest.TestCase):
+    """#193 phase 6.2.5 — positional item mapping breaks on a polished timeline.
+
+    A cross-dissolve is itself a V1 item, so `item i -> segment i - offset`
+    gave every shot after the first dissolve another shot's look bucket and
+    beat directive — and SKILL.md actively steers hosts into
+    `finish(target="polished", grade={"match": ...}, motion={})`, the exact
+    combination that trips it.
+    """
+
+    class _Item:
+        """Faithful enough for the mapping: real integer start frames, which
+        is what the record-frame match needs and what Resolve returns."""
+
+        def __init__(self, start, name="clip"):
+            self._start = start
+            self.name = name
+
+        def GetStart(self):
+            return self._start
+
+    def _segments(self, n, *, length=24):
+        segs = []
+        for i in range(n):
+            seg = cut_ir.make_cut_list_segment(
+                role="montage", clip_id=f"c{i}", clip_uuid=f"u{i}",
+                source_start_frame=0, source_end_frame=length)
+            seg["record_start_frame"] = i * length
+            seg["record_length_frames"] = length
+            seg["look_bucket"] = f"bucket-{i}"
+            segs.append(seg)
+        return segs
+
+    def _map(self, items, segments, title_offset=0):
+        return list(s._map_montage_items_to_segments(
+            items, segments, title_offset, record_offset=title_offset))
+
+    def test_built_timeline_maps_one_to_one(self):
+        segments = self._segments(4)
+        items = [self._Item(i * 24) for i in range(4)]
+        pairs = self._map(items, segments)
+        self.assertEqual([p[1] for p in pairs], [0, 1, 2, 3])
+        self.assertEqual([p[2]["look_bucket"] for p in pairs],
+                         ["bucket-0", "bucket-1", "bucket-2", "bucket-3"])
+
+    def test_polished_timeline_transition_item_does_not_shift_every_later_shot(self):
+        segments = self._segments(4)
+        # V1 after polish: the clips, plus a cross-dissolve item sitting at a
+        # frame that is not any segment's start.
+        items = [
+            self._Item(0), self._Item(24),
+            self._Item(36, "Cross Dissolve"),          # the extra item
+            self._Item(48), self._Item(72),
+        ]
+        pairs = self._map(items, segments)
+        # Every segment is still paired with ITS OWN clip — the transition
+        # drops out instead of consuming one.
+        self.assertEqual([p[1] for p in pairs], [0, 1, 2, 3])
+        for _item, idx, seg in pairs:
+            self.assertEqual(seg["look_bucket"], f"bucket-{idx}")
+
+    def test_intro_title_offset_is_honoured(self):
+        segments = self._segments(3)
+        title_len = 96
+        items = [self._Item(0, "title")] + [
+            self._Item(title_len + i * 24) for i in range(3)]
+        pairs = self._map(items, segments, title_offset=title_len)
+        self.assertEqual([p[1] for p in pairs], [0, 1, 2])
+
+    def test_falls_back_to_positional_when_starts_are_unreadable(self):
+        # A double (or a Resolve build) that can't report frames must not map
+        # against Nones — the proven positional walk still applies.
+        class _Opaque:
+            def GetStart(self):
+                return None
+
+        segments = self._segments(3)
+        pairs = self._map([_Opaque() for _ in range(3)], segments)
+        self.assertEqual([p[1] for p in pairs], [0, 1, 2])
+
+
 class MontageCameraAudioTests(unittest.TestCase):
     """#193 phase 5.1 — camera audio used to land on A1 under the music.
 

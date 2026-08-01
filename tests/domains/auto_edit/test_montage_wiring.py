@@ -733,5 +733,60 @@ class VisionDefaultTests(unittest.TestCase):
         self.assertTrue(auto_edit.VISION_REQUIRED_GENRES <= auto_edit.GENRES)
 
 
+class TranscriptionDefaultTests(unittest.TestCase):
+    """#204 — a montage brief cannot get past analysis on a machine with no
+    Whisper backend, even though montage's decision layer never reads a
+    transcript. Mirrors VisionDefaultTests' shape, inverted: transcription
+    defaults ON everywhere except the genres that never use it."""
+
+    def test_montage_defaults_transcription_off(self):
+        enabled, warning = auto_edit.resolve_transcription_default("montage", None)
+        self.assertFalse(enabled)
+        self.assertIsNone(warning)
+
+    def test_montage_defaults_transcription_off_with_other_options(self):
+        # An options dict that simply doesn't mention transcription must not
+        # read as an opt-in — this is the shape a host passing sampling_mode
+        # sends.
+        enabled, warning = auto_edit.resolve_transcription_default(
+            "montage", {"sampling_mode": "adaptive_capped"})
+        self.assertFalse(enabled)
+        self.assertIsNone(warning)
+
+    def test_talking_head_still_defaults_transcription_on(self):
+        for options in (None, {}, {"sampling_mode": "adaptive_capped"}):
+            enabled, warning = auto_edit.resolve_transcription_default("talking_head", options)
+            self.assertTrue(enabled, options)
+            self.assertIsNone(warning, options)
+
+    def test_explicit_true_is_honoured_on_both_genres(self):
+        for genre in ("montage", "talking_head"):
+            enabled, warning = auto_edit.resolve_transcription_default(genre, {"transcription": True})
+            self.assertTrue(enabled, genre)
+            self.assertIsNone(warning, genre)
+
+    def test_explicit_false_on_montage_is_silent(self):
+        # Honoured, not warned: montage never needed it anyway.
+        enabled, warning = auto_edit.resolve_transcription_default("montage", {"transcription": False})
+        self.assertFalse(enabled)
+        self.assertIsNone(warning)
+
+    def test_explicit_false_on_talking_head_is_honoured_but_warned(self):
+        # Honoured, not overridden: the caller may already have a transcript
+        # from elsewhere. But it is the one combination that cannot plan well,
+        # so it must say so here rather than failing (or degrading silently)
+        # two steps later.
+        enabled, warning = auto_edit.resolve_transcription_default(
+            "talking_head", {"transcription": False})
+        self.assertFalse(enabled)
+        self.assertIsNotNone(warning)
+        self.assertIn("transcript", warning)
+        self.assertIn("plan_cut", warning)
+
+    def test_every_transcription_optional_genre_is_a_real_genre(self):
+        # Guards the constant against a typo silently disabling the default.
+        self.assertTrue(auto_edit.TRANSCRIPTION_OPTIONAL_GENRES <= auto_edit.GENRES)
+
+
 if __name__ == "__main__":
     unittest.main()

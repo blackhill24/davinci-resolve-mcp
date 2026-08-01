@@ -175,6 +175,10 @@ ACCEPTED_DISCARDED_RETURNS = {
     # fusion_composition/actions.py).
     ("src/domains/auto_edit/actions.py", "_fusion_expression_set_ok", "SetExpression"): 1,
     ("src/domains/auto_edit/actions.py", "_fusion_input_set_ok", "SetInput"): 1,
+    # Point-input variant of the above (issue #201's vignette mask Center) —
+    # same discard-and-verify-by-GetInput-readback doctrine, mirroring
+    # fusion_composition/actions.py's _fusion_set_point_input.
+    ("src/domains/auto_edit/actions.py", "_fusion_point_input_set_ok", "SetInput"): 1,
     ("src/domains/fusion_composition/actions.py", "_safe_set_fusion_inputs", "SetInput"): 2,
     ("src/domains/fusion_composition/actions.py", "fusion_comp", "AddModifier"): 1,
     ("src/domains/fusion_composition/actions.py", "fusion_comp", "SetAttrs"): 4,

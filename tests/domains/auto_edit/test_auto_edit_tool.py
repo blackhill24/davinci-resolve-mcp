@@ -803,6 +803,45 @@ class MotionActionTest(unittest.TestCase):
             comp.AddTool.assert_any_call("EllipseMask", -1, -1)
             comp.AddTool.assert_any_call("FastNoise", -1, -1)
             comp.AddTool.assert_any_call("Merge", -1, -1)
+            # issue #201: EllipseMask defaults to a small ellipse with a hard
+            # (SoftEdge=0) edge — a matte, not a vignette. The mask geometry
+            # must be set explicitly and verified by readback like every
+            # other Fusion input in this pass.
+            tool_mock = comp.AddTool.return_value
+            tool_mock.SetInput.assert_any_call("SoftEdge", 0.5)
+            tool_mock.SetInput.assert_any_call("Width", 1.35)
+            tool_mock.SetInput.assert_any_call("Height", 1.35)
+            tool_mock.SetInput.assert_any_call("Center", [0.5, 0.5])
+            tool_mock.SetInput.assert_any_call("Gain", 0.4)
+
+    def test_vignette_mask_geometry_readback_failure_is_surfaced(self):
+        # A failed SoftEdge/Width/Height set must show up in `errors` and
+        # must not count toward `look.applied` — same doctrine as
+        # test_failed_set_expression_is_surfaced_not_swallowed, applied to
+        # SetInput readback instead of SetExpression readback.
+        plan = self._plan_with_directives([{}])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items, comps = self._mock_project(item_count=1)
+        tool_mock = comps[0].AddTool.return_value
+        real_get_input = tool_mock.GetInput.side_effect
+
+        def _bad_soft_edge(name, *a, **kw):
+            if name == "SoftEdge":
+                return 0.0  # readback doesn't match the value that was set
+            return real_get_input(name, *a, **kw)
+
+        tool_mock.GetInput.side_effect = _bad_soft_edge
+        params = {"plan_id": plan["plan_id"], "motion": {}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        # `look.applied` tracks the grain stage, which is independent of the
+        # vignette mask and still succeeds — the mask failure must surface in
+        # `errors`, not silently disappear from the applied count.
+        self.assertTrue(
+            any("vignette mask geometry SetInput readback mismatch" in e for e in out["errors"])
+        )
 
     def test_failed_set_expression_is_surfaced_not_swallowed(self):
         # SetExpression's own return is NOT trustworthy over the Lua bridge

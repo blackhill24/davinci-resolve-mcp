@@ -51,14 +51,17 @@ PILOT = f"montage_quality_pilot_{time.strftime('%H%M%S')}"
 from tests.render_scratch import cleanup_render_dir, make_render_dir
 
 REFERENCE_DIR = "/home/jon/Downloads/visdeo"
-# montage correctly REFUSES a mixed-fps brief (verified live — a genuine,
-# working guard, not a bug): "DJI_20260530130257_0230_D.MP4" is 59.94fps
-# while the other four reference clips are 29.97fps. Fixing frame-rate
-# normalization is out of scope for this epic, so this harness exercises
-# the pipeline on the four same-fps clips rather than the mismatched five.
+# All FIVE reference clips, deliberately MIXED-RATE:
+# "DJI_20260530130257_0230_D.MP4" is 59.94fps against the other four's
+# 29.97fps. Montage used to refuse the brief outright; it now cuts a
+# majority-rate (29.97) timeline and gives each shot source frames in its own
+# rate, because Resolve resamples off-rate media to preserve its wall-clock
+# length (live_mixed_fps_probe.py). The beat-alignment check below is what
+# proves the mixed brief still lands every cut on the grid.
 REFERENCE_CLIPS = [
     "Blue sky.MP4",
     "DJI_20260524195204_0209_D.MP4",
+    "DJI_20260530130257_0230_D.MP4",
     "DRILL TRUCK IN THE CLOUDS.MP4",
     "flagging.MP4",
 ]

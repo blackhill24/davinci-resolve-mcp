@@ -215,10 +215,20 @@ Every removed mid-speech region creates a jump cut that must be disguised:
 
 The montage decision layer (`src/domains/auto_edit/utils/montage_edit.py`)
 replaces the talking-head heuristics above — none of the speech rules apply,
-because there is no speech. Everything downstream of the CutList
+because there is no speech. The executors downstream of the CutList
 (`approve_cut`, `build_timeline`, `polish_timeline`, `finish`, `revise_cut`)
-is genre-agnostic and behaves identically. Override at the same checkpoints:
-`approve_cut` or `revise_cut`, never by hand-editing a plan.
+are genre-agnostic — they operate on the CutList structure, never on which
+decision layer produced it — but several carry montage-only *options*
+(`polish_timeline`'s `no_dissolves` default, `finish`'s `motion`/`grade.match`/
+`qc`), covered below. Override at the same checkpoints: `approve_cut` or
+`revise_cut`, never by hand-editing a plan.
+
+One montage-only cost to know before offering a revision: on a grid-locked plan
+`reorder`/`drop`/`keep` re-pack the record cursor, so every cut after the change
+leaves the beat grid and the montage ends short of the track. The revised plan
+flags it (`beat_lock_broken`, plus a note in the summary) — re-plan for a clean
+beat-locked result, or relay the tradeoff rather than shipping it silently. A
+`title` revision is free: the music row shifts with the video.
 
 ### Runtime and music
 
@@ -228,6 +238,12 @@ is genre-agnostic and behaves identically. Override at the same checkpoints:
 - There is no voiceover, so there is nothing to duck. `approve_cut` forces the
   static bed for montage regardless of the consent flags passed — do not put a
   music-bed consent question to the user on a montage plan.
+- **Frame rates need not match.** The timeline is cut at the most common
+  footage rate; a shot from an off-rate clip keeps its source frames in its own
+  rate and carries `record_length_frames` for the timeline side. Resolve
+  conforms the odd clip by preserving its real-time length, so the beat lock
+  survives. The plan lists the rates it saw — relay that, since the conformed
+  clip plays at a different speed than its source.
 
 ### Shot selection
 
@@ -240,22 +256,92 @@ is genre-agnostic and behaves identically. Override at the same checkpoints:
   even "low" runs dry the montage **truncates honestly** and says so in
   `problems` — it never repeats a shot or fabricates coverage.
 
-### Pacing
+### In-point scouting
 
-- Local onset **density** around each point (a ~4s window over
-  `music_analysis.detect_beats`' onset list — no separate DSP pass) sets the
-  target cut length: dense onsets → shorter cuts, sparse → longer holds.
-  Interpolated between ~6.0s at zero density and ~0.5s at the track's max.
-- Each shot's own `pacing` class sets **placement**, and the tag is exclusive,
-  not a tiebreaker: `still` shots only land in low-density zones, `kinetic`
-  only in high-density ones (threshold: density ratio ≥ 0.5); `moderate`,
-  `variable`, and `unknown` fit anywhere. A shot flagged for the opposite zone
-  is skipped there, not merely deprioritized.
-  Note this is the per-shot `pacing` field, **not** `energy_arc`, which is
-  clip-level only.
-- Every cut boundary snaps to the **nearest real onset** at or after the
-  minimum. Where the track has no qualifying onset (a sparse tail), the target
-  time is used as-is — a beat that isn't there is never invented.
+- `plan_cut` defaults to `scout=True`. For ONE not-yet-scouted clip it returns
+  a `deep_vision` in-point **offer instead of a plan** — read the frames,
+  commit, call `plan_cut` again. This is the normal path, not an error.
+- It is cache-aware (never re-offers a scouted shot on a later revision) and
+  never blocks: `scout=false`, or ignoring the offer and re-calling `plan_cut`,
+  plans with whatever in-points already exist.
+- In-point preference is **scout > best_moment > shot start**, always clamped
+  so the shot's required duration still fits before it ends.
+
+### Pacing — the arrangement, not the density
+
+When `music_analysis.detect_beats` reports a usable grid (`grid_available`,
+≥2 beats), cut length is a property of the **musical arrangement**:
+
+- `montage_arrangement.plan_arrangement` turns the beat grid + sections into an
+  ordered `{beat_index, beat_length, section, role, flags}` schedule covering
+  the whole grid with no gaps or overlaps. Each entry's `beat_index` is exactly
+  the previous entry's `beat_index + beat_length`, so a cut's source length is
+  derived from its record length rather than rounded twice.
+- `SECTION_CUT_BEATS` sets the cadence: intro 4, build 4→2 (ramped across the
+  section), mid 2, low 4, high 2, drop 2, breathe 6, accelerate 1, outro 6.
+  The flagged drop becomes its own `drop` label; the final section is always
+  `outro` regardless of raw energy; a `high` → `mid`/`low` transition inserts a
+  6-beat `breathe`; a `build` ends in an 8-beat run of 1-beat `accelerate` cuts.
+- Flags drive the look pass: `flash` (every section opening, plus the drop),
+  `shake` (drop and `high`), `retime` (`build` and `accelerate`), `fadeout`
+  (last entry of the outro).
+- Shot **placement** still uses each shot's own `pacing` class against local
+  onset density, exclusively rather than as a tiebreaker: `still` shots only
+  land in low-density zones, `kinetic` only in high-density ones (density ratio
+  ≥ 0.5); `moderate`, `variable`, and `unknown` fit anywhere. This is the
+  per-shot `pacing` field, **not** `energy_arc`, which is clip-level only.
+
+**Fallback** (no usable grid): local onset **density** around each point (a ~4s
+window over the onset list — no separate DSP pass) sets the target cut length,
+interpolated between ~6.0s at zero density and ~0.5s at the track's max.
+
+Boundaries snap to the **provisional pulse** — the kick-phase-locked grid
+`detect_beats` still produces when tempo confidence misses the threshold — and
+only to raw onset peaks when there is no tempo at all. This matters and is
+measured, not assumed: onset peaks land near a beat 0.228 of the time against a
+0.240 chance level, and restricting them to the kick band gives 0.243, so
+peak-picking simply does not follow the pulse in any band. A phase-locked grid
+does, by construction. Whichever target ran is named in the plan's `problems`;
+when nothing qualifies (a sparse tail), the target time is used as-is — a beat
+that isn't there is never invented.
+
+### Look buckets
+
+- Shots group by colour signature — scout data when the scout pass ran, else an
+  ffmpeg signature. `compute_match_cdls` derives one match CDL per bucket.
+- `finish(grade={"match": …})` applies them as **stage 1**, so shots lit
+  differently actually intercut. Feed the plan's own `look_buckets`
+  (`{bucket: <raw CDL>}`) straight back, or use the explicit
+  `{bucket: {"cdl": …}}` — both are accepted. `lut_path`/`cdl`/`drx_path` still
+  apply uniformly on top as stage 2 — the shared creative look.
+- When the buckets came from something other than scout data, the plan says so
+  in `problems`. Relay that: the grades are less precise than a scouted pass.
+
+### Motion and look
+
+`finish(motion={})` realizes the per-segment directive as a small per-clip
+Fusion comp (`MediaIn1 → BeatPulse Transform → Flash → Vignette → Grain Merge →
+MediaOut1`), non-destructive and adjustable afterward on the Fusion page:
+
+- a zoom ramp plus a decaying pulse locked to the master beat grid, with the
+  range and pulse amplitude set per section (intro 1.0→1.03 … drop 1.0→1.08);
+- flash frames on section-opening downbeats; a decaying positional shake on
+  `shake` entries; a fade to black on the `fadeout` entry;
+- letterbox (`CropTop`/`CropBottom`) and vignette/grain — opt out of just these
+  with `motion={"look": false}`;
+- `retime`-flagged segments get their interpolation set explicitly to optical
+  flow; the actual speed ramp is authored by `polish_timeline`'s `retime_clip`
+  op, which holds the record length so the beat grid stays intact.
+
+Omit `motion` entirely and none of it is applied.
+
+### Visual QC
+
+After a successful montage render `finish` returns a `qc` host-vision request
+(disable with `qc=false`). Look at the frames it names, then
+`commit_qc(plan_id, qc_report=…)` — it normalizes the findings and, for one tied
+to a specific cut, hands back a suggested `revise_cut` edit. It never applies
+the edit itself.
 
 ### The checkpoint summary
 

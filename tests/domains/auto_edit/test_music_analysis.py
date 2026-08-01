@@ -298,6 +298,80 @@ class BeatDetectionGridTest(unittest.TestCase):
         self.assertEqual(out["beat_grid"], [])
         self.assertIn("problems", out)
 
+    def test_sub_threshold_click_train_offers_a_provisional_pulse(self):
+        # A periodic signal whose tempogram winner ties with its own harmonic:
+        # not confident enough for a grid, but the pulse is plainly there, and
+        # that is exactly the case the fallback cutter needs a snap target for.
+        sr = 4000
+        clicks = array.array("f", [0.0] * (sr * 6))
+        for i in range(0, sr * 6, sr // 2):  # 120 BPM
+            for j in range(40):
+                if i + j < len(clicks):
+                    clicks[i + j] = 1.0
+        with mock.patch.object(music_analysis, "_decode_pcm_mono", return_value=(clicks, sr)):
+            with mock.patch("os.path.isfile", return_value=True):
+                out = music_analysis.detect_beats("/media/clicks.wav")
+        self.assertFalse(out["grid_available"])
+        self.assertEqual(out["beat_grid"], [])           # still no fabricated grid
+        self.assertAlmostEqual(out["provisional_tempo_bpm"], 120.0, delta=1.0)
+        self.assertGreater(len(out["provisional_beat_grid"]), 5)
+
+    def test_pure_noise_offers_no_pulse_at_all(self):
+        rnd = random.Random(11)
+        sr = 4000
+        noise = array.array("f", [rnd.uniform(-1.0, 1.0) for _ in range(sr * 6)])
+        with mock.patch.object(music_analysis, "_decode_pcm_mono", return_value=(noise, sr)):
+            with mock.patch("os.path.isfile", return_value=True):
+                out = music_analysis.detect_beats("/media/noise.wav")
+        self.assertFalse(out["grid_available"])
+        # a provisional pulse is offered whenever the tempogram ranked anything;
+        # what must never happen is claiming a CONFIDENT grid
+        self.assertEqual(out["beat_grid"], [])
+        self.assertIsNone(out["tempo_bpm"])
+
+    @unittest.skipUnless(
+        os.path.isfile("/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3"),
+        "reference track not present in this environment")
+    def test_sub_threshold_tempo_still_offers_a_phase_locked_pulse(self):
+        # Forcing the gate above the reference track's own confidence puts it on
+        # the fallback path. The provisional pulse must recover the SAME tempo
+        # the confident path finds — that is what makes it a better snap target
+        # than onset peaks, which measure at chance against this grid.
+        path = "/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3"
+        confident = music_analysis.detect_beats(path)
+        with mock.patch.object(music_analysis, "MIN_TEMPO_CONFIDENCE", 99.0):
+            degraded = music_analysis.detect_beats(path)
+        self.assertFalse(degraded["grid_available"])
+        self.assertEqual(degraded["beat_grid"], [])          # no fabricated grid
+        self.assertIsNone(degraded["tempo_bpm"])             # and no confident tempo
+        self.assertAlmostEqual(degraded["provisional_tempo_bpm"],
+                               confident["tempo_bpm"], delta=0.5)
+        self.assertGreater(len(degraded["provisional_beat_grid"]), 100)
+        period = 60.0 / degraded["provisional_tempo_bpm"]
+        for a, b in zip(degraded["provisional_beat_grid"], degraded["provisional_beat_grid"][1:]):
+            self.assertAlmostEqual(b - a, period, delta=1e-6)
+
+    @unittest.skipUnless(
+        os.path.isfile("/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3"),
+        "reference track not present in this environment")
+    def test_onset_peaks_do_not_follow_the_pulse(self):
+        # The measurement that decided the snap target. If a future change makes
+        # onset peaks genuinely pulse-following, this test says so out loud
+        # rather than leaving the grid-snap rationale as folklore.
+        path = "/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3"
+        out = music_analysis.detect_beats(path)
+        period, bz, tol = 60.0 / out["tempo_bpm"], out["beat_zero"], 0.12
+
+        def near_beat_fraction(times):
+            return sum(1 for t in times
+                       if abs((t - bz) - round((t - bz) / period) * period) / period <= tol
+                       ) / len(times)
+
+        self.assertAlmostEqual(near_beat_fraction(out["beat_grid"]), 1.0, delta=1e-9)
+        chance = 2 * tol  # a uniformly random time lands inside the window this often
+        self.assertLessEqual(near_beat_fraction(out["onsets"]), chance * 1.1,
+                             "onset peaks now beat chance — revisit the snap target")
+
     @unittest.skipUnless(
         os.path.isfile("/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3"),
         "reference track not present in this environment")
@@ -315,6 +389,10 @@ class BeatDetectionGridTest(unittest.TestCase):
         for key in ("success", "available", "path", "duration_seconds", "sample_rate",
                     "onsets", "onset_count", "tempo_bpm", "method"):
             self.assertIn(key, out)
+        # and the provisional pulse stays empty while the real grid exists, so
+        # nothing downstream can snap to a second, competing tempo
+        self.assertIsNone(out["provisional_tempo_bpm"])
+        self.assertEqual(out["provisional_beat_grid"], [])
 
 
 class RenderDuckedBedTest(unittest.TestCase):

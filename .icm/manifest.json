@@ -2,12 +2,12 @@
   "version": 2,
   "layers": 3,
   "root_nav": "CLAUDE.md",
-  "synced": "2026-07-31",
+  "synced": "2026-08-01",
   "_root_structure": "4c31c2025e3cd06d",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "733a3d6b2d77e397",
+      "fingerprint": "9aef40b276808a09",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -622,7 +622,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "cf4284eec971f6e9",
+      "fingerprint": "fb8a1bb955cbf599",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -695,7 +695,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "4c82d0f59f0cffe4",
+      "fingerprint": "4788501fe23a16b7",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -786,6 +786,8 @@
         "tests/domains/auto_edit/live_auto_edit_twosource_polish.py",
         "tests/domains/auto_edit/live_auto_edit_validation.py",
         "tests/domains/auto_edit/live_edit_engine_validation.py",
+        "tests/domains/auto_edit/live_mixed_fps_probe.py",
+        "tests/domains/auto_edit/live_montage_expressions_probe.py",
         "tests/domains/auto_edit/live_montage_probe.py",
         "tests/domains/auto_edit/live_montage_quality.py",
         "tests/domains/auto_edit/test_auto_edit.py",
@@ -995,7 +997,7 @@
     },
     "tooling": {
       "path": "scripts",
-      "fingerprint": "1de43a89d27d7d6e",
+      "fingerprint": "c8cd332e6dfec01d",
       "files": [
         "scripts/agent-rules/README.md",
         "scripts/agent-rules/generate.mjs",

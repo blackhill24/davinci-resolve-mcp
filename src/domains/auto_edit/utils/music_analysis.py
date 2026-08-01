@@ -649,6 +649,8 @@ def detect_beats(
     tempo_confidence = 0.0
     beat_zero = 0.0
     beat_grid_values: List[float] = []
+    provisional_tempo_bpm: Optional[float] = None
+    provisional_beat_grid: List[float] = []
     downbeats: List[float] = []
     bar_grid_values: List[float] = []
     sections_values: List[Dict[str, Any]] = []
@@ -680,6 +682,26 @@ def detect_beats(
                     band_map = {"kick": kick_novelty, "snare": snare_novelty, "hats": hats_novelty}
                     sections_values = sections(bar_grid_values, band_map, kick_step)
                 grid_available = True
+        elif ranked:
+            # Sub-threshold: NOT confident enough to schedule an arrangement on
+            # (grid_available stays False, tempo_bpm/beat_grid stay empty, and
+            # every existing consumer behaves exactly as before). But it is
+            # still a kick-phase-locked pulse estimate, and the no-grid cutter
+            # snapping to it beats snapping to raw onsets by a wide, MEASURED
+            # margin: on the reference track, onsets land near a beat 0.228 of
+            # the time (chance is 0.240 — i.e. onset peaks do not follow the
+            # pulse at all, in the full mix OR the kick band), while a
+            # phase-locked grid is on the pulse by construction.
+            provisional_tempo_bpm = round(ranked[0]["bpm"], 1)
+            provisional_beat_zero = round(
+                lock_phase(tempo_novelty, tempo_step, 60.0 / provisional_tempo_bpm, duration), 3)
+            provisional_beat_grid = beat_grid(
+                provisional_tempo_bpm, provisional_beat_zero, duration)
+            problems.append(
+                f"tempo estimate not confident enough (confidence={tempo_confidence:.2f} < "
+                f"{MIN_TEMPO_CONFIDENCE}); no beat grid produced — a provisional "
+                f"{provisional_tempo_bpm} BPM pulse is offered for cut snapping only"
+            )
         else:
             problems.append(
                 f"tempo estimate not confident enough (confidence={tempo_confidence:.2f} < "
@@ -696,6 +718,15 @@ def detect_beats(
         "sample_rate": sr,
         "onsets": onsets,
         "onset_count": len(onsets),
+        # Sub-threshold pulse, for CUT SNAPPING only — never for scheduling an
+        # arrangement (that is what grid_available/beat_grid gate). Both are
+        # empty whenever the confident grid exists or no tempo could be
+        # estimated at all. Measured on the reference track: raw onsets land
+        # near a beat 0.228 of the time against a 0.240 chance level, in the
+        # full mix AND in the kick band alone — peak-picking does not recover
+        # the pulse, so a phase-locked grid is the only honest snap target.
+        "provisional_tempo_bpm": provisional_tempo_bpm,
+        "provisional_beat_grid": provisional_beat_grid,
         "tempo_bpm": tempo_bpm,
         "method": "ffmpeg mono-PCM decode + time-domain energy-novelty onset picking (no librosa)",
         "beat_grid": beat_grid_values,

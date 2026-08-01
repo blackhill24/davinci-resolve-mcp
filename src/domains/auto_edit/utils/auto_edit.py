@@ -20,7 +20,7 @@ import os
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from src.core import timeline_brain_db
-from src.domains.auto_edit.utils import cut_ir, edit_engine, music_analysis
+from src.domains.auto_edit.utils import cut_ir, edit_engine, montage_motion, music_analysis
 from src.domains.media_analysis.utils import strata
 
 BRIEF_KIND = "auto_edit_brief"
@@ -33,6 +33,12 @@ BRIEF_KIND = "auto_edit_brief"
 # here — this module stays unaware of montage's own rules to avoid a
 # circular import (montage_edit already imports this module).
 GENRES = {"talking_head", "montage"}
+# Genres whose candidate pool is vision-derived and which therefore cannot plan
+# at all without the vision pass (#193 phase 1). Montage reads the `shots`
+# table, whose only writer is fed by `visual.shot_descriptions` — a vision-only
+# artifact. Keep this next to GENRES: a new vision-planned genre must be added
+# here or it inherits talking-head's vision-off default and fails in plan_cut.
+VISION_REQUIRED_GENRES = {"montage"}
 BRIEF_STATES = (
     "created", "analyzing", "ready", "planned", "approved", "built", "finished",
 )
@@ -130,6 +136,37 @@ def validate_brief_inputs(
     if title_text is not None and not isinstance(title_text, str):
         errors.append("title_text must be a string when given")
     return errors
+
+
+def resolve_vision_default(
+    genre: Any, options: Any = None,
+) -> Tuple[bool, Optional[str]]:
+    """Decide whether ``start_brief`` kicks its analysis batch with the vision
+    pass on, and warn when the caller has asked for something that cannot work.
+
+    Returns ``(enabled, warning_or_None)``.
+
+    Vision is off by default because it needs an interactive host to commit
+    frames, which an autonomous brief cannot satisfy — except for the genres in
+    ``VISION_REQUIRED_GENRES``, which have no candidate pool without it. For
+    those, off is not a conservative default but a guaranteed failure two steps
+    later in ``plan_cut``, so the default flips. An explicit
+    ``options={"vision": False}`` is always honoured — the caller may be
+    analysing those clips separately — but on a vision-required genre it is
+    warned about at the step where it is still cheap to fix.
+    """
+    opts = options if isinstance(options, dict) else {}
+    requires_vision = str(genre) in VISION_REQUIRED_GENRES
+    if "vision" not in opts:
+        return requires_vision, None
+    enabled = bool(opts.get("vision"))
+    if requires_vision and not enabled:
+        return False, (
+            f'genre="{genre}" with options={{"vision": false}}: this genre builds its shot '
+            "pool from vision-derived shot descriptions, so plan_cut will fail with "
+            '"no usable shots found for the candidate clips". Re-run start_brief with '
+            'options={"vision": true} unless these clips already carry a vision pass.')
+    return enabled, None
 
 
 def create_brief(
@@ -552,7 +589,7 @@ def _assign_record_frames(plan: Dict[str, Any]) -> None:
     cursor = 0
     for seg in plan["segments"]:
         seg["record_start_frame"] = cursor
-        cursor += seg["source_end_frame"] - seg["source_start_frame"]
+        cursor += cut_ir.segment_record_length(seg)
     plan["record_duration_frames"] = cursor
     for overlay in plan["overlays"]:
         idx = overlay.get("over_segment_index")
@@ -760,7 +797,38 @@ def apply_revision(
         "revised_from": plan_id,
         "estimates": cut_ir.compute_cut_list_estimates(segments, float(plan.get("fps") or 24.0)),
     })
+    # A grid-locked montage plan (issue #177) carries beat-quantised
+    # record_start_frames that this accumulate-walk cannot reproduce once the
+    # segment SEQUENCE changes: drop/reorder/keep pull every later cut off the
+    # beat grid and shorten the cut below the music. Re-snapping is impossible
+    # here — the beat frames are not persisted on the plan — so say so rather
+    # than hand back a plan that still reads as beat-locked.
+    #
+    # A title-only revision leaves the walk a genuine no-op, but only because
+    # of TWO invariants, and it is worth naming them because this comment used
+    # to assert the no-op unconditionally and was wrong (#193 phase 2.1):
+    #   1. the arrangement schedule is contiguous — every entry's beat_index is
+    #      exactly the previous beat_index + beat_length — so a cut's starts
+    #      are already the running sum of its record lengths; and
+    #   2. montage_edit.normalize_grid_phase slides the cut so segment 0 starts
+    #      at record frame 0, which is where this walk's cursor starts.
+    # Before (2), a grid-locked cut started at round(beat_zero * fps) and the
+    # walk shifted EVERYTHING, so a title-only revision — the one revision
+    # every montage host makes — always reported the lock as lost. The
+    # comparison below is what keeps this honest either way: the flag is set
+    # from what actually moved, never from which op was requested.
+    # (build_timeline shifts the music row by the same title record_offset,
+    # so the lock survives the title itself.)
+    starts_before = [seg.get("record_start_frame") for seg in revised["segments"]]
     _assign_record_frames(revised)
+    if plan.get("grid_available") and starts_before != [
+            seg.get("record_start_frame") for seg in revised["segments"]]:
+        revised["beat_lock_broken"] = True
+        revised["problems"] = list(revised.get("problems") or []) + [
+            "beat lock lost: this revision re-packed the cut, so cuts after the first "
+            "change no longer land on the music's beat grid and the montage now runs "
+            "shorter than the track — re-plan (plan_cut) for a beat-locked result, or "
+            "accept the drift knowingly (build_timeline reports the deviations)"]
     errors = cut_ir.validate_cut_list(revised)
     if errors:
         return {"success": False, "error": "revised CutList failed validation",
@@ -895,6 +963,13 @@ def plan_polish_ops(
     (an honest note, no op) when neither source is present — never a fabricated
     caption. Auto lower-thirds land on V3 when b-roll overlays occupy V2, else V2.
 
+    Speed ramps (MONTAGE only): a segment carrying phase 2's ``retime`` flag gets
+    a ``retime_clip`` op at ``montage_motion.MONTAGE_RETIME_SPEED``'s speed for
+    its section, with ``newDuration`` pinned to the segment's own record length
+    and ``ripple`` off so the beat grid survives. This is the only place a speed
+    change can be authored — the scripting API has none. Suppress with
+    ``options["no_retime"]``.
+
     ``record_offset`` is the intro-title footprint that ``build_timeline``
     prepended to V1, so op positions match the exported timeline's record frames.
     Suppress either family with ``options["no_dissolves"]`` / ``no_lower_thirds"]``.
@@ -1012,6 +1087,54 @@ def plan_polish_ops(
                     "no lower-thirds: analysis produced no story beats "
                     "(pass options.lower_thirds to add them explicitly)")
 
+    # Montage speed ramps: the `retime` flag phase 2 sets on build/accelerate
+    # segments. The scripting API cannot change clip speed at all
+    # (SetProperty("Speed") returns False on 21.x — see src/core/api_truth.py),
+    # so this is the only place the ramp can be authored. finish()'s motion pass
+    # only sets the interpolation quality (RetimeProcess=optical_flow) for it.
+    #
+    # newDuration is pinned to the segment's OWN record length so the beat grid
+    # survives, and ripple stays off so nothing downstream drifts — a montage's
+    # every cut is already placed on a beat frame, and a rippling retime would
+    # walk all of them off the grid.
+    if is_montage and not opts.get("no_retime"):
+        item_offset = 1 if offset > 0 else 0
+        for i, seg in enumerate(segments):
+            if not seg.get("retime"):
+                continue
+            record_len = cut_ir.segment_record_length(seg)
+            if record_len <= 0:
+                notes.append(f"segment {i}: retime skipped — non-positive record length")
+                continue
+            speed = float(montage_motion.MONTAGE_RETIME_SPEED.get(
+                seg.get("section") or "", montage_motion.DEFAULT_RETIME_SPEED))
+            if speed <= 0:
+                notes.append(f"segment {i}: retime skipped — non-positive speed {speed}")
+                continue
+            if speed > 1.0:
+                # Holding newDuration means a >1x speed eats record_len*speed
+                # source frames out of a window that only ever reserved
+                # record_len. The CutList carries no clip-length bound to check
+                # that against, so refuse rather than silently run off the end
+                # of the media.
+                notes.append(
+                    f"segment {i}: retime skipped — speed {speed}x > 1 needs source handles "
+                    "the CutList never reserved (record duration is pinned to the beat grid)")
+                continue
+            ops.append({
+                "op": "retime_clip",
+                "args": {
+                    "track": SPEECH_VIDEO_TRACK,
+                    "clipIndex": i + item_offset,
+                    "speed": speed,
+                    "newDuration": record_len,
+                    "ripple": False,
+                },
+                "kind": "speed_ramp",
+                "segment_index": i,
+                "reason": f"segment {i} carries a retime flag in a {seg.get('section')!r} section",
+            })
+
     # Tier-2 ducking (issue #14): when the approved plan chose drt_automation, write
     # the computed bed gain straight into the music clip's .drt volume — no rendered
     # derivative. Same dB the rendered bed would have used; applied in this same
@@ -1039,6 +1162,7 @@ def plan_polish_ops(
         "transitions": sum(1 for o in ops if o["op"] == "place_transition"),
         "lower_thirds": sum(1 for o in ops if o["op"] == "place_fusion_title"),
         "music_ducks": sum(1 for o in ops if o["op"] == "set_audio_level"),
+        "speed_ramps": sum(1 for o in ops if o["op"] == "retime_clip"),
         "record_offset": offset,
         "notes": notes,
     }

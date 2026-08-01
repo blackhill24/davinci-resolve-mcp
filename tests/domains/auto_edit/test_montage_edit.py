@@ -258,6 +258,96 @@ class LookBucketingTests(unittest.TestCase):
             montage_edit._ffmpeg_colour_signature("/media/does-not-exist.mp4", 1.0))
         self.assertIsNone(montage_edit._ffmpeg_colour_signature(None, 1.0))
 
+    # ── #193 phase 6.2.3: the match was too coarse to be a match ────────────
+
+    def test_single_bucket_match_is_an_identity(self):
+        # One bucket has nothing to match AGAINST: the exposure correction is
+        # 0 by construction, but the white-balance tilt still fired, shifting
+        # every channel 5% across the whole montage for no benefit.
+        candidates = [
+            _sig_candidate("a", tone="warm", brightness=0.5),
+            _sig_candidate("b", tone="warm", brightness=0.5),
+        ]
+        bucket_of_clip, sigs, _basis = montage_edit.assign_look_buckets(candidates)
+        self.assertEqual(len(set(bucket_of_clip.values())), 1)
+        cdl = next(iter(montage_edit.compute_match_cdls(sigs, bucket_of_clip).values()))
+        self.assertEqual(cdl["Slope"], [1.0, 1.0, 1.0])
+        self.assertEqual(cdl["Offset"], [0.0, 0.0, 0.0])
+        self.assertEqual(cdl["Power"], [1.0, 1.0, 1.0])
+        self.assertEqual(cdl["Saturation"], 1.0)
+
+    def test_exposure_offset_is_clamped(self):
+        # The offset used to be the RAW brightness delta with no clamp, so a
+        # dusk shot against a midday target got an enormous, shot-wrecking lift.
+        candidates = [
+            _sig_candidate("a", tone="neutral", brightness=0.05),
+            _sig_candidate("b", tone="neutral", brightness=0.95),
+        ]
+        bucket_of_clip, sigs, _basis = montage_edit.assign_look_buckets(candidates)
+        for cdl in montage_edit.compute_match_cdls(sigs, bucket_of_clip).values():
+            for value in cdl["Offset"]:
+                self.assertLessEqual(abs(value), montage_edit.MAX_MATCH_OFFSET)
+
+    def test_white_balance_tilt_is_proportional_to_the_measured_cast(self):
+        # A fixed +/-0.05 fired on a 3-way label whether the cast was a hint or
+        # a wash. With a measured `cast` the tilt scales — and stays clamped.
+        gentle = montage_edit._match_cdl(
+            {"tone": "warm", "brightness": 0.5, "cast": 0.03},
+            {"brightness": 0.5})
+        strong = montage_edit._match_cdl(
+            {"tone": "warm", "brightness": 0.5, "cast": 0.20},
+            {"brightness": 0.5})
+        self.assertLess(gentle["Slope"][0], 1.0)          # both cool it down
+        self.assertLess(strong["Slope"][0], gentle["Slope"][0])   # ...strong more so
+        self.assertGreaterEqual(strong["Slope"][0], 1.0 - montage_edit.MAX_MATCH_TILT)
+
+    def test_label_only_signature_keeps_the_old_fixed_tilt(self):
+        # Scout signatures carry the label and no magnitude — the label is all
+        # the evidence there is, so that path must be unchanged.
+        cdl = montage_edit._match_cdl(
+            {"tone": "cool", "brightness": 0.5}, {"brightness": 0.5})
+        self.assertAlmostEqual(cdl["Slope"][0], 1.0 + montage_edit._LOOK_TONE_TILT, places=4)
+        self.assertAlmostEqual(cdl["Slope"][2], 1.0 - montage_edit._LOOK_TONE_TILT, places=4)
+
+    def test_contrast_and_saturation_are_matched_when_measured(self):
+        # Power and Saturation used to be hard-coded to 1.0, so neither axis
+        # was ever matched at all.
+        flat = montage_edit._match_cdl(
+            {"tone": "neutral", "brightness": 0.5, "contrast": 0.08, "saturation": 0.10},
+            {"brightness": 0.5, "contrast": 0.20, "saturation": 0.35})
+        self.assertNotEqual(flat["Power"], [1.0, 1.0, 1.0])
+        self.assertNotEqual(flat["Saturation"], 1.0)
+        # ...and both corrections stay inside their ceilings (1e-9 absorbs the
+        # float representation of an exactly-at-the-clamp value)
+        self.assertLessEqual(abs(flat["Power"][0] - 1.0),
+                             montage_edit.MAX_POWER_CORRECTION + 1e-9)
+        self.assertLessEqual(abs(flat["Saturation"] - 1.0),
+                             montage_edit.MAX_SAT_CORRECTION + 1e-9)
+
+    def test_unmeasured_axes_stay_neutral(self):
+        # Every axis no-ops when its input is missing — a tone+brightness
+        # signature must behave exactly as it did before.
+        cdl = montage_edit._match_cdl(
+            {"tone": "neutral", "brightness": 0.4}, {"brightness": 0.5})
+        self.assertEqual(cdl["Power"], [1.0, 1.0, 1.0])
+        self.assertEqual(cdl["Saturation"], 1.0)
+        self.assertEqual(cdl["Slope"], [1.0, 1.0, 1.0])
+        self.assertAlmostEqual(cdl["Offset"][0], 0.1, places=4)
+
+    # ── #193 phase 6.2.4: log/flat footage ──────────────────────────────────
+
+    def test_flat_footage_is_detected_from_the_measurements(self):
+        self.assertTrue(montage_edit._looks_flat(
+            {"contrast": 0.05, "saturation": 0.08}))
+        self.assertFalse(montage_edit._looks_flat(
+            {"contrast": 0.25, "saturation": 0.40}))
+
+    def test_flat_detection_never_guesses_without_measurements(self):
+        # A scout or default signature carries no contrast/saturation — it
+        # must not be reported as log on no evidence.
+        self.assertFalse(montage_edit._looks_flat({"tone": "neutral", "brightness": 0.5}))
+        self.assertFalse(montage_edit._looks_flat({"contrast": 0.05}))
+
 
 class BuildCutListLookBucketTests(MontageEditBase):
     def _mock_beats(self, *, duration=12.0):
@@ -265,6 +355,41 @@ class BuildCutListLookBucketTests(MontageEditBase):
         return {"success": True, "available": True, "duration_seconds": duration,
                 "onsets": onsets, "onset_count": len(onsets), "tempo_bpm": 120.0,
                 "grid_available": False}
+
+    def test_no_shot_rows_error_names_vision_as_the_cause(self):
+        """#193 phase 1 — the vision-off signature.
+
+        A clip that was analysed WITHOUT the vision pass has a clips row and
+        zero shots rows, because `shots` is written only from
+        `visual.shot_descriptions`. That produced a bare "no usable shots"
+        error that named nothing about vision and offered no route out, two
+        steps after the decision that caused it.
+        """
+        self._ingest_clip(clip_id="resolve-novis", name="NV.mp4", path="/media/nv.mp4",
+                          clip_dir="nv-dir", shots=[])
+        brief = {"files": ["/media/nv.mp4"], "music": "/media/track.wav"}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats",
+                                return_value=self._mock_beats()):
+            out = montage_edit.build_cut_list_for_brief(self.root, brief)
+        self.assertFalse(out["success"], out)
+        self.assertIn("vision", out["error"])
+        self.assertIn("start_brief", out["error"])
+        self.assertIn("vision", out["remediation"])
+
+    def test_too_few_shots_error_also_points_at_vision_first(self):
+        # One usable shot is not enough for a montage. Unlike the zero-rows
+        # case this has several causes, so vision is offered as the first
+        # thing to check rather than asserted.
+        self._ingest_clip(
+            clip_id="resolve-one", name="ONE.mp4", path="/media/one.mp4", clip_dir="one-dir",
+            shots=[_shot(1, 0.0, 3.0, select_potential="high", pacing="kinetic")])
+        brief = {"files": ["/media/one.mp4"], "music": "/media/track.wav"}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats",
+                                return_value=self._mock_beats()):
+            out = montage_edit.build_cut_list_for_brief(self.root, brief)
+        if not out["success"]:
+            self.assertIn("vision", out["error"])
+            self.assertIn("remediation", out)
 
     def test_every_segment_carries_a_look_bucket_and_plan_carries_cdls(self):
         files = self._seed_pool()
@@ -416,21 +541,77 @@ class BuildCutListMockedBeatsTests(MontageEditBase):
         self.assertTrue(out["success"], out)
         self.assertTrue(any("never-analyzed" in p for p in out["plan"]["problems"]))
 
-    def test_mixed_fps_refuses(self):
+    def test_mixed_fps_cuts_a_majority_rate_timeline(self):
+        # Mixed rates used to be refused outright. They are supported now: the
+        # beat grid is in seconds and Resolve resamples off-rate media to keep
+        # its wall-clock length (live-verified, live_mixed_fps_probe.py), so a
+        # segment's SOURCE frames follow its own clip and its RECORD length
+        # follows the timeline.
         files = self._seed_pool()
         self._ingest_clip(
             clip_id="resolve-oddfps", name="Odd.mp4", path="/media/odd.mp4", clip_dir="odd-dir",
             shots=[_shot(1, 0.0, 3.0, select_potential="high", pacing="kinetic")])
         # Force a different fps on the odd clip directly via the DB row.
         conn = timeline_brain_db.connect(self.root)
-        conn.execute("UPDATE clips SET fps = 30.0 WHERE clip_name = 'Odd.mp4'")
+        conn.execute("UPDATE clips SET fps = 48.0 WHERE clip_name = 'Odd.mp4'")
         conn.commit()
         brief = {"files": files + ["/media/odd.mp4"], "music": "/media/track.wav"}
         with mock.patch.object(montage_edit.music_analysis, "detect_beats",
                                 return_value=self._mock_beats()):
             out = montage_edit.build_cut_list_for_brief(self.root, brief)
-        self.assertFalse(out["success"])
-        self.assertIn("mixed frame rates", out["error"])
+        self.assertTrue(out["success"], out)
+        plan = out["plan"]
+        # the timeline runs at the MAJORITY rate (3 clips @24 vs 1 @48)
+        self.assertEqual(plan["fps"], FPS)
+        self.assertTrue(any("mixed frame rates" in p for p in plan["problems"]), plan["problems"])
+        odd = [s for s in plan["segments"] if s["clip_id"] == "resolve-oddfps"]
+        if odd:
+            # a 48fps shot costs 2 source frames for every timeline frame
+            seg = odd[0]
+            self.assertEqual(
+                seg["source_end_frame"] - seg["source_start_frame"],
+                cut_ir.segment_record_length(seg) * 2)
+        # and the record cursor still adds up in TIMELINE frames
+        expected = 0
+        for seg in plan["segments"]:
+            self.assertEqual(seg["record_start_frame"], expected)
+            expected += cut_ir.segment_record_length(seg)
+
+    def test_cuts_snap_to_the_provisional_pulse_not_onset_peaks(self):
+        # Onset peaks do not follow the pulse — measured near chance against a
+        # known grid, in the full mix and in the kick band alone. When the
+        # tempo was too shaky to schedule an arrangement but a kick-phase-locked
+        # pulse still exists, cuts must ride THAT. Disjoint times prove which
+        # list the cutter used.
+        files = self._seed_pool()
+        beats = self._mock_beats()
+        beats["onsets"] = [round(0.25 + 0.5 * i, 3) for i in range(24)]        # off-pulse
+        beats["provisional_tempo_bpm"] = 120.0
+        beats["provisional_beat_grid"] = [round(0.5 * i, 3) for i in range(25)]  # the pulse
+        brief = {"files": files, "music": "/media/track.wav"}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(self.root, brief)
+        self.assertTrue(out["success"], out)
+        plan = out["plan"]
+        fps = plan["fps"]
+        pulse_frames = {round(t * fps) for t in beats["provisional_beat_grid"]}
+        onset_only = {round(t * fps) for t in beats["onsets"]} - pulse_frames
+        boundaries = [s["record_start_frame"] for s in plan["segments"][1:]]
+        self.assertTrue(boundaries, "expected more than a hook")
+        for b in boundaries:
+            self.assertNotIn(b, onset_only, f"cut at {b} landed on an onset peak, not the pulse")
+        self.assertTrue(any("provisional" in p for p in plan["problems"]), plan["problems"])
+
+    def test_no_tempo_at_all_degrades_to_onsets_and_says_so(self):
+        files = self._seed_pool()
+        beats = self._mock_beats()
+        beats["provisional_beat_grid"] = []  # nothing to lock a pulse to
+        brief = {"files": files, "music": "/media/track.wav"}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(self.root, brief)
+        self.assertTrue(out["success"], out)
+        self.assertTrue(any("no tempo could be estimated" in p for p in out["plan"]["problems"]),
+                        out["plan"]["problems"])
 
 
 def _scout_window(window_start, window_end, in_point, *, usable=True,
@@ -560,11 +741,18 @@ class RenderMontageSummaryTests(MontageEditBase):
         self.assertIn("| drop | 2 |", summary)
 
 
-def _grid_beats(*, bpm=120.0, n_beats=24, duration=None, drop_at_bar=3, bars_total=6):
+def _grid_beats(*, bpm=120.0, n_beats=24, duration=None, drop_at_bar=3, bars_total=6,
+                beat_zero=0.0):
     """A fabricated grid_available=True detect_beats() result — pure Python,
-    no ffmpeg — for exercising the beat-grid cutting path (issue #177)."""
+    no ffmpeg — for exercising the beat-grid cutting path (issue #177).
+
+    ``beat_zero`` defaults to 0.0 for the historical tests, but ``lock_phase``
+    returns a NON-zero phase offset for essentially every real track, and 0.0
+    is the one value that hides the whole class of phase bugs #193 phase 3
+    fixed. New tests should pass a real offset.
+    """
     period = 60.0 / bpm
-    beat_grid = [round(i * period, 6) for i in range(n_beats)]
+    beat_grid = [round(beat_zero + i * period, 6) for i in range(n_beats)]
     duration = duration if duration is not None else beat_grid[-1] + period
     drop_beat = drop_at_bar * 4
     sections = [
@@ -579,7 +767,7 @@ def _grid_beats(*, bpm=120.0, n_beats=24, duration=None, drop_at_bar=3, bars_tot
         "onsets": [round(0.25 * i, 3) for i in range(int(duration / 0.25))],
         "onset_count": int(duration / 0.25), "tempo_bpm": bpm,
         "beat_grid": beat_grid, "bar_grid": beat_grid[::4], "downbeats": beat_grid[::4],
-        "sections": sections, "tempo_confidence": 5.0, "beat_zero": 0.0,
+        "sections": sections, "tempo_confidence": 5.0, "beat_zero": beat_zero,
         "grid_available": True, "method": "fabricated for tests",
     }
 
@@ -587,6 +775,58 @@ def _grid_beats(*, bpm=120.0, n_beats=24, duration=None, drop_at_bar=3, bars_tot
 class BuildCutListGridLockedTests(MontageEditBase):
     """The beat-grid cutting path (issue #177, phase 2/6 of the
     montage-quality epic) — fabricated grid_available=True beats, no ffmpeg."""
+
+    def test_picture_starts_on_frame_zero_with_a_real_phase_offset(self):
+        """#193 phase 3.1 — the montage no longer opens with black.
+
+        ``plan_arrangement`` pins the first section to beat index 0 and the
+        music is pinned to record frame 0, so before this fix the picture
+        started at ``round(beat_zero * fps)`` — up to a full beat of black
+        with the track already playing. ``lock_phase`` returns a non-zero
+        ``beat_zero`` for essentially every real track.
+        """
+        files = self._seed_pool()
+        beats = _grid_beats(beat_zero=0.37)
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        self.assertTrue(out["success"], out)
+        plan = out["plan"]
+        self.assertTrue(plan["grid_available"])
+        # The offset is real in the fixture...
+        self.assertGreater(int(round(beats["beat_grid"][0] * plan["fps"])), 0)
+        # ...and normalised out of the cut.
+        self.assertEqual(plan["segments"][0]["record_start_frame"], 0)
+        self.assertEqual(plan["music"]["record_start_frame"], 0)
+
+    def test_segments_stay_contiguous_after_phase_normalisation(self):
+        # The accumulate walk in auto_edit._assign_record_frames can only be a
+        # no-op — which is what keeps a title revision beat-lock safe — if the
+        # cut is gapless from frame 0. plan_arrangement guarantees contiguity;
+        # this proves the normalisation preserves it.
+        files = self._seed_pool()
+        beats = _grid_beats(beat_zero=0.37)
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        cursor = 0
+        for seg in out["plan"]["segments"]:
+            self.assertEqual(seg["record_start_frame"], cursor)
+            cursor += cut_ir.segment_record_length(seg)
+
+    def test_tail_extension_never_outruns_the_shots_own_source(self):
+        # The slack the head-shift moves to the tail is absorbed by extending
+        # the last shot — but only by frames it really has. Montage never
+        # fabricates coverage.
+        files = self._seed_pool()
+        beats = _grid_beats(beat_zero=0.37)
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        for seg in out["plan"]["segments"]:
+            limit = seg.get("source_limit_frame")
+            if isinstance(limit, int):
+                self.assertLessEqual(seg["source_end_frame"], limit)
 
     def test_grid_invariant_every_record_start_is_a_beat(self):
         files = self._seed_pool()
@@ -598,7 +838,11 @@ class BuildCutListGridLockedTests(MontageEditBase):
         plan = out["plan"]
         self.assertTrue(plan["grid_available"])
         fps = plan["fps"]
-        beat_frames = {int(round(t * fps)) for t in beats["beat_grid"]}
+        # Starts are beat frames with the grid's phase offset normalised out
+        # (#193 phase 3) — the picture starts WITH the track, not one
+        # beat_zero of black after it.
+        phase = int(round(beats["beat_grid"][0] * fps))
+        beat_frames = {int(round(t * fps)) - phase for t in beats["beat_grid"]}
         for seg in plan["segments"]:
             self.assertIn(seg["record_start_frame"], beat_frames)
 
@@ -611,12 +855,16 @@ class BuildCutListGridLockedTests(MontageEditBase):
         plan = out["plan"]
         fps = plan["fps"]
         beat_frames = [int(round(t * fps)) for t in beats["beat_grid"]]
+        phase = beat_frames[0]
+        last = plan["segments"][-1]
         for seg in plan["segments"]:
             k = seg["beat_index"]
             end_k = min(k + seg["beat_length"], len(beat_frames) - 1)
             expected_len = beat_frames[end_k] - beat_frames[k]
-            self.assertEqual(seg["source_end_frame"] - seg["source_start_frame"], expected_len)
-            self.assertEqual(seg["record_start_frame"], beat_frames[k])
+            if seg is not last:
+                # the last segment may be extended into the track's tail
+                self.assertEqual(seg["source_end_frame"] - seg["source_start_frame"], expected_len)
+            self.assertEqual(seg["record_start_frame"], beat_frames[k] - phase)
 
     def test_no_two_consecutive_segments_share_a_clip(self):
         files = self._seed_pool()
@@ -655,10 +903,49 @@ class BuildCutListGridLockedTests(MontageEditBase):
         for seg in out["plan"]["segments"]:
             motion = seg["motion"]
             self.assertIsNotNone(motion)
-            expected_zoom = montage_edit.montage_motion.MOTION_ZOOM_RANGE.get(
-                seg["section"], montage_edit.montage_motion.DEFAULT_ZOOM_RANGE)
-            self.assertEqual((motion["zoom_start"], motion["zoom_end"]), expected_zoom)
+            mm = montage_edit.montage_motion
+            base_start, base_end = mm.MOTION_ZOOM_RANGE.get(
+                seg["section"], mm.DEFAULT_ZOOM_RANGE)
+            # The move now varies per shot (#193 phase 6.2.2) — direction and
+            # magnitude — so it is the section's ENVELOPE that is fixed, not
+            # one exact pair. Both ends stay at or above 1.0 (a zoom below 1
+            # would under-scan past the frame edges) and inside the section's
+            # span scaled by the cycle's largest factor.
+            max_scale = max(scale for _rev, scale in mm.ZOOM_VARIATION_CYCLE)
+            ceiling = base_start + (base_end - base_start) * max_scale + 1e-6
+            for value in (motion["zoom_start"], motion["zoom_end"]):
+                self.assertGreaterEqual(value, 1.0)
+                self.assertLessEqual(value, ceiling)
             self.assertAlmostEqual(motion["beat_seconds"], beat_seconds, places=4)
+
+    def test_zoom_moves_vary_and_include_pull_outs(self):
+        # The loudest tell after shot size: every shot pushing in by the same
+        # amount. There must be both directions and more than one magnitude.
+        files = self._seed_pool()
+        beats = _grid_beats()
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        moves = [(s["motion"]["zoom_start"], s["motion"]["zoom_end"])
+                 for s in out["plan"]["segments"] if s.get("motion")]
+        self.assertTrue(any(e > s for s, e in moves), "no push-ins at all")
+        self.assertTrue(any(e < s for s, e in moves), "every move still pushes in")
+        self.assertGreater(len({round(abs(e - s), 6) for s, e in moves}), 1,
+                           "every move is the same magnitude")
+
+    def test_motion_directives_are_deterministic(self):
+        # A plan is re-derived on every revision; the same cut must produce
+        # the same move each time. No RNG in the variation.
+        files = self._seed_pool()
+        runs = []
+        for _ in range(2):
+            beats = _grid_beats()
+            with mock.patch.object(montage_edit.music_analysis, "detect_beats",
+                                    return_value=beats):
+                out = montage_edit.build_cut_list_for_brief(
+                    self.root, {"files": files, "music": "/media/track.wav"})
+            runs.append([(s.get("motion") or {}).get("zoom_start") for s in out["plan"]["segments"]])
+        self.assertEqual(runs[0], runs[1])
 
     def test_small_pool_fills_full_runtime_no_truncation(self):
         # 3 clips / 8 shots (~24s of raw material, the _seed_pool fixture) —

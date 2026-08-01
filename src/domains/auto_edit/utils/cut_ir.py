@@ -352,11 +352,30 @@ def make_cut_list_segment(
     return segment
 
 
+def segment_record_length(seg: Dict[str, Any]) -> int:
+    """How many TIMELINE frames a segment occupies.
+
+    Defaults to the source-frame span, which is exactly right whenever the
+    clip's media rate equals the timeline's. It is NOT right when they differ:
+    Resolve RESAMPLES off-rate media to preserve its wall-clock length —
+    live-verified on 21.0.2.4 (``live_mixed_fps_probe.py``): 60 frames of
+    59.94fps media cost 30 frames on a 29.97fps timeline, and the next clip
+    butts straight up against it with no gap. A mixed-fps plan therefore
+    carries an explicit ``record_length_frames`` per segment and this returns
+    that. Same-fps plans never set it and keep the old arithmetic byte for
+    byte, so nothing about talking-head changes.
+    """
+    explicit = seg.get("record_length_frames")
+    if isinstance(explicit, int) and not isinstance(explicit, bool) and explicit > 0:
+        return explicit
+    return max(0, int(seg.get("source_end_frame", 0)) - int(seg.get("source_start_frame", 0)))
+
+
 def compute_cut_list_estimates(
     segments: Sequence[Dict[str, Any]], fps: float
 ) -> Dict[str, Any]:
     frames = sum(
-        max(0, int(seg.get("source_end_frame", 0)) - int(seg.get("source_start_frame", 0)))
+        segment_record_length(seg)
         for seg in segments
         if seg.get("role") != "broll"  # overlays don't extend the runtime
     )

@@ -274,10 +274,19 @@ def scout_handoff_if_needed(
     analyzed yet, or every shot already carries scout data — so the caller
     proceeds straight to `build_cut_list_for_brief` (which degrades honestly
     to best_moment/shot-start when a shot was never scouted at all).
-    Otherwise returns deep_vision.deepen_clip's own estimate/confirm or
-    pending_host_analysis payload, verbatim, for exactly one not-yet-scouted
-    clip — the caller reads frames, commits, then calls this again (or just
-    calls plan_cut again with ``scout=false``) to move on.
+    Otherwise returns deep_vision.deepen_clip's estimate/confirm or
+    pending_host_analysis payload for exactly one not-yet-scouted clip — the
+    caller reads frames, commits, then calls this again (or just calls
+    plan_cut again with ``scout=false``) to move on.
+
+    The offer is re-addressed to THIS caller before it is handed back (#193
+    phase 2.4). deep_vision writes its handshake for its own tool: the token
+    comes back under ``confirm_token`` and the note says to re-call
+    ``media_analysis(action='deepen')``. A montage host is not in that flow —
+    it must re-call ``plan_cut``, whose parameter is named
+    ``scout_confirm_token``. Echoing the key it was handed used to return the
+    identical offer forever, with no error, so the token is mirrored under
+    both names and the note names the call the host should actually make.
     """
     conn = timeline_brain_db.connect(project_root)
     clip_uuids: List[str] = []
@@ -289,9 +298,19 @@ def scout_handoff_if_needed(
     if not needed:
         return None
     clip_uuid, windows = next(iter(needed.items()))
-    return _deep_vision().deepen_clip(
+    offer = _deep_vision().deepen_clip(
         project_root, clip_ref=clip_uuid, shot_indices=list(windows.keys()),
         windows=windows, confirm_token=confirm_token)
+    if isinstance(offer, dict) and offer.get("confirm_token"):
+        offer = dict(offer)
+        offer["scout_confirm_token"] = offer["confirm_token"]
+        offer["note"] = (
+            "In-point scouting for this montage is opt-in and costs vision tokens. "
+            "Re-call auto_edit(action='plan_cut') with scout_confirm_token set to this "
+            "value to proceed (the same value is mirrored as confirm_token). To plan "
+            "without scouting, call plan_cut with scout=false, or just call plan_cut "
+            "again and it will use whatever best_moment/shot-start in-points exist.")
+    return offer
 
 
 # ── look bucketing: per-clip colour match (issue #179) ──────────────────────

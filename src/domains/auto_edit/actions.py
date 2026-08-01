@@ -1408,8 +1408,15 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             # the offer and call plan_cut again, to plan with whatever
             # best_moment/shot-start in-points are already available.
             if p.get("scout", True):
+                # Accept the key the OFFER handed back (`confirm_token`) as
+                # well as this action's own parameter name — echoing what you
+                # were given is the obvious move, and rejecting it silently
+                # re-served the identical offer forever (#193 phase 2.4).
                 scout_offer = _montage_edit_mod.scout_handoff_if_needed(
-                    project_root, brief, confirm_token=p.get("scout_confirm_token"))
+                    project_root, brief,
+                    confirm_token=(p.get("scout_confirm_token")
+                                   or p.get("scoutConfirmToken")
+                                   or p.get("confirm_token")))
                 if scout_offer is not None:
                     return scout_offer
             # No ducking/voiceover in montage — the loudness-bed-gain pass
@@ -2332,9 +2339,16 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                 # build_timeline records it in execution_summary.title) and
                 # applies THAT segment's bucket's CDL, so lighting conditions
                 # that can't intercut under one uniform CDL actually match.
-                # Purely additive: grade["cdl"]/["lut_path"]/["drx_path"]
-                # below are untouched and still apply uniformly (stage 2,
-                # the shared creative look) exactly as before.
+                # Only `lut_path` genuinely composes on top of this (#193
+                # phase 2.2). SetLUT is a separate node control, so a uniform
+                # LUT rides over the per-bucket CDLs as intended. A uniform
+                # `cdl`, though, is item.SetCDL on the SAME items — it
+                # OVERWRITES every match CDL set here — and `drx_path` is a
+                # whole-graph replace. This comment used to claim all three
+                # were additive, and finish() still reported match.applied N/N
+                # from this loop afterwards, so a host could declare a shot
+                # match that no longer existed. The destructive combinations
+                # are now reported in graded["match"]["overwritten_by"].
                 match_map = grade["match"] if isinstance(grade["match"], dict) else {}
                 segments = plan.get("segments") or []
                 title_offset = int(
@@ -2368,6 +2382,19 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                     except Exception as exc:
                         match_errors.append(f"{type(exc).__name__}: {exc}")
                 graded["match"] = {"applied": ok_count, "of": len(items), "by_bucket": by_bucket}
+                # Report the destructive combinations rather than letting the
+                # host read `applied: N/N` and believe the match survived
+                # (#193 phase 2.2). Named here, at the moment they are known.
+                overwritten_by = [
+                    key for key in ("cdl", "drx_path") if grade.get(key)]
+                if overwritten_by:
+                    graded["match"]["overwritten_by"] = overwritten_by
+                    graded["match"]["warning"] = (
+                        "the per-bucket match CDLs reported above were REPLACED by the "
+                        f"uniform {' and '.join(overwritten_by)} applied after them — "
+                        "`cdl` is item.SetCDL on the same items and `drx_path` replaces "
+                        "the whole node graph. Only `lut_path` composes with `match`; use "
+                        "it (or drx_path INSTEAD of match) if the shot match should survive.")
                 if match_errors:
                     graded["match_error"] = "; ".join(sorted(set(match_errors)))
             if grade.get("lut_path"):
@@ -2550,6 +2577,26 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             plan, record_offset=timeline_start + title_offset, options=p.get("options"))
         ops = polish.get("ops") or []
         if not ops:
+            # Genre-aware remediation (#193 phase 2.8). Montage defaults to
+            # no_dissolves — every montage cut is a source change, so the
+            # talking-head heuristic would dissolve the whole edit — and it
+            # never consults dissolve_on_beat_change at all. Naming that knob
+            # to a montage host sent them somewhere with no effect. With
+            # default options the only montage ops are speed ramps, which
+            # exist only when the arrangement produced build/accelerate
+            # sections, so an empty op set is the EXPECTED outcome here, not a
+            # failure of the build.
+            if _is_montage_plan(plan):
+                return _err(
+                    "nothing to polish on this montage — expected, not a build failure. "
+                    "Montage defaults to no_dissolves (every montage cut is a source "
+                    "change, so the talking-head heuristic would dissolve the whole "
+                    "edit), and with default options its only ops are speed ramps, which "
+                    "exist only when the arrangement produced `build`/`accelerate` "
+                    "sections. To get dissolves anyway pass options={\"no_dissolves\": "
+                    "false} — only a cut that OPENS a `breathe` section gets one. "
+                    "polish_timeline is optional: finish() targets the BUILT timeline.",
+                ) | {"polish": polish}
             return _err(
                 "nothing to polish: no flagged cuts or lower-thirds for this cut "
                 "(single-source cuts have no source-change dissolves; pass "

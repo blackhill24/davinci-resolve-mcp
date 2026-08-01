@@ -9,6 +9,7 @@ correctly against montage-role CutLists, not just talking-head ones.
 from __future__ import annotations
 
 import asyncio
+import pathlib
 import shutil
 import tempfile
 import unittest
@@ -388,6 +389,52 @@ class TitleRevisionBeatLockTests(unittest.TestCase):
         out = self._title_revision(plan)
         self.assertTrue(out.get("success"), out)
         self.assertTrue(out["plan"].get("beat_lock_broken"))
+
+
+class ScoutTokenRoundTripTests(unittest.TestCase):
+    """#193 phase 2.4 — the scout offer renamed its token on the way back.
+
+    `deep_vision` writes the handshake for its own tool: the token comes back
+    under `confirm_token` and the note says to re-call
+    `media_analysis(action='deepen')`. A montage host must re-call `plan_cut`,
+    whose parameter is `scout_confirm_token`. Echoing the key it was handed
+    returned the identical offer forever, with no error.
+    """
+
+    def test_offer_carries_the_token_under_both_names_and_routes_to_plan_cut(self):
+        root = tempfile.mkdtemp(prefix="montage-scout-")
+        self.addCleanup(shutil.rmtree, root, True)
+        offer = {"success": True, "status": "confirmation_required",
+                 "estimate": {"frame_count": 12}, "confirm_token": "tok-abc",
+                 "note": "Re-call media_analysis(action='deepen') with this confirm_token."}
+
+        class _FakeDeepVision:
+            @staticmethod
+            def deepen_clip(*_a, **_k):
+                return dict(offer)
+
+        with mock.patch.object(montage_edit, "_deep_vision", lambda: _FakeDeepVision), \
+                mock.patch.object(montage_edit, "_shots_needing_scout",
+                                  lambda *_a, **_k: {"uuid-1": {1: [(0.0, 1.0)]}}), \
+                mock.patch.object(montage_edit.auto_edit, "_clip_for_file",
+                                  lambda *_a, **_k: {"clip_uuid": "uuid-1"}):
+            out = montage_edit.scout_handoff_if_needed(root, {"files": ["/media/a.mov"]})
+
+        self.assertEqual(out["confirm_token"], "tok-abc")
+        self.assertEqual(out["scout_confirm_token"], "tok-abc")
+        self.assertIn("plan_cut", out["note"])
+        self.assertIn("scout_confirm_token", out["note"])
+        # the misrouting note is gone
+        self.assertNotIn("deepen", out["note"])
+
+    def test_plan_cut_accepts_the_offers_own_key_as_an_alias(self):
+        # The action must read confirm_token as well as scout_confirm_token —
+        # otherwise echoing what you were handed is a silent no-op.
+        source = (pathlib.Path(__file__).resolve().parents[3]
+                  / "src" / "domains" / "auto_edit" / "actions.py").read_text(encoding="utf-8")
+        block = source.split("scout_handoff_if_needed(")[1][:400]
+        self.assertIn('p.get("scout_confirm_token")', block)
+        self.assertIn('p.get("confirm_token")', block)
 
 
 class VisionDefaultTests(unittest.TestCase):

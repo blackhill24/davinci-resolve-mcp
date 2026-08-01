@@ -11,6 +11,13 @@ approval (`approve_cut`) sits between planning and execution.
 
 ## The loop
 
+**Four steps in this loop are confirm-token gated: `approve_cut`,
+`build_timeline`, `polish_timeline` and `finish`.** The first call returns
+`status: "confirmation_required"` with a `confirm_token` and a `preview`
+instead of doing the work — that is the protocol, not an error. Show the
+preview, then re-call with **exactly the same params plus `confirm_token`**.
+Changing any other parameter invalidates the token and you get a fresh one.
+
 1. `auto_edit(action="start_brief", params={files, music?, genre?, deliverable?,
    target_duration_seconds?, title_text?, options?})` — validates media, scaffolds
    Footage/Music bins, kicks the analysis batch.
@@ -52,13 +59,25 @@ approval (`approve_cut`) sits between planning and execution.
    revision and never blocks. Escape hatches: `plan_cut(brief_id, scout=false)`,
    or just ignore the offer and call `plan_cut` again to plan with whatever
    `best_moment`/shot-start in-points already exist.
-   `scout_confirm_token` completes the offer's estimate/confirm handshake.
+   **The scout handshake renames its token, so spell out the round trip.** The
+   offer comes back carrying the value under BOTH `confirm_token` (the name
+   `deep_vision` gives it) and `scout_confirm_token`; `plan_cut`'s own
+   parameter is `scout_confirm_token`, and it also accepts `confirm_token` as
+   an alias. So: read the frames the offer asks for, commit them, then re-call
+   `plan_cut(brief_id, scout_confirm_token=<the token>)`. Sending the token
+   back under a key the action does not read is silent — you get the identical
+   offer again, forever, with no error — so if a second `plan_cut` returns the
+   same offer, that is the bug to check first.
 4. **Show the summary to the user verbatim.** This is the checkpoint artifact.
    Talking-head: runtime, segment table with transcript excerpts, removed-cut
    counts, title, music line and the music-bed consent line. Montage renders a
    different table (`render_montage_summary`) — role / description / pacing
-   columns, and no consent line. Relay whichever you actually got; don't
-   describe columns that aren't there.
+   columns, and no consent line. **Whenever `plan["grid_available"]` is true
+   the montage table also gains `Section` and `Beats` columns** — which
+   arrangement section each shot sits in (intro / build / drop / breathe /
+   high / accelerate / outro) and how many beats it holds. Those are the two
+   most editorially meaningful things at the checkpoint: relay them. Relay
+   whichever table you actually got; don't describe columns that aren't there.
    `get_cut_summary(plan_id, format="markdown"|"json")` re-reads a saved plan's
    summary if you lost it.
 5. Iterate with `revise_cut(brief_id, notes, edits=[{op: reorder|drop|keep|title, …}])`
@@ -68,16 +87,34 @@ approval (`approve_cut`) sits between planning and execution.
    lock**: the revision re-packs record frames, so cuts after the change fall
    off the grid and the cut runs shorter than the track. The plan says so
    (`beat_lock_broken`, and a note in the summary) — re-plan for a clean
-   result, or relay the tradeoff. `title` is safe (video and music shift
-   together).
+   result, or relay the tradeoff.
+
+   **Read `beat_lock_broken` off the returned plan; do not assume which ops
+   are safe.** Every `revise_cut` op — `title` included — re-walks the whole
+   cut's record frames. The flag is set from what actually moved, not from
+   which op you asked for. A title-only revision is expected to leave it
+   unset, because the cut starts at record frame 0 and the arrangement is
+   contiguous, but that is an invariant of the planner, not a property of the
+   op: check the flag rather than trusting this sentence.
 6. `approve_cut(plan_id, music_bed_consent=<user's explicit choice>)` — the
    confirm-token ceremony. Never assume consent for the ducked-bed render; ask.
    **Talking-head only** — for a montage plan `approve_cut` forces the static
    bed regardless of what consent flags you pass (no voiceover to duck under),
    so don't put a meaningless consent question to the user.
-7. `build_timeline(plan_id)` — append-rebuild; check the readback
-   (`usage_summary`, `build_errors`, `punch_ins`) and report anomalies. On a
-   montage plan `build_errors` also carries the beat-alignment deviations.
+7. `build_timeline(plan_id)` — append-rebuild. Mind the key paths: only
+   `usage_summary` is inside `readback`. `build_errors`, `title` and
+   `beat_alignment` are **siblings** of `readback`, at the top level of the
+   result. `punch_ins` is talking-head only — on a montage it is always `[]`,
+   so don't report it.
+
+   **Montage's own readback is `beat_alignment {checked, deviations}`**, and
+   it is present only on a grid-locked plan (absent entirely otherwise).
+   Be precise about what it proves: that **Resolve placed the items where the
+   plan said**, item by item. It does **not** prove the plan is on the music —
+   that is decided earlier, by the beat grid, and `grid_available` is what
+   tells you whether there was one. A clean `beat_alignment` on a plan with
+   `grid_available: false` means a faithful build of a cut that was never
+   beat-locked.
 7b. *(optional)* `polish_timeline(plan_id, options?)` — exports the built
    timeline to `.drt`, runs the verified `drp-format` vendor ops on it in
    scratch and reimports a NEW `(polished)` timeline, leaving the built one
@@ -88,6 +125,15 @@ approval (`approve_cut`) sits between planning and execution.
    `no_dissolves`** (every montage cut is a source change; re-enabled, only cuts
    opening a `breathe` section get one) and authors the speed ramps its
    `retime`-flagged segments call for.
+
+   **On the default montage case this step REFUSES, and that is expected.**
+   With default options a montage's only possible ops are speed ramps, which
+   exist only when the arrangement produced `build` or `accelerate` sections.
+   Otherwise the op set is empty and the call returns an error — not a no-op,
+   and not a sign the build failed. Report it as "nothing to polish", not as a
+   failure. The montage re-enable knob is `options={"no_dissolves": false}`;
+   `dissolve_on_beat_change` is a talking-head knob that montage never
+   consults. Remember `finish` targets the BUILT timeline either way.
    Check `clips_relinked`; a `warning` means real source clips went offline.
 8. `finish(plan_id, grade?, motion?, subtitles?, render={target_dir, format?,
    codec?}, target?)` — verify the reported `output_path` exists before
@@ -100,8 +146,18 @@ approval (`approve_cut`) sits between planning and execution.
      and keeps the rest. Omit `motion` and none of it is applied.
    - `grade={"match": …}` is stage 1 — a per-look-bucket match CDL so shots lit
      differently intercut. Pass the plan's own `look_buckets` straight through;
-     `{<bucket>: {"cdl": …}}` is the explicit form. `lut_path`/`cdl`/`drx_path`
-     still apply uniformly on top as stage 2.
+     `{<bucket>: {"cdl": …}}` is the explicit form.
+     **Only `lut_path` composes with `match`.** It is `SetLUT`, a separate node
+     control, so a uniform LUT rides on top as a genuine stage 2. A uniform
+     `cdl` does **not**: it is `SetCDL` on the same items, so it REPLACES every
+     per-bucket match CDL. `drx_path` replaces the entire node graph. In either
+     case `finish` still reports `match.applied: N/N` from the earlier loop —
+     that count is what was set, not what survived — so it now also returns
+     `grade.match.overwritten_by` and a `warning` when you have asked for a
+     destructive combination. Read them before telling the user the shots were
+     matched. If you want both a shot match and a strong look, use
+     `match` + `lut_path`; if the look is a DRX or a single uniform CDL, drop
+     `match` rather than stacking them.
    - `qc` runs on montage after a successful render, returning a host-vision
      handoff. Disable with `qc=false`.
    - On Linux, `subtitles` hits a `SUBTITLE_GENERATION_CRASH_GUARD` refusal
@@ -132,7 +188,7 @@ knob, say so instead of inventing one.
 | "cinematic" | `motion={}` — vignette, grain and letterbox ride along |
 | "lose the letterbox/grain" | `motion={"look": false}` |
 | "make the shots match" | `grade={"match": plan["look_buckets"]}` — the plan already computed them |
-| "apply my LUT / this look" | `grade={"lut_path": …}` (or `cdl`/`drx_path`) — stage 2, on top of match |
+| "apply my LUT / this look" | `grade={"lut_path": …}` — the only look that composes ON TOP of `match` (SetLUT is a separate node control). A uniform `cdl` or a `drx_path` REPLACES the per-bucket match, so pick one: `match`+`lut_path`, or `cdl`/`drx_path` without `match`. Check `grade.match.overwritten_by` in the result |
 | "add dissolves" | `polish_timeline(options={"no_dissolves": false})` — montage suppresses them by default |
 | "add some slow-mo" | already planned — but you don't place it: `retime` is raised on `build` and `accelerate` sections only. `polish_timeline` authors the real ramp, so render it with `finish(target="polished")` |
 | "flash / shake on that hit" | not addressable either — `flash` fires on every section-opening downbeat, `shake` on `drop`/`high`, `fadeout` on the outro's last shot. Take them or leave them (`motion` omitted) |

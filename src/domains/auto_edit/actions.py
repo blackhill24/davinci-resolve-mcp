@@ -1966,7 +1966,12 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
     # EVERY item's comp (still non-destructive, still adjustable afterward —
     # just not literally "once"). Letterbox uses the existing per-item Crop
     # property directly; no Fusion node needed for a straight top/bottom bar.
-    _VIGNETTE_GAIN = 0.55       # corner darkening strength
+    _VIGNETTE_GAIN = 0.4         # corner darkening strength (issue #201: 0.55 was
+                                  # compensating for a hard-edged mask; a soft falloff
+                                  # needs less gain to read as the same strength)
+    _VIGNETTE_SOFT_EDGE = 0.5    # falloff width; EllipseMask defaults to a hard 0 edge
+    _VIGNETTE_WIDTH = 1.35       # ellipse half-width; default (~0.25) covers a tiny disc
+    _VIGNETTE_HEIGHT = 1.35      # ellipse half-height
     _GRAIN_BLEND = 0.06         # grain opacity
     _LETTERBOX_CROP_RATIO = 0.06  # top+bottom crop fraction of frame height
 
@@ -2010,6 +2015,35 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             return abs(float(readback) - float(value)) <= tol
         except (TypeError, ValueError):
             return readback == value
+
+    def _fusion_point_input_set_ok(tool, input_name, xy):
+        """Set a Fusion Point input (e.g. a mask Center) and verify by read-back.
+        Point inputs don't accept a plain scalar; the fusionscript bridge accepts
+        a 2-element list or a 1-indexed table depending on platform/version, so
+        try both encodings (matches fusion_composition/actions.py's
+        _fusion_set_point_input)."""
+        x, y = xy
+        for cand in ([x, y], {1: x, 2: y}, {"1": x, "2": y}):
+            try:
+                tool.SetInput(input_name, cand)
+            except Exception:
+                continue
+            try:
+                readback = tool.GetInput(input_name)
+            except Exception:
+                readback = None
+            if readback is None:
+                continue
+            try:
+                rx, ry = readback[1], readback[2]
+            except (KeyError, TypeError, IndexError):
+                try:
+                    rx, ry = readback[0], readback[1]
+                except (KeyError, TypeError, IndexError):
+                    continue
+            if abs(float(rx) - float(x)) <= 1e-3 and abs(float(ry) - float(y)) <= 1e-3:
+                return True
+        return False
 
     def _ensure_fusion_tool_locked(comp, tool_type, name):
         """Find-or-create `name`. MUST be called from inside an ALREADY-OPEN
@@ -2213,7 +2247,26 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                         vignette.ConnectInput("EffectMask", mask)
                         if media_out:
                             media_out.ConnectInput("Input", vignette)
-                        return (_fusion_input_set_ok(vignette, "ApplyMaskInverted", 1)
+                        # EllipseMask defaults to a small ellipse with SoftEdge=0 (a
+                        # hard-edged matte, not a vignette) — issue #201. Set the
+                        # geometry explicitly so the mask reads as a soft falloff
+                        # covering most of frame, verified by readback like every
+                        # other input in this function.
+                        mask_ok = (
+                            _fusion_input_set_ok(mask, "SoftEdge", _VIGNETTE_SOFT_EDGE)
+                            and _fusion_input_set_ok(mask, "Width", _VIGNETTE_WIDTH)
+                            and _fusion_input_set_ok(mask, "Height", _VIGNETTE_HEIGHT)
+                        )
+                        if not mask_ok:
+                            errors.append(
+                                f"segment {seg_idx}: vignette mask geometry "
+                                "SetInput readback mismatch"
+                            )
+                        center_ok = _fusion_point_input_set_ok(mask, "Center", (0.5, 0.5))
+                        if not center_ok:
+                            errors.append(f"segment {seg_idx}: vignette mask Center SetInput failed")
+                        return (mask_ok and center_ok
+                                and _fusion_input_set_ok(vignette, "ApplyMaskInverted", 1)
                                 and _fusion_input_set_ok(vignette, "Gain", _VIGNETTE_GAIN))
                     try:
                         ok = _fusion_locked(comp, _do_vignette)

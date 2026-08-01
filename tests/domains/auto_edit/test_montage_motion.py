@@ -27,6 +27,39 @@ class ComputeMotionDirectiveTest(unittest.TestCase):
             (directive["zoom_start"], directive["zoom_end"]), mm.DEFAULT_ZOOM_RANGE)
         self.assertEqual(directive["amp"], mm.DEFAULT_PULSE_AMP)
 
+    # #209: the pulse table is now an exhaustive opt-in list — everything
+    # not named in it, including sections that DO have their own zoom range,
+    # must fall through to amp 0, not a nonzero "default" throb.
+    def test_pulse_is_opt_in_the_default_is_zero(self):
+        self.assertEqual(mm.DEFAULT_PULSE_AMP, 0.0)
+
+    def test_only_drop_and_high_are_in_the_pulse_table(self):
+        self.assertEqual(set(mm.MOTION_PULSE_AMP), {"drop", "high"})
+
+    def test_high_section_pulses(self):
+        directive = mm.compute_motion_directive("high", beat_seconds=0.5)
+        self.assertEqual(directive["amp"], mm.MOTION_PULSE_AMP["high"])
+        self.assertGreater(directive["amp"], 0)
+
+    def test_mid_section_has_its_own_zoom_range_but_no_pulse(self):
+        # A section can be a real, named entry in MOTION_ZOOM_RANGE and still
+        # get amp 0 — zoom range and pulse amplitude are independent tables.
+        directive = mm.compute_motion_directive("mid", beat_seconds=0.5)
+        self.assertEqual(
+            (directive["zoom_start"], directive["zoom_end"]),
+            mm.MOTION_ZOOM_RANGE["mid"])
+        self.assertEqual(directive["amp"], 0.0)
+
+    def test_build_and_accelerate_no_longer_pulse(self):
+        # Deliberately dropped from MOTION_PULSE_AMP (#209): both sections
+        # already carry their own energy (MONTAGE_RETIME_SPEED slows them,
+        # and the zoom ramp itself accelerates), so a pulse under a
+        # tension-building section read as arriving before the drop earned it.
+        for section in ("build", "accelerate"):
+            with self.subTest(section=section):
+                directive = mm.compute_motion_directive(section, beat_seconds=0.5)
+                self.assertEqual(directive["amp"], 0.0)
+
 
 class BuildZoomExpressionTest(unittest.TestCase):
     """Exact-string assertions for a known parameter set (the acceptance
@@ -120,6 +153,36 @@ class BuildZoomExpressionTest(unittest.TestCase):
         start_value = self._evaluate(expr, 3)
         end_value = self._evaluate(expr, params["clip_length_frames"] - 1)
         self.assertLess(start_value, end_value)
+
+    # #209 acceptance criterion: a section not in MOTION_PULSE_AMP must
+    # produce NO pulse — verified here by the emitted expression containing
+    # no pulse term at all when amp is 0, not merely one that evaluates to 0.
+    def test_zero_amp_omits_the_pulse_term_entirely(self):
+        params = dict(self._params(), amp=0.0)
+        expr = mm.build_zoom_expression(**params)
+        self.assertNotIn("exp", expr)
+        self.assertNotIn("fmod", expr)
+        self.assertEqual(expr, "1.000000+0.00150943*time")
+
+    def test_zero_amp_ramp_still_applies_and_varies_across_the_clip(self):
+        # The ramp — and per-shot variation, which lives entirely in
+        # zoom_start/zoom_end and is untouched by amp — must survive amp=0.
+        params = dict(self._params(), amp=0.0, zoom_start=1.0, zoom_end=1.05)
+        expr = mm.build_zoom_expression(**params)
+        start_value = self._evaluate(expr, 0)
+        end_value = self._evaluate(expr, params["clip_length_frames"] - 1)
+        self.assertLess(start_value, end_value)
+
+    def test_negative_amp_also_omits_the_pulse_term(self):
+        params = dict(self._params(), amp=-0.01)
+        expr = mm.build_zoom_expression(**params)
+        self.assertNotIn("exp", expr)
+
+    def test_positive_amp_still_pulses(self):
+        params = self._params()  # amp=0.06, the fixture default
+        expr = mm.build_zoom_expression(**params)
+        self.assertIn("exp", expr)
+        self.assertIn("fmod", expr)
 
     def test_zero_or_negative_beat_seconds_does_not_divide_by_zero(self):
         expr = mm.build_zoom_expression(

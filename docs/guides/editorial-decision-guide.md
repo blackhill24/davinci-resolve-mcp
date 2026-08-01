@@ -323,8 +323,11 @@ that isn't there is never invented.
 Fusion comp (`MediaIn1 → BeatPulse Transform → Flash → Vignette → Grain Merge →
 MediaOut1`), non-destructive and adjustable afterward on the Fusion page:
 
-- a zoom ramp plus a decaying pulse locked to the master beat grid, with the
-  range and pulse amplitude set per section (intro 1.0→1.03 … drop 1.0→1.08);
+- a zoom ramp, with the range set per section (intro 1.0→1.03 … drop
+  1.0→1.08), plus a decaying pulse locked to the master beat grid — the pulse
+  is opt-in per section (`drop`/`high` only, since #209; everything else gets
+  the ramp with no throb), and `motion={"pulse": false}` forces it off
+  everywhere the plan stored one;
 - flash frames on section-opening downbeats; a decaying positional shake on
   `shake` entries; a fade to black on the `fadeout` entry;
 - letterbox (`CropTop`/`CropBottom`) and vignette/grain — opt out of just these

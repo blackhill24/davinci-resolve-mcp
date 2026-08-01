@@ -2158,7 +2158,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             return tool, f"AddTool({tool_type}) succeeded but SetAttrs(TOOLS_Name) failed"
         return tool, None
 
-    def _apply_montage_motion(tl, plan, *, title_offset, look=True):
+    def _apply_montage_motion(tl, plan, *, title_offset, look=True, pulse=True):
         """Issue #180, phase 5/6 of the montage-quality epic: beat-locked
         Fusion motion (a zoom ramp + a decaying pulse locked to the master
         beat grid, see montage_motion.build_zoom_expression), flash frames on
@@ -2167,6 +2167,15 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         flagged shots, and a vignette/grain look pass (``look``, on by default
         — see the module's adjustment-layer note above for why this is
         per-clip, not per-track).
+
+        ``pulse`` (#209, default True): the plan already bakes a per-section
+        amplitude into each segment's ``motion["amp"]`` (0 for most sections
+        since MOTION_PULSE_AMP is now an exhaustive opt-in list) —
+        ``pulse=False`` is a coarser HOST override on top of that, forcing
+        every segment's amplitude to 0 regardless of what the plan stored, so
+        "leave the pulsing out" doesn't require replanning or omitting
+        ``motion`` entirely (which would also lose the ramp/flash/shake/
+        fadeout/look).
 
         Motion/flash/shake/fadeout/look live on a small per-clip Fusion comp
         (MediaIn1 -> [BeatPulse Transform] -> [Flash BrightnessContrast] ->
@@ -2259,7 +2268,8 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                         record_len = _auto_edit_mod.cut_ir.segment_record_length(seg)
                         expr = _montage_motion_mod.build_zoom_expression(
                             zoom_start=motion["zoom_start"], zoom_end=motion["zoom_end"],
-                            amp=motion["amp"], beat_seconds=motion["beat_seconds"], fps=fps,
+                            amp=motion["amp"] if pulse else 0.0,
+                            beat_seconds=motion["beat_seconds"], fps=fps,
                             clip_length_frames=record_len,
                         )
                         # SetExpression's `time` argument matches the
@@ -2462,7 +2472,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             # (issue #203). A segment the mapper couldn't match still counts
             # here, so e.g. fadeout: {applied: 0, of: 1} is distinguishable
             # from a plan that simply had no fadeout at all.
-            "motion": {"applied": motion_applied, "of": planned_motion},
+            "motion": {"applied": motion_applied, "of": planned_motion, "pulse": pulse},
             "flash": {"applied": flash_applied, "of": planned_flash},
             "shake": {"applied": shake_applied, "of": planned_shake},
             "fadeout": {"applied": fadeout_applied, "of": planned_fadeout},
@@ -2521,6 +2531,9 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             motion_preview: Dict[str, Any] = {"enabled": motion_opts is not None}
             if motion_opts is not None:
                 motion_preview["look"] = bool(motion_opts.get("look", True))
+                # #209: motion={"pulse": false} disables the beat pulse while
+                # leaving the zoom ramp/flash/shake/fade-out/look intact.
+                motion_preview["pulse"] = bool(motion_opts.get("pulse", True))
             return _issue_confirm_token(
                 action="auto_edit.finish", params=p,
                 preview={
@@ -2686,7 +2699,8 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         if motion_opts is not None:
             title_offset = int(((plan.get("execution_summary") or {}).get("title") or {}).get("record_offset") or 0)
             result.update(_apply_montage_motion(
-                tl, plan, title_offset=title_offset, look=bool(motion_opts.get("look", True))))
+                tl, plan, title_offset=title_offset, look=bool(motion_opts.get("look", True)),
+                pulse=bool(motion_opts.get("pulse", True))))
 
         # Top-level shortfall warning (issue #203): grade.match and/or the
         # motion pass above set montage_map_stats when either mapped V1 items

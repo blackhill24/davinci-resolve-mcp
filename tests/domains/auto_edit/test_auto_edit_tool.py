@@ -391,15 +391,22 @@ class FinishActionTest(unittest.TestCase):
 
     def test_preview_reports_motion_empty_dict_as_enabled(self):
         gate = self._finish_gate({"motion": {}})
-        self.assertEqual(gate["preview"]["motion"], {"enabled": True, "look": True})
+        self.assertEqual(gate["preview"]["motion"], {"enabled": True, "look": True, "pulse": True})
 
     def test_preview_reports_motion_look_false(self):
         gate = self._finish_gate({"motion": {"look": False}})
-        self.assertEqual(gate["preview"]["motion"], {"enabled": True, "look": False})
+        self.assertEqual(gate["preview"]["motion"], {"enabled": True, "look": False, "pulse": True})
 
     def test_preview_reports_motion_absent_as_disabled(self):
         gate = self._finish_gate()
         self.assertEqual(gate["preview"]["motion"], {"enabled": False})
+
+    # #209: motion={"pulse": false} is a coarser override than the plan's own
+    # per-section amplitude — it forces the pulse off everywhere regardless
+    # of what the plan stored.
+    def test_preview_reports_motion_pulse_false(self):
+        gate = self._finish_gate({"motion": {"pulse": False}})
+        self.assertEqual(gate["preview"]["motion"], {"enabled": True, "look": True, "pulse": False})
 
     def test_preview_reports_subtitles_empty_dict_as_enabled(self):
         gate = self._finish_gate({"subtitles": {}})
@@ -815,6 +822,60 @@ class MotionActionTest(unittest.TestCase):
         self.assertIn("fmod", expr)
         self.assertIn("exp", expr)
 
+    def test_motion_pulse_false_omits_the_pulse_term_from_the_expression(self):
+        # #209: motion={"pulse": false} is a coarser HOST override on top of
+        # whatever amp the plan baked into the segment — it must force the
+        # pulse off even for a segment whose stored amp is well above 0
+        # (this fixture's _motion_directive() uses amp=0.05, a "high"-section
+        # value). Only `motion` is directed here (no flash/shake) so the
+        # single SetExpression call on the shared tool mock is unambiguous.
+        plan = self._plan_with_directives([{"motion": self._motion_directive()}])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items, comps = self._mock_project(item_count=1)
+        params = {"plan_id": plan["plan_id"], "motion": {"pulse": False}}
+        gate = self._finish(proj, params)
+        self.assertEqual(gate["preview"]["motion"]["pulse"], False)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["motion"], {"applied": 1, "of": 1, "pulse": False})
+        transform = comps[0].AddTool.return_value
+        size_input = transform.__getitem__("Size")
+        expr = size_input.SetExpression.call_args.args[0]
+        # the ramp survives (still a valid, non-trivial expression)...
+        self.assertIn("time", expr)
+        # ...but no pulse term at all — not merely a zero-amplitude one.
+        self.assertNotIn("exp", expr)
+        self.assertNotIn("fmod", expr)
+
+    def test_motion_pulse_false_leaves_flash_fadeout_look_intact(self):
+        # Applied-count assertions rather than expression-string ones: this
+        # harness shares one tool mock across Transform/BrightnessContrast/
+        # etc. (see _mock_project), so with every pass active in one segment
+        # the individual SetExpression calls interleave on that shared mock —
+        # applied counters stay independently accurate regardless. shake is
+        # not exercised here: the shared mock's FindTool always answers None
+        # (modelling "nothing exists yet"), which can't represent shake's own
+        # lookup of the transform _do_transform already created moments
+        # earlier in the same call — a pre-existing harness gap unrelated to
+        # this issue (`shake`'s own condition, `bool(seg.get("shake")) and
+        # bool(motion)`, is untouched by the pulse override either way).
+        plan = self._plan_with_directives([{
+            "motion": self._motion_directive(), "flash": True, "fadeout": True,
+        }])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items, _comps = self._mock_project(item_count=1)
+        params = {"plan_id": plan["plan_id"], "motion": {"pulse": False}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["motion"]["applied"], 1)
+        self.assertEqual(out["motion"]["pulse"], False)
+        self.assertEqual(out["flash"]["applied"], 1)
+        self.assertEqual(out["fadeout"]["applied"], 1)
+        self.assertEqual(out["look"]["applied"], 1)  # look defaults on, unrelated to pulse
+
     def test_flash_flag_adds_brightness_contrast_with_gain_expression(self):
         plan = self._plan_with_directives([{"flash": True}])
         auto_edit.mark_approved(self.root, plan["plan_id"])
@@ -956,7 +1017,7 @@ class MotionActionTest(unittest.TestCase):
         gate = self._finish(proj, params)
         out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
         self.assertTrue(out.get("success"), out)
-        self.assertEqual(out["motion"], {"applied": 1, "of": 1})
+        self.assertEqual(out["motion"], {"applied": 1, "of": 1, "pulse": True})
         self.assertEqual(out["flash"], {"applied": 1, "of": 1})
         self.assertEqual(out["fadeout"]["of"], 1)
         self.assertEqual(out["look"]["of"], 3)
@@ -983,7 +1044,7 @@ class MotionActionTest(unittest.TestCase):
         out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
         self.assertTrue(out.get("success"), out)
         self.assertEqual(out["fadeout"], {"applied": 0, "of": 1})
-        self.assertEqual(out["motion"], {"applied": 1, "of": 1})  # segment 0 DID get its item
+        self.assertEqual(out["motion"], {"applied": 1, "of": 1, "pulse": True})  # segment 0 DID get its item
         self.assertIn("warning", out)
         self.assertIn("1 plan segment(s) had no matching timeline item", out["warning"])
         self.assertIn("1 fadeout", out["warning"])

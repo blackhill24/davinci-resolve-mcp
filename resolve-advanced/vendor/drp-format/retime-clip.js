@@ -144,6 +144,16 @@ function readClipTimemap(clipXml) {
  *                                           implicit (0,0) start excluded); requires newDuration.
  * @param {number} [opts.newDuration]      - explicit new record duration in frames; default =
  *                                           round(oldDuration * oldSpeed / speed) (constant only).
+ * @param {boolean} [opts.preserveDuration=false] - constant-speed only: ignore newDuration
+ *                                           entirely and force the result to the clip's OWN
+ *                                           current Duration, read from THIS .drt. Use when the
+ *                                           caller's newDuration is a prediction (e.g. a plan's
+ *                                           record length) that can drift from what actually got
+ *                                           built (rounding, upstream ops shifting indices) —
+ *                                           preserveDuration reads the ground truth instead of
+ *                                           trusting the prediction, so a duration change from
+ *                                           speed alone (and the gap it opens on the track when
+ *                                           ripple is off) is impossible by construction.
  * @param {number} [opts.sourceDurationSec]- override the source duration (only needed when the
  *                                           clip has no readable timemap).
  * @param {number} [opts.clipIndex=0]
@@ -160,6 +170,7 @@ async function retimeClip(drpInput, opts = {}) {
   const {
     track: trackIdx, speed, keyframes, newDuration: wantDuration, sourceDurationSec: srcOverride,
     clipIndex = 0, clipDbId: selId, nameContains, ripple = false, timelineUuid, trackType = 'video',
+    preserveDuration = false,
   } = opts;
   if (!Number.isInteger(trackIdx) || trackIdx < 1) throw new TypeError('retimeClip: track must be a positive integer');
   const hasSpeed = speed !== undefined && speed !== null;
@@ -178,6 +189,9 @@ async function retimeClip(drpInput, opts = {}) {
   }
   if (wantDuration != null && (!Number.isInteger(wantDuration) || wantDuration < 1)) {
     throw new TypeError('retimeClip: newDuration must be a positive integer');
+  }
+  if (preserveDuration && !hasSpeed) {
+    throw new TypeError('retimeClip: preserveDuration requires opts.speed (a constant-speed retime)');
   }
 
   const zip = await loadDrpZip(drpInput);
@@ -217,6 +231,11 @@ async function retimeClip(drpInput, opts = {}) {
       throw new Error('retimeClip: clip already has a variable-speed ramp — pass newDuration explicitly');
     }
     newDuration = Math.max(1, Math.round(oldDuration * (oldSpeed / speed)));
+  }
+  if (preserveDuration) {
+    // Ground truth wins over any caller-supplied prediction — see the opts
+    // doc above (issue #202).
+    newDuration = oldDuration;
   }
 
   // Preserve the Sm2TimeMap identity across re-retimes; mint one on first retime.

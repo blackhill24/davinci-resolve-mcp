@@ -248,10 +248,17 @@ class LookBucketingTests(unittest.TestCase):
         neutral_bucket = bucket_of_clip["c"]
         self.assertEqual(cdls[neutral_bucket]["Offset"], [0.0, 0.0, 0.0])
         self.assertEqual(cdls[neutral_bucket]["Slope"], [1.0, 1.0, 1.0])
-        # warm bucket's slope pulls red down / blue up (cools it toward neutral)
+        # warm bucket's slope pulls red down / blue up relative to its own
+        # gain (cools it toward neutral) — checked relative to the gain
+        # (Slope[1]) rather than against 1.0, since #210 folds the exposure
+        # gain into the same Slope triple as the white-balance tilt.
         warm_bucket = bucket_of_clip["a"]
-        self.assertLess(cdls[warm_bucket]["Slope"][0], 1.0)
-        self.assertGreater(cdls[warm_bucket]["Slope"][2], 1.0)
+        self.assertLess(cdls[warm_bucket]["Slope"][0], cdls[warm_bucket]["Slope"][1])
+        self.assertGreater(cdls[warm_bucket]["Slope"][2], cdls[warm_bucket]["Slope"][1])
+        # and every bucket's Offset stays at true black (#210 — Offset is no
+        # longer the exposure axis, so it never lifts the black floor)
+        for cdl in cdls.values():
+            self.assertEqual(cdl["Offset"], [0.0, 0.0, 0.0])
 
     def test_ffmpeg_fallback_used_when_file_missing_returns_none(self):
         self.assertIsNone(
@@ -276,17 +283,65 @@ class LookBucketingTests(unittest.TestCase):
         self.assertEqual(cdl["Power"], [1.0, 1.0, 1.0])
         self.assertEqual(cdl["Saturation"], 1.0)
 
-    def test_exposure_offset_is_clamped(self):
-        # The offset used to be the RAW brightness delta with no clamp, so a
-        # dusk shot against a midday target got an enormous, shot-wrecking lift.
+    def test_dark_bucket_preserves_black(self):
+        # #210: exposure used to ride CDL Offset, which lifts black by the
+        # same amount as the "correction" (out = (in*Slope+Offset)^Power, so
+        # Offset moves in=0 too). A dusk shot against a midday target used to
+        # get an enormous, shot-wrecking lift AND a milky black floor.
         candidates = [
             _sig_candidate("a", tone="neutral", brightness=0.05),
             _sig_candidate("b", tone="neutral", brightness=0.95),
         ]
         bucket_of_clip, sigs, _basis = montage_edit.assign_look_buckets(candidates)
         for cdl in montage_edit.compute_match_cdls(sigs, bucket_of_clip).values():
-            for value in cdl["Offset"]:
-                self.assertLessEqual(abs(value), montage_edit.MAX_MATCH_OFFSET)
+            # Offset is always [0,0,0] now — black (in=0) stays at 0 no
+            # matter how large the exposure gain, since Offset no longer
+            # carries the correction.
+            self.assertEqual(cdl["Offset"], [0.0, 0.0, 0.0])
+            # the exposure correction itself lives on Slope now, and is clamped
+            for value in cdl["Slope"]:
+                self.assertLessEqual(abs(value - 1.0), montage_edit.MAX_MATCH_GAIN + 1e-9)
+
+    def test_two_bucket_match_converges_brightness(self):
+        # A "match" pulls buckets toward the shared target rather than being
+        # a no-op (#210 acceptance criteria) — the darker bucket gets gain
+        # > 1 (brightened toward the target), the brighter bucket gain < 1.
+        candidates = [
+            _sig_candidate("a", tone="neutral", brightness=0.2),
+            _sig_candidate("b", tone="neutral", brightness=0.8),
+        ]
+        bucket_of_clip, sigs, _basis = montage_edit.assign_look_buckets(candidates)
+        cdls = montage_edit.compute_match_cdls(sigs, bucket_of_clip)
+        dark_gain = cdls[bucket_of_clip["a"]]["Slope"][1]
+        bright_gain = cdls[bucket_of_clip["b"]]["Slope"][1]
+        self.assertGreater(dark_gain, 1.0)
+        self.assertLess(bright_gain, 1.0)
+
+    def test_clamp_majority_note_when_most_buckets_pinned(self):
+        # When most buckets sit at the correction ceiling, that is a signal
+        # the match target (or the axis) is wrong — the checkpoint should
+        # say so (#210), not leave the user to find it in the render.
+        candidates = [
+            _sig_candidate("a", tone="neutral", brightness=0.02),
+            _sig_candidate("b", tone="neutral", brightness=0.05),
+            _sig_candidate("c", tone="neutral", brightness=0.95),
+        ]
+        bucket_of_clip, sigs, _basis = montage_edit.assign_look_buckets(candidates)
+        cdls = montage_edit.compute_match_cdls(sigs, bucket_of_clip)
+        notes = montage_edit.clamp_majority_notes(cdls)
+        self.assertTrue(any("exposure" in n for n in notes))
+
+    def test_clamp_majority_note_absent_when_buckets_vary(self):
+        # Two DISTINCT buckets (different brightness bands) whose gain stays
+        # well inside the clamp — the ordinary, non-degenerate match case.
+        candidates = [
+            _sig_candidate("a", tone="neutral", brightness=0.30),
+            _sig_candidate("b", tone="neutral", brightness=0.40),
+        ]
+        bucket_of_clip, sigs, _basis = montage_edit.assign_look_buckets(candidates)
+        cdls = montage_edit.compute_match_cdls(sigs, bucket_of_clip)
+        self.assertEqual(len(cdls), 2)
+        self.assertEqual(montage_edit.clamp_majority_notes(cdls), [])
 
     def test_white_balance_tilt_is_proportional_to_the_measured_cast(self):
         # A fixed +/-0.05 fired on a 3-way label whether the cast was a hint or
@@ -325,14 +380,16 @@ class LookBucketingTests(unittest.TestCase):
                              montage_edit.MAX_SAT_CORRECTION + 1e-9)
 
     def test_unmeasured_axes_stay_neutral(self):
-        # Every axis no-ops when its input is missing — a tone+brightness
-        # signature must behave exactly as it did before.
+        # Power/Saturation no-op when contrast/saturation aren't measured.
+        # Exposure (Slope gain) still fires from brightness alone — #210
+        # moved it off Offset, but it isn't an "unmeasured axis": brightness
+        # is always present.
         cdl = montage_edit._match_cdl(
             {"tone": "neutral", "brightness": 0.4}, {"brightness": 0.5})
         self.assertEqual(cdl["Power"], [1.0, 1.0, 1.0])
         self.assertEqual(cdl["Saturation"], 1.0)
-        self.assertEqual(cdl["Slope"], [1.0, 1.0, 1.0])
-        self.assertAlmostEqual(cdl["Offset"][0], 0.1, places=4)
+        self.assertAlmostEqual(cdl["Slope"][1], 1.2, places=4)  # 0.5/0.4 gain
+        self.assertEqual(cdl["Offset"], [0.0, 0.0, 0.0])
 
     # ── #193 phase 6.2.4: log/flat footage ──────────────────────────────────
 

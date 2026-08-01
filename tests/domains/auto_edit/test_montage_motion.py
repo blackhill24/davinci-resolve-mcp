@@ -37,15 +37,15 @@ class BuildZoomExpressionTest(unittest.TestCase):
     def _params(self):
         return dict(
             zoom_start=1.0, zoom_end=1.08, amp=0.06, beat_seconds=0.5545,
-            fps=24.0, record_start_frame=48, clip_length_frames=53,
+            fps=24.0, clip_length_frames=53,
         )
 
     def test_emitted_expression_string_for_known_params(self):
         expr = mm.build_zoom_expression(**self._params())
         self.assertEqual(
             expr,
-            "1.000000+0.00150943*time+0.060000*exp(-7*fmod((time+48),13.308000)/13.308000)"
-            "+0.025200*exp(-9*fmod((time+48)+6.654000,13.308000)/13.308000)",
+            "1.000000+0.00150943*time+0.060000*exp(-7*fmod(time,13.308000)/13.308000)"
+            "+0.025200*exp(-9*fmod(time+6.654000,13.308000)/13.308000)",
         )
 
     def _evaluate(self, expr: str, time: float) -> float:
@@ -54,38 +54,63 @@ class BuildZoomExpressionTest(unittest.TestCase):
         # arithmetic operators — no other names are exposed.
         return eval(expr, {"__builtins__": {}}, {"time": time, "fmod": math.fmod, "exp": math.exp})
 
-    def test_pulse_peaks_at_the_beat_frame_not_mid_beat(self):
-        # record_start_frame must itself be a beat-grid frame (phase 2's
-        # guarantee) for the phase offset to line up — derive it the same
-        # way montage_edit does: beat_frames[k], a member of the ROUNDED
-        # cumulative grid (never k * beat_frames computed independently,
-        # which can be off by the same sub-frame rounding this test must
-        # therefore tolerate too — real record frames are only ever accurate
-        # to +/-1 frame, same as everywhere else in this codebase).
+    def test_pulse_peaks_at_the_clips_own_first_frame(self):
+        # Every grid-locked segment starts ON a beat, so comp-local frame 0
+        # IS a beat and the pulse must peak there (#193 phase 3).
         beat_seconds, fps = 0.5545, 24.0
         beat_frames = beat_seconds * fps
-        beat_grid_frames = [round(k * beat_frames) for k in range(6)]
-        record_start_frame = beat_grid_frames[4]
-        params = dict(self._params(), record_start_frame=record_start_frame,
-                      beat_seconds=beat_seconds, fps=fps)
+        params = dict(self._params(), beat_seconds=beat_seconds, fps=fps)
         expr = mm.build_zoom_expression(**params)
-        window = range(-2, 3)
-        values = {t: self._evaluate(expr, t) for t in window}
-        peak_t = max(values, key=values.get)
-        # the peak lands within +/-1 frame of the nominal beat (0) — the
-        # only slack frame quantization allows — and is clearly higher than
-        # mid-beat values further from any beat.
-        self.assertIn(peak_t, (-1, 0, 1))
+        values = {t: self._evaluate(expr, t) for t in range(0, 4)}
+        self.assertEqual(max(values, key=values.get), 0)
         mid_beat = self._evaluate(expr, round(beat_frames / 2))
-        self.assertGreater(values[peak_t], mid_beat)
+        self.assertGreater(values[0], mid_beat)
 
         # the NEXT beat (one full beat_frames later) peaks the same way.
-        next_beat_frame = beat_grid_frames[5] - record_start_frame
+        next_beat_frame = round(beat_frames)
         next_window = range(next_beat_frame - 2, next_beat_frame + 3)
         next_values = {t: self._evaluate(expr, t) for t in next_window}
         next_peak_t = max(next_values, key=next_values.get)
         self.assertIn(next_peak_t - next_beat_frame, (-1, 0, 1))
         self.assertGreater(next_values[next_peak_t], mid_beat)
+
+    def test_pulse_stays_on_the_beat_for_a_track_with_a_phase_offset(self):
+        """Regression for #193 phase 3.
+
+        The old formula folded ``record_start_frame`` into the modulo phase.
+        A segment's start frame is congruent to ``beat_zero * fps`` modulo the
+        beat period, so that shifted every peak by a constant ``beat_zero`` —
+        up to half a beat off the beat the pulse is named after. It went
+        unnoticed because this suite's fixture used ``beat_zero = 0``, the one
+        value for which the bug is invisible. ``lock_phase`` returns a
+        non-zero offset for essentially every real track.
+        """
+        beat_seconds, fps = 0.5545, 24.0
+        beat_frames = beat_seconds * fps
+        beat_zero = 0.31            # a real, non-zero phase lock
+        # The grid montage_edit builds, and the record frames it derives.
+        grid = [beat_zero + k * beat_seconds for k in range(8)]
+        beat_grid_frames = [round(t * fps) for t in grid]
+        # normalize_grid_phase slides the cut back so segment 0 sits at 0;
+        # every segment start is then an exact multiple of the beat period.
+        normalized = [f - beat_grid_frames[0] for f in beat_grid_frames]
+        expr = mm.build_zoom_expression(
+            **dict(self._params(), beat_seconds=beat_seconds, fps=fps))
+        mid_beat = self._evaluate(expr, round(beat_frames / 2))
+        for seg_start in normalized[:4]:
+            # For a segment starting at `seg_start`, the beats inside it are
+            # at comp-local times (beat_frame - seg_start). Each must peak.
+            for beat_frame in normalized:
+                local = beat_frame - seg_start
+                if not 0 <= local <= 60:
+                    continue
+                window = range(max(0, local - 2), local + 3)
+                values = {t: self._evaluate(expr, t) for t in window}
+                peak_t = max(values, key=values.get)
+                self.assertIn(
+                    peak_t - local, (-1, 0, 1),
+                    f"peak drifted off the beat at seg_start={seg_start}, beat={beat_frame}")
+                self.assertGreater(values[peak_t], mid_beat)
 
     def test_ramp_moves_from_zoom_start_to_zoom_end_across_the_clip(self):
         params = self._params()
@@ -99,7 +124,7 @@ class BuildZoomExpressionTest(unittest.TestCase):
     def test_zero_or_negative_beat_seconds_does_not_divide_by_zero(self):
         expr = mm.build_zoom_expression(
             zoom_start=1.0, zoom_end=1.02, amp=0.02, beat_seconds=0.0,
-            fps=24.0, record_start_frame=0, clip_length_frames=48)
+            fps=24.0, clip_length_frames=48)
         # must still be a valid, evaluable expression (falls back to 1 frame)
         self._evaluate(expr, 0)
 
@@ -133,8 +158,7 @@ class BuildShakeExpressionTest(unittest.TestCase):
     def test_jitter_is_strongest_at_the_beat_and_decays_before_the_next(self):
         beat_seconds, fps = 0.5, 24.0
         beat_frames = beat_seconds * fps
-        expr = mm.build_shake_expression(
-            beat_seconds=beat_seconds, fps=fps, record_start_frame=0)
+        expr = mm.build_shake_expression(beat_seconds=beat_seconds, fps=fps)
         # Sample a whole beat: the largest swing lives in the first third,
         # and the tail before the next beat is effectively still.
         on_beat = max(abs(self._evaluate(expr, t))
@@ -144,21 +168,20 @@ class BuildShakeExpressionTest(unittest.TestCase):
         self.assertGreater(on_beat, pre_next_beat * 3)
 
     def test_amplitude_never_exceeds_the_configured_ceiling(self):
-        expr = mm.build_shake_expression(
-            beat_seconds=0.5, fps=24.0, record_start_frame=0)
+        expr = mm.build_shake_expression(beat_seconds=0.5, fps=24.0)
         peak = max(abs(self._evaluate(expr, t)) for t in range(0, 48))
         self.assertLessEqual(peak, mm.SHAKE_MAX_DEGREES)
 
-    def test_locked_to_the_master_grid_via_record_start_frame(self):
-        # Same phase trap as the zoom pulse: comp-local time is 0 at the
-        # clip's first frame, so the timeline offset must be baked in.
-        expr = mm.build_shake_expression(
-            beat_seconds=0.5, fps=24.0, record_start_frame=48)
-        self.assertIn("(time+48)", expr)
+    def test_phase_is_plain_comp_local_time(self):
+        # #193 phase 3: a grid-locked segment starts ON a beat, so comp-local
+        # time is already the beat phase. The old record_start_frame term put
+        # every peak a constant beat_zero off the beat.
+        expr = mm.build_shake_expression(beat_seconds=0.5, fps=24.0)
+        self.assertIn("fmod(time,", expr)
+        self.assertNotIn("time+", expr)
 
     def test_zero_beat_seconds_does_not_divide_by_zero(self):
-        expr = mm.build_shake_expression(
-            beat_seconds=0.0, fps=24.0, record_start_frame=0)
+        expr = mm.build_shake_expression(beat_seconds=0.0, fps=24.0)
         self._evaluate(expr, 0)
 
 

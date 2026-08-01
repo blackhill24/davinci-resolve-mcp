@@ -163,5 +163,78 @@ class FlagsAreConsumedTest(unittest.TestCase):
             "either wire an executor in _apply_montage_motion or drop the flag")
 
 
+class DownbeatPhasePickupTest(unittest.TestCase):
+    """#193 phase 3.2 — the opening section must not cut off-bar.
+
+    ``downbeat_phase`` recovers which of the 4 beat phases carries the bar
+    line, so the first downbeat is at beat index ``phase`` (0-3) and every
+    section's ``start_seconds`` is one of those downbeats. Forcing section one
+    to ``start_beat = 0`` meant that on roughly 3 of 4 tracks the whole intro
+    cut on beat 3 of every bar, and the section-opening ``flash`` fired off
+    the downbeat. Every pre-existing fixture used ``phase = 0`` — the one
+    value that hides it.
+    """
+
+    def _schedule_with_phase(self, phase: int, *, bpm=120.0, beats=32):
+        grid = _grid(bpm, beats)
+        # Sections start on DOWNBEATS, i.e. at beat indices phase, phase+4, ...
+        sections = [
+            {"start_bar": 0, "end_bar": 2, "start_seconds": grid[phase],
+             "end_seconds": grid[phase + 8], "energy": 1.0, "label": "intro",
+             "is_drop": False},
+            {"start_bar": 2, "end_bar": 6, "start_seconds": grid[phase + 8],
+             "end_seconds": grid[-1], "energy": 3.0, "label": "high", "is_drop": True},
+        ]
+        return grid, ma.plan_arrangement(grid, sections)
+
+    def test_section_openings_land_on_a_downbeat_for_every_phase(self):
+        # Cuts INSIDE a section run at that section's cadence (2 beats for
+        # high/drop), so not every entry is a bar line — but every section
+        # OPENING must be one. `flash` marks exactly those (the code flags
+        # entries[0] of each section), which is the same set the audience
+        # perceives as the arrangement landing.
+        for phase in range(4):
+            grid, schedule = self._schedule_with_phase(phase)
+            self.assertTrue(schedule, phase)
+            openers = [e for e in schedule if "flash" in e["flags"]]
+            self.assertTrue(openers, phase)
+            for entry in openers:
+                self.assertEqual(
+                    entry["beat_index"] % 4, phase % 4,
+                    f"phase={phase}: section opens at beat {entry['beat_index']}, off the bar")
+
+    def test_the_body_starts_at_the_first_downbeat(self):
+        for phase in range(4):
+            grid, schedule = self._schedule_with_phase(phase)
+            body = schedule[1:] if phase > 0 else schedule
+            self.assertEqual(body[0]["beat_index"], phase, phase)
+
+    def test_pickup_covers_the_pre_downbeat_head(self):
+        for phase in (1, 2, 3):
+            grid, schedule = self._schedule_with_phase(phase)
+            pickup = schedule[0]
+            self.assertEqual(pickup["beat_index"], 0, phase)
+            self.assertEqual(pickup["beat_length"], phase, phase)
+            # The pickup is not the section opener — the flash belongs on the
+            # real downbeat, which is the next entry.
+            self.assertNotIn("flash", pickup["flags"], phase)
+            self.assertIn("flash", schedule[1]["flags"], phase)
+
+    def test_no_pickup_when_the_downbeat_is_beat_zero(self):
+        grid, schedule = self._schedule_with_phase(0)
+        self.assertEqual(schedule[0]["beat_index"], 0)
+        self.assertIn("flash", schedule[0]["flags"])
+
+    def test_contiguity_survives_the_pickup(self):
+        # The invariant normalize_grid_phase and apply_revision's accumulate
+        # walk both depend on: no gaps, no overlaps, starting at beat 0.
+        for phase in range(4):
+            grid, schedule = self._schedule_with_phase(phase)
+            cursor = 0
+            for entry in schedule:
+                self.assertEqual(entry["beat_index"], cursor, f"phase={phase}")
+                cursor += entry["beat_length"]
+
+
 if __name__ == "__main__":
     unittest.main()

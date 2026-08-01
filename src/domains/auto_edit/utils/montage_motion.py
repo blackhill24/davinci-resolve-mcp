@@ -16,14 +16,20 @@ and re-gradable, unlike ffmpeg's baked pixels.
 
 The phase trap (read this before touching the formula): a clip's Fusion comp
 `time` is COMP-LOCAL (0 at the clip's own first frame), not the timeline's
-global frame. build_zoom_expression bakes `record_start_frame` (phase 2
-guarantees this is an exact beat-grid frame) into the modulo phase so the
-pulse locks to the TIMELINE's beat grid, not to each clip's own arbitrary
-start. Verified live on Resolve Studio 21.0.2.4: `time` in a Fusion
-expression is exactly the frame argument passed to get_input/SetExpression,
-and `fmod`/`exp` behave as the C stdlib versions — see the phase-5 PR
-description for the read-back values that proved a pulse peaks exactly on
-the beat and resets cleanly at the next one.
+global frame. That is fine here and needs NO correction term, because every
+grid-locked montage segment starts exactly ON a beat: comp-local frame 0 IS a
+beat, and the beats after it sit at exact multiples of the beat period, so
+`fmod(time, beat_frames)` is already the timeline's own beat phase.
+
+These expressions used to add `record_start_frame` into the modulo phase to
+"lock to the master grid". That was backwards and it cost the headline
+feature its accuracy (#193 phase 3): a segment's start frame is congruent to
+`beat_zero * fps` modulo the beat period, so adding it shifted every peak by a
+constant `beat_zero` — up to half a beat off the beat the pulse is named
+after. Dropping the term is what makes the lock real. Verified live on Resolve
+Studio 21.0.2.4: `time` in a Fusion expression is exactly the frame argument
+passed to get_input/SetExpression, and `fmod`/`exp` behave as the C stdlib
+versions.
 """
 from __future__ import annotations
 
@@ -114,21 +120,23 @@ def build_zoom_expression(
     amp: float,
     beat_seconds: float,
     fps: float,
-    record_start_frame: int,
     clip_length_frames: int,
 ) -> str:
     """Fusion expression for a Transform's ``Size`` input: a zoom ramp
     (``zoom_start`` -> ``zoom_end`` across the clip's own length) plus a
-    decaying pulse locked to the MASTER beat grid, with a lighter offbeat-8th
-    pulse — Desktop's ffmpeg zoompan formula, ported (see module docstring
-    for the comp-local-time phase offset this bakes in via
-    ``record_start_frame``).
+    decaying pulse on the beat, with a lighter offbeat-8th pulse — Desktop's
+    ffmpeg zoompan formula, ported.
+
+    The phase is plain comp-local ``time``: a grid-locked segment starts on a
+    beat, so ``time`` is already the beat phase (see the module docstring —
+    the old ``record_start_frame`` term put every peak a constant ``beat_zero``
+    off the beat).
     """
     beat_frames = beat_seconds * fps
     if beat_frames <= 0:
         beat_frames = 1.0
     ramp_rate = (zoom_end - zoom_start) / max(1, clip_length_frames)
-    phase = f"(time+{int(record_start_frame)})"
+    phase = "time"
     pulse = (
         f"{amp:.6f}*exp(-7*fmod({phase},{beat_frames:.6f})/{beat_frames:.6f})"
         f"+{amp * 0.42:.6f}*exp(-9*fmod({phase}+{beat_frames / 2.0:.6f},"
@@ -148,21 +156,21 @@ def build_flash_expression() -> str:
 
 
 def build_shake_expression(
-    *, beat_seconds: float, fps: float, record_start_frame: int,
+    *, beat_seconds: float, fps: float,
     amp_degrees: float = SHAKE_MAX_DEGREES,
 ) -> str:
     """Fusion expression for a Transform's ``Angle`` input: a rotational
     jitter that spikes on each beat and decays before the next one (phase 2's
     ``shake`` flag).
 
-    Locked to the MASTER beat grid the same way ``build_zoom_expression`` is —
-    ``record_start_frame`` is baked into the modulo phase because a clip's comp
-    ``time`` is COMP-LOCAL (see the module docstring's phase trap).
+    On the beat the same way ``build_zoom_expression`` is: the phase is plain
+    comp-local ``time``, which is already the beat phase because every
+    grid-locked segment starts on a beat (see the module docstring).
     """
     beat_frames = beat_seconds * fps
     if beat_frames <= 0:
         beat_frames = 1.0
-    phase = f"(time+{int(record_start_frame)})"
+    phase = "time"
     return (
         f"{amp_degrees:.6f}"
         f"*exp(-{SHAKE_DECAY:.4f}*fmod({phase},{beat_frames:.6f})/{beat_frames:.6f})"

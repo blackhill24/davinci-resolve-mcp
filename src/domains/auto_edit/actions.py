@@ -2071,7 +2071,6 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                         expr = _montage_motion_mod.build_zoom_expression(
                             zoom_start=motion["zoom_start"], zoom_end=motion["zoom_end"],
                             amp=motion["amp"], beat_seconds=motion["beat_seconds"], fps=fps,
-                            record_start_frame=int(seg.get("record_start_frame", 0)),
                             clip_length_frames=record_len,
                         )
                         # SetExpression's `time` argument matches the
@@ -2099,7 +2098,6 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                             return None
                         shake_expr = _montage_motion_mod.build_shake_expression(
                             beat_seconds=motion["beat_seconds"], fps=fps,
-                            record_start_frame=int(seg.get("record_start_frame", 0)),
                         )
                         return _fusion_expression_set_ok(transform["Angle"], shake_expr, time=0)
                     try:

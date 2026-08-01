@@ -325,6 +325,71 @@ class GetCutSummaryMontageTests(unittest.TestCase):
         self.assertNotIn("Excerpt", out["summary"])
 
 
+class TitleRevisionBeatLockTests(unittest.TestCase):
+    """#193 phase 2.1 / 3.1 — a title-only revision must keep the beat lock.
+
+    ``apply_revision`` re-walks record frames from ``cursor = 0`` for EVERY op,
+    including ``title``. Against a cut that started at ``round(beat_zero *
+    fps)`` the walk shifted everything and set ``beat_lock_broken`` — so the
+    one revision every montage host makes (a title is the only way a montage
+    gets one) always reported the lock as lost. Now that the cut starts at
+    frame 0 and the arrangement schedule is contiguous, the walk is a genuine
+    no-op and the flag stays correctly unset.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="montage-titlelock-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def _grid_locked_plan(self, *, phase_frames):
+        """A grid-locked montage plan whose segments are contiguous from
+        `phase_frames` — i.e. exactly the shape the planner produced BEFORE
+        normalisation when `phase_frames > 0`, and after it when 0."""
+        segments = []
+        cursor = phase_frames
+        for i in range(4):
+            seg = cut_ir.make_cut_list_segment(
+                role="montage_hook" if i == 0 else "montage",
+                clip_id=f"clip-{i}", clip_uuid=f"uuid-{i}",
+                source_start_frame=0, source_end_frame=24,
+                rationale="select_potential rank 3, pacing=kinetic",
+                evidence={"description": f"Shot {i}.", "pacing": "kinetic"})
+            seg["record_start_frame"] = cursor
+            seg["record_length_frames"] = 24
+            cursor += 24
+            segments.append(seg)
+        plan = cut_ir.make_cut_list(
+            segments=segments, fps=24.0,
+            music={"path": "/media/track.wav", "track_index": 2})
+        plan["grid_available"] = True
+        plan["problems"] = []
+        plan["tempo_bpm"] = 120.0
+        return edit_engine.save_plan(self.root, plan)
+
+    def _title_revision(self, plan):
+        return auto_edit.apply_revision(
+            self.root, plan["plan_id"], notes="add a title",
+            edits=[{"op": "title", "text": "My Montage"}])
+
+    def test_title_only_revision_keeps_the_beat_lock(self):
+        plan = self._grid_locked_plan(phase_frames=0)
+        out = self._title_revision(plan)
+        self.assertTrue(out.get("success"), out)
+        revised = out["plan"]
+        self.assertFalse(revised.get("beat_lock_broken"),
+                         f"title-only revision broke the lock: {revised.get('problems')}")
+        self.assertEqual(revised["segments"][0]["record_start_frame"], 0)
+
+    def test_a_phase_offset_cut_is_what_used_to_break_it(self):
+        # Documents the mechanism rather than asserting the old bug is still
+        # present: a cut that does NOT start at 0 cannot survive the walk, and
+        # that is precisely why normalize_grid_phase exists.
+        plan = self._grid_locked_plan(phase_frames=9)
+        out = self._title_revision(plan)
+        self.assertTrue(out.get("success"), out)
+        self.assertTrue(out["plan"].get("beat_lock_broken"))
+
+
 class VisionDefaultTests(unittest.TestCase):
     """#193 phase 1 — the first-run blocker.
 

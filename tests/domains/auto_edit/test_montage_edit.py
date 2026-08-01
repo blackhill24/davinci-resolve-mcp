@@ -651,11 +651,18 @@ class RenderMontageSummaryTests(MontageEditBase):
         self.assertIn("| drop | 2 |", summary)
 
 
-def _grid_beats(*, bpm=120.0, n_beats=24, duration=None, drop_at_bar=3, bars_total=6):
+def _grid_beats(*, bpm=120.0, n_beats=24, duration=None, drop_at_bar=3, bars_total=6,
+                beat_zero=0.0):
     """A fabricated grid_available=True detect_beats() result — pure Python,
-    no ffmpeg — for exercising the beat-grid cutting path (issue #177)."""
+    no ffmpeg — for exercising the beat-grid cutting path (issue #177).
+
+    ``beat_zero`` defaults to 0.0 for the historical tests, but ``lock_phase``
+    returns a NON-zero phase offset for essentially every real track, and 0.0
+    is the one value that hides the whole class of phase bugs #193 phase 3
+    fixed. New tests should pass a real offset.
+    """
     period = 60.0 / bpm
-    beat_grid = [round(i * period, 6) for i in range(n_beats)]
+    beat_grid = [round(beat_zero + i * period, 6) for i in range(n_beats)]
     duration = duration if duration is not None else beat_grid[-1] + period
     drop_beat = drop_at_bar * 4
     sections = [
@@ -670,7 +677,7 @@ def _grid_beats(*, bpm=120.0, n_beats=24, duration=None, drop_at_bar=3, bars_tot
         "onsets": [round(0.25 * i, 3) for i in range(int(duration / 0.25))],
         "onset_count": int(duration / 0.25), "tempo_bpm": bpm,
         "beat_grid": beat_grid, "bar_grid": beat_grid[::4], "downbeats": beat_grid[::4],
-        "sections": sections, "tempo_confidence": 5.0, "beat_zero": 0.0,
+        "sections": sections, "tempo_confidence": 5.0, "beat_zero": beat_zero,
         "grid_available": True, "method": "fabricated for tests",
     }
 
@@ -678,6 +685,58 @@ def _grid_beats(*, bpm=120.0, n_beats=24, duration=None, drop_at_bar=3, bars_tot
 class BuildCutListGridLockedTests(MontageEditBase):
     """The beat-grid cutting path (issue #177, phase 2/6 of the
     montage-quality epic) — fabricated grid_available=True beats, no ffmpeg."""
+
+    def test_picture_starts_on_frame_zero_with_a_real_phase_offset(self):
+        """#193 phase 3.1 — the montage no longer opens with black.
+
+        ``plan_arrangement`` pins the first section to beat index 0 and the
+        music is pinned to record frame 0, so before this fix the picture
+        started at ``round(beat_zero * fps)`` — up to a full beat of black
+        with the track already playing. ``lock_phase`` returns a non-zero
+        ``beat_zero`` for essentially every real track.
+        """
+        files = self._seed_pool()
+        beats = _grid_beats(beat_zero=0.37)
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        self.assertTrue(out["success"], out)
+        plan = out["plan"]
+        self.assertTrue(plan["grid_available"])
+        # The offset is real in the fixture...
+        self.assertGreater(int(round(beats["beat_grid"][0] * plan["fps"])), 0)
+        # ...and normalised out of the cut.
+        self.assertEqual(plan["segments"][0]["record_start_frame"], 0)
+        self.assertEqual(plan["music"]["record_start_frame"], 0)
+
+    def test_segments_stay_contiguous_after_phase_normalisation(self):
+        # The accumulate walk in auto_edit._assign_record_frames can only be a
+        # no-op — which is what keeps a title revision beat-lock safe — if the
+        # cut is gapless from frame 0. plan_arrangement guarantees contiguity;
+        # this proves the normalisation preserves it.
+        files = self._seed_pool()
+        beats = _grid_beats(beat_zero=0.37)
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        cursor = 0
+        for seg in out["plan"]["segments"]:
+            self.assertEqual(seg["record_start_frame"], cursor)
+            cursor += cut_ir.segment_record_length(seg)
+
+    def test_tail_extension_never_outruns_the_shots_own_source(self):
+        # The slack the head-shift moves to the tail is absorbed by extending
+        # the last shot — but only by frames it really has. Montage never
+        # fabricates coverage.
+        files = self._seed_pool()
+        beats = _grid_beats(beat_zero=0.37)
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        for seg in out["plan"]["segments"]:
+            limit = seg.get("source_limit_frame")
+            if isinstance(limit, int):
+                self.assertLessEqual(seg["source_end_frame"], limit)
 
     def test_grid_invariant_every_record_start_is_a_beat(self):
         files = self._seed_pool()
@@ -689,7 +748,11 @@ class BuildCutListGridLockedTests(MontageEditBase):
         plan = out["plan"]
         self.assertTrue(plan["grid_available"])
         fps = plan["fps"]
-        beat_frames = {int(round(t * fps)) for t in beats["beat_grid"]}
+        # Starts are beat frames with the grid's phase offset normalised out
+        # (#193 phase 3) — the picture starts WITH the track, not one
+        # beat_zero of black after it.
+        phase = int(round(beats["beat_grid"][0] * fps))
+        beat_frames = {int(round(t * fps)) - phase for t in beats["beat_grid"]}
         for seg in plan["segments"]:
             self.assertIn(seg["record_start_frame"], beat_frames)
 
@@ -702,12 +765,16 @@ class BuildCutListGridLockedTests(MontageEditBase):
         plan = out["plan"]
         fps = plan["fps"]
         beat_frames = [int(round(t * fps)) for t in beats["beat_grid"]]
+        phase = beat_frames[0]
+        last = plan["segments"][-1]
         for seg in plan["segments"]:
             k = seg["beat_index"]
             end_k = min(k + seg["beat_length"], len(beat_frames) - 1)
             expected_len = beat_frames[end_k] - beat_frames[k]
-            self.assertEqual(seg["source_end_frame"] - seg["source_start_frame"], expected_len)
-            self.assertEqual(seg["record_start_frame"], beat_frames[k])
+            if seg is not last:
+                # the last segment may be extended into the track's tail
+                self.assertEqual(seg["source_end_frame"] - seg["source_start_frame"], expected_len)
+            self.assertEqual(seg["record_start_frame"], beat_frames[k] - phase)
 
     def test_no_two_consecutive_segments_share_a_clip(self):
         files = self._seed_pool()

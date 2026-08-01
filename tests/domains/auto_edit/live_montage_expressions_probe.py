@@ -125,8 +125,7 @@ def run(s) -> int:
         check("Transform exposes an 'Angle' input", "Angle" in input_names,
               f"{len(input_names)} inputs; Angle present={'Angle' in input_names}")
 
-        shake_expr = montage_motion.build_shake_expression(
-            beat_seconds=0.5, fps=24.0, record_start_frame=48)
+        shake_expr = montage_motion.build_shake_expression(beat_seconds=0.5, fps=24.0)
         got = _set_expr_readback(comp, transform, "Angle", shake_expr)
         check("shake expression reads back off Transform.Angle",
               bool(got) and "fmod" in str(got) and "sin" in str(got), str(got))
@@ -135,7 +134,7 @@ def run(s) -> int:
         # and the zoom pulse share this one tool.
         zoom_expr = montage_motion.build_zoom_expression(
             zoom_start=1.0, zoom_end=1.05, amp=0.05, beat_seconds=0.5, fps=24.0,
-            record_start_frame=48, clip_length_frames=48)
+            clip_length_frames=48)
         got_size = _set_expr_readback(comp, transform, "Size", zoom_expr)
         check("zoom expression still reads back off the SAME tool's Size",
               bool(got_size) and "fmod" in str(got_size), str(got_size))

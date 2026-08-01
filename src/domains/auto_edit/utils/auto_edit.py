@@ -802,9 +802,23 @@ def apply_revision(
     # segment SEQUENCE changes: drop/reorder/keep pull every later cut off the
     # beat grid and shorten the cut below the music. Re-snapping is impossible
     # here — the beat frames are not persisted on the plan — so say so rather
-    # than hand back a plan that still reads as beat-locked. A title-only
-    # revision leaves the walk a no-op and stays silent (build_timeline shifts
-    # the music row by the same title record_offset, so the lock survives).
+    # than hand back a plan that still reads as beat-locked.
+    #
+    # A title-only revision leaves the walk a genuine no-op, but only because
+    # of TWO invariants, and it is worth naming them because this comment used
+    # to assert the no-op unconditionally and was wrong (#193 phase 2.1):
+    #   1. the arrangement schedule is contiguous — every entry's beat_index is
+    #      exactly the previous beat_index + beat_length — so a cut's starts
+    #      are already the running sum of its record lengths; and
+    #   2. montage_edit.normalize_grid_phase slides the cut so segment 0 starts
+    #      at record frame 0, which is where this walk's cursor starts.
+    # Before (2), a grid-locked cut started at round(beat_zero * fps) and the
+    # walk shifted EVERYTHING, so a title-only revision — the one revision
+    # every montage host makes — always reported the lock as lost. The
+    # comparison below is what keeps this honest either way: the flag is set
+    # from what actually moved, never from which op was requested.
+    # (build_timeline shifts the music row by the same title record_offset,
+    # so the lock survives the title itself.)
     starts_before = [seg.get("record_start_frame") for seg in revised["segments"]]
     _assign_record_frames(revised)
     if plan.get("grid_available") and starts_before != [

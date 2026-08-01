@@ -156,7 +156,19 @@ def plan_arrangement(
     Every entry's ``beat_index`` is exactly the previous entry's
     ``beat_index + beat_length`` — the schedule covers ``[0, len(beat_grid))``
     with no gaps and no overlaps, which is what lets montage_edit derive each
-    cut's source length from its record length instead of rounding twice.
+    cut's source length from its record length instead of rounding twice, and
+    what makes ``normalize_grid_phase`` + ``apply_revision``'s accumulate walk
+    agree. Do not break it.
+
+    The first section starts on the track's first DOWNBEAT, not on beat 0
+    (#193 phase 3.2). ``downbeat_phase`` recovers which of the 4 beat phases
+    carries the bar line, so the first downbeat sits at beat index ``phase``
+    (0-3) and every section boundary after it is bar-aligned. Forcing section
+    one to ``start_beat = 0`` meant that on roughly 3 of 4 tracks the whole
+    intro cut on beat 3 of every bar, and the "section-opening downbeat" flash
+    fired off the downbeat. The beats before that first downbeat are covered
+    by an explicit PICKUP entry so the schedule still starts at beat 0 and the
+    contiguity invariant above still holds.
     """
     beat_count = len(beat_grid)
     if beat_count <= 0:
@@ -168,11 +180,18 @@ def plan_arrangement(
     n = len(resolved)
     bounds = []
     for i, sec in enumerate(resolved):
-        start_beat = 0 if i == 0 else _beat_index_at(beat_grid, sec["start_seconds"])
+        start_beat = _beat_index_at(beat_grid, sec["start_seconds"])
         end_beat = beat_count if i == n - 1 else _beat_index_at(beat_grid, resolved[i + 1]["start_seconds"])
         bounds.append((max(0, start_beat), min(beat_count, end_beat)))
 
     schedule: List[Dict[str, Any]] = []
+    # Pickup: the pre-downbeat beats at the head of the track. It carries the
+    # first section's label so downstream motion/pacing treat it as part of
+    # that section, but no flags — the flash belongs on the real downbeat.
+    first_start = bounds[0][0] if bounds else 0
+    if first_start > 0:
+        schedule.append(_entry(0, first_start, resolved[0]["label"], []))
+
     prev_label = None
     for (start_beat, end_beat), sec in zip(bounds, resolved):
         if end_beat > start_beat:

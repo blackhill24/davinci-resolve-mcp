@@ -601,6 +601,71 @@ class _ShotPool:
         return src_start, src_end, basis
 
 
+def normalize_grid_phase(
+    segments: List[Dict[str, Any]], *, runtime_frames: int,
+) -> Tuple[int, List[str]]:
+    """Slide a grid-locked cut back so the picture starts on record frame 0.
+
+    ``lock_phase`` returns a non-zero ``beat_zero`` for essentially every real
+    track, and ``plan_arrangement`` pins the first section to beat index 0, so
+    the first segment's ``record_start_frame`` was ``round(beat_zero * fps)``
+    while the music is pinned to record frame 0. Three symptoms came from that
+    one offset (#193 phase 3):
+
+    1. **The montage opened with up to a beat of black** — music over nothing.
+    2. **Any revision broke the beat lock.** ``apply_revision`` re-walks record
+       frames from ``cursor = 0`` for every op including ``title``; against a
+       cut that started at ``beat_zero`` the walk shifted everything and set
+       ``beat_lock_broken``, so the one revision a montage host always makes
+       (a title, the only way a montage gets one) always reported the lock as
+       lost. The arrangement schedule is contiguous by construction — each
+       entry's ``beat_index`` is exactly the previous ``beat_index +
+       beat_length`` — so once the cut starts at 0 the accumulate walk
+       reproduces every start exactly and the flag stays correctly unset.
+    3. The beat-locked motion pulse peaked off the beat — handled separately in
+       ``montage_motion``, which no longer folds ``record_start_frame`` into
+       its phase.
+
+    Returns ``(phase_frames_removed, problems)`` and mutates ``segments`` in
+    place. The tail slack that the shift moves from the head to the end is
+    absorbed by extending the last segment, but only as far as its own source
+    can actually cover — montage never fabricates coverage, so a short tail is
+    reported rather than invented.
+    """
+    problems: List[str] = []
+    if not segments:
+        return 0, problems
+    phase = int(segments[0].get("record_start_frame") or 0)
+    if phase <= 0:
+        return 0, problems
+    for seg in segments:
+        seg["record_start_frame"] = int(seg.get("record_start_frame") or 0) - phase
+
+    last = segments[-1]
+    picture_end = int(last["record_start_frame"]) + cut_ir.segment_record_length(last)
+    slack = int(runtime_frames) - picture_end
+    if slack > 0:
+        # Extend the final shot into the slack, but only by frames its source
+        # really has. `record_length_frames` is the timeline slot and the
+        # source range is separate, so both have to move together or the slot
+        # outruns the media. `source_limit_frame` is the shot's own end, set by
+        # _grid_segment; without it we cannot prove the frames exist, so the
+        # honest move is to leave the tail short rather than guess.
+        src_end = int(last.get("source_end_frame") or 0)
+        limit = last.get("source_limit_frame")
+        headroom = max(0, int(limit) - src_end) if isinstance(limit, int) else 0
+        grow = min(slack, headroom)
+        if grow > 0:
+            last["record_length_frames"] = cut_ir.segment_record_length(last) + grow
+            last["source_end_frame"] = src_end + grow
+        if slack - grow > 0:
+            problems.append(
+                f"the last shot is {(slack - grow)} frame(s) short of the track's end — the "
+                "montage ends fractionally before the music rather than repeating a shot or "
+                "stretching one past its source")
+    return phase, problems
+
+
 def _finalize_grid_locked_frames(plan: Dict[str, Any], *, runtime_frames: int) -> None:
     """Plan-level totals for a grid-locked montage plan.
 
@@ -792,6 +857,11 @@ def build_cut_list_for_brief(
                 )
                 seg["record_start_frame"] = record_start_frame
                 seg["record_length_frames"] = int(record_len)
+                # How far this shot's own source runs, in the SHOT's rate — the
+                # ceiling normalize_grid_phase honours when it extends the last
+                # shot into the track's tail. Without it the tail extension
+                # would have to guess, and montage never fabricates coverage.
+                seg["source_limit_frame"] = int(round(float(shot["time_seconds_end"]) * shot_fps))
                 seg["beat_index"] = arrangement["beat_index"]
                 seg["beat_length"] = arrangement["beat_length"]
                 seg["section"] = arrangement["section"]
@@ -999,6 +1069,15 @@ def build_cut_list_for_brief(
                          "by shot length or select_potential tier — see problems.",
                 "remediation": "start_brief(..., genre=\"montage\", options={\"vision\": true})",
                 "problems": problems}
+
+    if grid_available:
+        # Slide the whole cut back so the picture starts WITH the track rather
+        # than one beat_zero of black after it (#193 phase 3). Must happen
+        # before make_cut_list so the estimates and totals below see the final
+        # frames.
+        _phase, phase_problems = normalize_grid_phase(
+            segments, runtime_frames=int(round(total_runtime * fps)))
+        problems.extend(phase_problems)
 
     music = {
         "path": music_path,

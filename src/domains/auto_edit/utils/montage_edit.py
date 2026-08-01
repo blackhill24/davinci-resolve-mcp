@@ -514,13 +514,15 @@ IDENTITY_CDL: Dict[str, Any] = {
 
 # Correction ceilings (#193 phase 6.2.3). A "match" is a nudge that lets shots
 # intercut, not a regrade: past these the footage genuinely does not match and
-# a correction big enough to hide that would wreck the shot instead. The
-# exposure Offset in particular used to be the RAW brightness delta with no
-# clamp at all, so a dusk shot against a midday target got an enormous lift.
-MAX_MATCH_OFFSET = 0.10      # CDL Offset, code values
+# a correction big enough to hide that would wreck the shot instead.
+MAX_MATCH_GAIN = 0.20        # CDL Slope gain, fractional deviation from 1.0 (exposure — #210)
 MAX_MATCH_TILT = 0.08        # per-channel Slope tilt for white balance
 MAX_POWER_CORRECTION = 0.15  # Power away from 1.0 (contrast)
 MAX_SAT_CORRECTION = 0.20    # Saturation away from 1.0
+
+# Below this, the measured brightness is too close to zero to divide by for a
+# multiplicative gain (#210) — an honest no-op rather than a huge/undefined ratio.
+_MIN_BRIGHTNESS_FOR_GAIN = 0.01
 
 
 def _clamp(value: float, limit: float) -> float:
@@ -528,7 +530,7 @@ def _clamp(value: float, limit: float) -> float:
 
 
 def _match_cdl(signature: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
-    """A slope/offset/power/saturation CDL pulling `signature` toward
+    """A slope/power/saturation CDL pulling `signature` toward
     `target` — stage 1 ("match").
 
     Corrects on four axes, each independently and only when the evidence for
@@ -536,22 +538,35 @@ def _match_cdl(signature: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, A
     white-balance tilt, and hard-code Power [1,1,1] / Saturation 1.0, so
     contrast and saturation were never matched at all):
 
-    - **Exposure** — Offset toward the target brightness, CLAMPED.
+    - **Exposure** — Slope GAIN toward the target brightness, CLAMPED (#210).
+      The ASC CDL formula is `out = (in * Slope + Offset) ^ Power`: Offset is
+      added to every code value including black, so using it for exposure (as
+      this used to) lifts the black floor by the same amount as the "fix".
+      Slope is multiplicative — black (`in = 0`) stays at 0 regardless of gain.
     - **White balance** — a Slope tilt PROPORTIONAL to the measured cast
       (`cast`, the r-b difference the ffmpeg pass already computes) instead of
       a fixed +/-0.05 fired on a 3-way label. Scout signatures carry only the
       label, so they fall back to the old fixed tilt — the label is all the
-      evidence there is.
+      evidence there is. The tilt multiplies into the same Slope triple as the
+      exposure gain, so one Slope carries both corrections.
     - **Contrast** — Power from the ratio of this bucket's luma spread to the
       target's, when both were measured.
     - **Saturation** — likewise from the measured saturation ratio.
 
+    Offset always stays [0, 0, 0]: the signature carries no per-shot
+    black-point measurement to justify a black-balance trim, and using it as
+    a stand-in for exposure is exactly the bug #210 fixed.
+
     Every axis no-ops when its input is missing, so a signature with only
-    tone+brightness produces exactly what it produced before, plus the clamp.
+    tone+brightness produces exactly what it produced before, minus the
+    former offset lift.
     """
     brightness = float(signature.get("brightness") or 0.0)
     target_brightness = float(target.get("brightness") or brightness)
-    offset = round(_clamp(target_brightness - brightness, MAX_MATCH_OFFSET), 4)
+    if brightness > _MIN_BRIGHTNESS_FOR_GAIN:
+        gain = 1.0 + _clamp(target_brightness / brightness - 1.0, MAX_MATCH_GAIN)
+    else:
+        gain = 1.0  # no reliable brightness to gain against — honest no-op
 
     cast = signature.get("cast")
     if isinstance(cast, (int, float)):
@@ -562,7 +577,7 @@ def _match_cdl(signature: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, A
         tone = str(signature.get("tone") or "neutral")
         tilt = _LOOK_TONE_TILT if tone == "warm" else (
             -_LOOK_TONE_TILT if tone == "cool" else 0.0)
-    slope = [1.0 - tilt, 1.0, 1.0 + tilt]
+    slope = [gain * (1.0 - tilt), gain, gain * (1.0 + tilt)]
 
     power = [1.0, 1.0, 1.0]
     contrast, target_contrast = signature.get("contrast"), target.get("contrast")
@@ -583,13 +598,58 @@ def _match_cdl(signature: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, A
     return {
         "NodeIndex": 1,
         "Slope": [round(v, 4) for v in slope],
-        "Offset": [offset, offset, offset],
+        "Offset": [0.0, 0.0, 0.0],
         "Power": power,
         # SetCDL was live-verified (tests/live_api_gap_verification.py) only
         # with all five keys present, Saturation included — omitting it is
         # the live, not-mock, cause of a silent False return on every call.
         "Saturation": saturation,
     }
+
+
+def _bucket_clamped_axes(cdl: Dict[str, Any]) -> Sequence[str]:
+    """Which correction axes in a match CDL sit exactly at their clamp
+    ceiling. Detected post-hoc from the CDL's own values rather than
+    threading a parallel diagnostic return through `_match_cdl` —
+    `compute_match_cdls`'s {bucket: CDL} shape stays exactly what existing
+    callers and tests expect."""
+    axes = []
+    slope = cdl.get("Slope") or [1.0, 1.0, 1.0]
+    gain = slope[1]
+    if abs(abs(gain - 1.0) - MAX_MATCH_GAIN) < 1e-6:
+        axes.append("exposure (Slope gain)")
+    if abs(gain) > 1e-9:
+        tilt = slope[2] / gain - 1.0
+        if abs(abs(tilt) - MAX_MATCH_TILT) < 1e-6:
+            axes.append("white balance (Slope tilt)")
+    power = (cdl.get("Power") or [1.0])[0]
+    if abs(abs(power - 1.0) - MAX_POWER_CORRECTION) < 1e-6:
+        axes.append("contrast (Power)")
+    sat = cdl.get("Saturation", 1.0)
+    if abs(abs(sat - 1.0) - MAX_SAT_CORRECTION) < 1e-6:
+        axes.append("saturation")
+    return axes
+
+
+def clamp_majority_notes(match_cdls: Dict[str, Dict[str, Any]]) -> List[str]:
+    """One note per axis where a MAJORITY of look buckets sit pinned at that
+    axis's correction ceiling (#210) — when most buckets hit the limit, the
+    match target or the axis is probably wrong, and the checkpoint should say
+    so rather than the user finding out in the render. A single bucket is
+    always the identity CDL (nothing to match against), so it never counts."""
+    if len(match_cdls) < 2:
+        return []
+    axis_counts: Dict[str, int] = {}
+    for cdl in match_cdls.values():
+        for axis in _bucket_clamped_axes(cdl):
+            axis_counts[axis] = axis_counts.get(axis, 0) + 1
+    majority = len(match_cdls) / 2.0
+    return [
+        f"{count}/{len(match_cdls)} look buckets are clamped at the {axis} "
+        "correction ceiling — the match target or the axis may be wrong"
+        for axis, count in sorted(axis_counts.items())
+        if count > majority
+    ]
 
 
 def compute_match_cdls(
@@ -987,6 +1047,7 @@ def build_cut_list_for_brief(
     for c in candidates:
         c["look_bucket"] = bucket_of_clip.get(c["clip_uuid"])
     match_cdls = compute_match_cdls(look_signatures, bucket_of_clip)
+    problems.extend(clamp_majority_notes(match_cdls))
     if look_bucket_basis != "scout":
         problems.append(
             f"look buckets derived from {look_bucket_basis} colour data (not scout) — "

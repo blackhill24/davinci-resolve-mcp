@@ -391,6 +391,84 @@ class TitleRevisionBeatLockTests(unittest.TestCase):
         self.assertTrue(out["plan"].get("beat_lock_broken"))
 
 
+class MontageCameraAudioTests(unittest.TestCase):
+    """#193 phase 5.1 — camera audio used to land on A1 under the music.
+
+    Montage segments never set `audio_track_indices`, so the `or [1]` fallback
+    mirrored every B-roll shot's production audio onto A1 at unity gain,
+    straight under the music on A2. Nothing in the plan, the summary or the
+    skill mentioned it and there was no knob.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="montage-audio-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def test_montage_segments_emit_no_audio_rows(self):
+        plan = make_montage_plan(self.root, music=True)
+        rows = s._auto_edit_build_rows(plan)
+        audio = [r for r in rows if r["media_type"] == 2 and r["role"] == "speech_audio"]
+        self.assertEqual(audio, [], "montage still mirrors camera audio onto A1")
+        # the picture rows are untouched
+        video = [r for r in rows if r["media_type"] == 1]
+        self.assertEqual(len(video), len(plan["segments"]))
+
+    def test_explicit_audio_track_indices_opt_back_in(self):
+        # A host that genuinely wants nat sound on a shot can still ask.
+        plan = make_montage_plan(self.root, music=True)
+        plan["segments"][1]["audio_track_indices"] = [1]
+        rows = s._auto_edit_build_rows(plan)
+        audio = [r for r in rows if r["role"] == "speech_audio"]
+        self.assertEqual(len(audio), 1)
+        self.assertEqual(audio[0]["track_index"], 1)
+
+    def test_talking_head_audio_mirroring_is_unchanged(self):
+        # The fallback must keep working for the genre it was written for.
+        segments = [
+            cut_ir.make_cut_list_segment(
+                role="speech", clip_id="a", clip_uuid="ua",
+                source_start_frame=0, source_end_frame=48, audio_track_indices=[1]),
+            cut_ir.make_cut_list_segment(
+                role="speech", clip_id="a", clip_uuid="ua",
+                source_start_frame=48, source_end_frame=96),
+        ]
+        plan = cut_ir.make_cut_list(segments=segments, fps=24.0)
+        auto_edit._assign_record_frames(plan)
+        plan = edit_engine.save_plan(self.root, plan)
+        rows = s._auto_edit_build_rows(plan)
+        audio = [r for r in rows if r["role"] == "speech_audio"]
+        self.assertEqual(len(audio), 2)  # incl. the one relying on the `or [1]` fallback
+
+
+class MontageExportAudioTests(unittest.TestCase):
+    """#193 phase 5.4 — for a music-cut montage the audio IS the deliverable.
+
+    `render(build_proxies)` writes ExportAudio=False project-wide (deliberately
+    — it dodges the headless Fairlight/PipeWire 0%-stall) and never restores
+    it, so a proxy build earlier in the same session left the next montage
+    render silent with every check green.
+    """
+
+    def test_finish_asserts_export_audio_for_montage(self):
+        source = (pathlib.Path(__file__).resolve().parents[3] / "src" / "domains"
+                  / "auto_edit" / "actions.py").read_text(encoding="utf-8")
+        self.assertIn('render_settings.setdefault("ExportAudio", True)', source)
+        # ...and only for montage, so talking-head keeps whatever it had: the
+        # setdefault must sit under a montage guard, not at the top level.
+        preceding = source.split(
+            'render_settings.setdefault("ExportAudio", True)')[0].splitlines()
+        guard = next(line for line in reversed(preceding) if line.strip()
+                     and not line.strip().startswith("#"))
+        self.assertEqual(guard.strip(), "if _is_montage_plan(plan):")
+
+    def test_build_proxies_still_leaves_it_false(self):
+        # Documents WHY the assertion above is needed — if this ever starts
+        # restoring the setting, the reason for the setdefault is gone.
+        source = (pathlib.Path(__file__).resolve().parents[3] / "src" / "domains"
+                  / "render_deliver" / "actions.py").read_text(encoding="utf-8")
+        self.assertIn('"ExportAudio": False', source)
+
+
 class SkillDocRelaysTheGatesTests(unittest.TestCase):
     """#193 phase 4 — the three flags a montage host must relay.
 

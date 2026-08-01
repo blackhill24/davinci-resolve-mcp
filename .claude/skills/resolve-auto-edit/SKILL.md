@@ -42,6 +42,14 @@ Changing any other parameter invalidates the token and you get a fresh one.
    `start_brief` with `options={"vision": true}`, or to run `media_analysis`
    with vision enabled over the same clips — not to retry `plan_cut`.
 
+   **Pre-flight the RASTER before you start.** `build_timeline` sets and
+   read-back-verifies `timelineFrameRate`, but it never touches
+   `timelineResolutionWidth`/`Height`. A 4K montage built into an open 1080p
+   project silently delivers 1080p, and vertical 9:16 is simply unreachable —
+   which also makes the `smart_reframe` row below meaningless. Read (and set)
+   the raster with `project_settings` BEFORE `start_brief`, because the built
+   timeline inherits the project's.
+
    **`deliverable` is a stored label only** — it is validated and saved, and
    nothing downstream reads it. It does not select an output spec, so
    `"youtube_1080p"` (the default) does not make the render 1080p. The render is
@@ -182,6 +190,37 @@ Changing any other parameter invalidates the token and you get a fresh one.
      SetCDL calls that succeeded, not shots that changed. Say "colour matching
      did not actually run" in that case rather than reporting a successful
      match that changed nothing.
+   - **Montage audio — the deliverable's whole soundtrack.** Two things the
+     pipeline does not decide for you:
+     - *Camera audio.* Montage segments no longer mirror their production
+       audio onto A1 (it used to land under the music at unity gain: wind,
+       traffic, handling noise). If a shot's nat sound IS wanted, set that
+       segment's `audio_track_indices` explicitly. To check what actually
+       landed, read `build_timeline`'s `usage_summary.by_track_type`.
+     - *Loudness.* **There is no loudness normalisation anywhere on the montage
+       path.** `approve_cut` forces the static bed for montage and `plan_cut`
+       skips the loudness pass entirely, so the render comes out at whatever
+       level the source track was — no −14 LUFS (YouTube) or −23 LUFS
+       (broadcast) target, and the music hard-cuts at the tail (the `fadeout`
+       flag is a Fusion opacity ramp on **video** only). Measure after
+       `finish` with `media_analysis(analyze_file)` →
+       `loudness.metrics.integrated_lufs`, or the offline
+       `deliverable.loudness_qc`, and tell the user the number rather than
+       assuming a platform target was hit.
+   - **Snapshot the grade before `finish(grade=…)`.** AGENTS.md's colour rule
+     is binding — "preserve or create a recoverable grade version" — and a
+     `drx_path` apply is a whole-graph replace with **no undo inside the API**.
+     Take a version first with `timeline_item_color(add_version)`, or wrap the
+     whole finish in `timeline_versioning(begin_run/end_run)`. This costs one
+     call and is the only way back.
+   - **Verify the render, don't just check the path exists.** `finish` now
+     asserts `ExportAudio: True` for montage, because that setting is
+     project-wide sticky state and `render(build_proxies)` writes it `False`
+     without restoring it — so a proxy build earlier in the same session used
+     to leave the next montage render silent with every check green. Confirm
+     with `media_analysis(analyze_file)` on the output: an audio stream is
+     present and the duration matches the track. Step 9's QC is frames-only
+     and cannot see this.
    - `qc` runs on montage after a successful render, returning a host-vision
      handoff. Disable with `qc=false`.
    - On Linux, `subtitles` hits a `SUBTITLE_GENERATION_CRASH_GUARD` refusal
@@ -218,6 +257,11 @@ knob, say so instead of inventing one.
 | "flash / shake on that hit" | not addressable either — `flash` fires on every section-opening downbeat, `shake` on `drop`/`high`, `fadeout` on the outro's last shot. Take them or leave them (`motion` omitted). All three are arrangement flags: on a plan with `grid_available: false` none of them exist, and `motion={}` then applies only vignette/grain/letterbox |
 | "check it before you call it done" | let `qc` run, look at the frames, `commit_qc` |
 | "just render it" | `finish(render={target_dir}, qc=false)` |
+| "make it vertical" / "9:16" / "4K" | **not an auto_edit parameter.** Set `timelineResolutionWidth`/`Height` via `project_settings` BEFORE `start_brief` — the built timeline inherits the project's raster and nothing in this pipeline sets it. Reframe the shots after with `timeline_item_color(smart_reframe)` |
+| "match these shots properly" (beyond the plan's buckets) | `timeline_item_color(bulk_match_to_hero)` live, or offline `drx(shot_match \| white_balance_match \| contrast_normalize \| saturation_match)` — the repo's real shot-matching toolkit |
+| "how loud is it?" / "hit −14 LUFS" | `media_analysis(analyze_file)` → `loudness.metrics.integrated_lufs` after `finish`, or offline `deliverable.loudness_qc`. Nothing on the montage path normalises loudness |
+| the source is heavy (4K/RAW/long) | `render(build_proxies)` BEFORE `start_brief` — but note it writes `ExportAudio: False` project-wide and does not restore it |
+| "take it all the way through" via `orchestrate` | **don't, for montage.** `orchestrate` drives the edit stage with `scout=False` and passes no `options`, so vision never runs and the montage plans blind. Stay in this skill |
 
 Montage **requires** music — catch that in the brief, not at the failure. Mixed
 frame rates across the sources are fine: the timeline is cut at the most common

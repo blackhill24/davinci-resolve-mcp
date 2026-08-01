@@ -1040,6 +1040,16 @@ def _auto_edit_build_rows(plan: Dict[str, Any], record_offset: int = 0) -> List[
         }
         rows.append({**base, "track_index": 1, "media_type": 1, "role": "speech",
                      "punch_in": seg.get("punch_in")})
+        # Montage segments carry NO production audio by default (#193 phase
+        # 5.1). They never set audio_track_indices, so the `or [1]` fallback
+        # used to mirror every B-roll shot's camera audio onto A1 — wind,
+        # traffic, handling noise, at unity gain, straight under the music
+        # track on A2. Nothing in the plan, the summary or the skill mentioned
+        # it and there was no knob. A music-cut montage wants the track alone;
+        # a host that genuinely wants nat sound opts back in per plan.
+        if seg.get("role") in _auto_edit_mod.cut_ir.MONTAGE_SEGMENT_ROLES and not (
+                plan.get("keep_camera_audio") or seg.get("audio_track_indices")):
+            continue
         for audio_track in (seg.get("audio_track_indices") or [1]):
             rows.append({**base, "track_index": int(audio_track), "media_type": 2,
                          "role": "speech_audio"})
@@ -2469,9 +2479,20 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             os.makedirs(target_dir, exist_ok=True)
             custom_name = str(render.get("custom_name") or render.get("customName")
                               or f"auto_edit_{plan['plan_id']}")
+            render_settings = dict(render.get("settings") or {})
+            # For a music-cut montage the audio IS the deliverable, and
+            # ExportAudio is PROJECT-WIDE sticky state: render(build_proxies)
+            # writes ExportAudio=False (deliberately — it dodges the headless
+            # Fairlight/PipeWire 0%-stall) and never restores it, so a proxy
+            # build earlier in the same session left the next montage render
+            # silent with every check green (#193 phase 5.4). Assert it here
+            # rather than inheriting whatever the project happens to hold. An
+            # explicit caller setting still wins.
+            if _is_montage_plan(plan):
+                render_settings.setdefault("ExportAudio", True)
             prepared = _prepare_render_job(proj, {
                 "target_dir": target_dir,
-                "settings": render.get("settings") or {},
+                "settings": render_settings,
                 "format": render.get("format"),
                 "codec": render.get("codec"),
                 "custom_name": custom_name,

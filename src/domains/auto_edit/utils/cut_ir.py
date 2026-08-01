@@ -418,6 +418,41 @@ def make_cut_list(
     }
 
 
+# Row cap for the checkpoint markdown embedded in a tool-call response (plan_cut
+# / revise_cut / approve_cut's preview) — half shown from the head, half from
+# the tail. get_cut_summary(format="markdown") is always unbounded.
+SUMMARY_MAX_ROWS = 40
+
+
+def compact_plan_for_response(
+    plan: Dict[str, Any], *, max_segments: int = SUMMARY_MAX_ROWS
+) -> Dict[str, Any]:
+    """Trim a CutList for a tool-call response body (#206), only when needed.
+
+    A montage plan's segments each carry a full evidence.description (the
+    shot's editorial note), often repeated dozens of times for a reused
+    shot — on a 100+ segment plan that alone is enough to exceed the MCP
+    host's per-result token limit. Above max_segments, every OTHER top-level
+    field (grid_available, look_bucket_basis, flat_footage_clips, look_buckets,
+    problems, estimates, music, titles, overlays, ...) is kept as-is; only
+    "segments" is replaced with a count. The untrimmed plan is always still
+    reachable via get_cut_summary(plan_id, format="json"), and stays untouched
+    on disk either way.
+
+    Below the threshold, the plan is returned unchanged (segments included) —
+    the ordinary talking-head/short-montage case, where callers reasonably
+    expect the full segment list inline and there is no token-limit risk to
+    trim for.
+    """
+    segments = plan.get("segments") or []
+    if len(segments) <= max_segments:
+        return plan
+    compact = dict(plan)
+    compact.pop("segments", None)
+    compact["segment_count"] = len(segments)
+    return compact
+
+
 def validate_cut_list(plan: Dict[str, Any]) -> List[str]:
     """Return a list of problems; an empty list means the CutList is valid."""
     errors: List[str] = []

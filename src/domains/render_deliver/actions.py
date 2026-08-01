@@ -899,11 +899,11 @@ def render(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, An
         return _build_proxies(proj, p)
     return _unknown(action, ["add_job","delete_job","delete_all_jobs","list_jobs","get_job_status","start","stop","is_rendering","get_formats","get_codecs","get_format_and_codec","set_format_and_codec","get_mode","set_mode","get_resolutions","get_settings","set_settings","list_presets","load_preset","save_preset","delete_preset","quick_export_presets","quick_export",*_RENDER_KERNEL_ACTIONS])
 
-def _render_cut_summary_for(plan: Dict[str, Any]) -> str:
+def _render_cut_summary_for(plan: Dict[str, Any], *, max_rows: Optional[int] = None) -> str:
     from src.domains.auto_edit.actions import _is_montage_plan
     if _is_montage_plan(plan):
-        return _montage_edit_mod.render_montage_summary(plan)
-    return _auto_edit_mod.render_cut_summary(plan)
+        return _montage_edit_mod.render_montage_summary(plan, max_rows=max_rows)
+    return _auto_edit_mod.render_cut_summary(plan, max_rows=max_rows)
 
 
 _RENDER_METHODS = [

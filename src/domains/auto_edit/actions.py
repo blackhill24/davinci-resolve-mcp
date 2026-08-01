@@ -1569,14 +1569,24 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         plan = built["plan"]
         _auto_edit_mod.advance_brief(
             project_root, brief["plan_id"], "planned", latest_plan_id=plan["plan_id"])
-        return {
+        # Return a compact plan + a bounded checkpoint table (#206) — a long
+        # montage's per-segment evidence.description can alone exceed the MCP
+        # host's per-result token limit. Full detail (untrimmed plan, full
+        # table) stays one call away via get_cut_summary.
+        segment_count = len((plan.get("segments") or []))
+        out = {
             "success": True,
             "brief_id": brief["plan_id"],
             "plan_id": plan["plan_id"],
-            "plan": plan,
-            "summary": _render_cut_summary_for(plan),
+            "plan": _auto_edit_mod.cut_ir.compact_plan_for_response(plan),
+            "summary": _render_cut_summary_for(plan, max_rows=_auto_edit_mod.cut_ir.SUMMARY_MAX_ROWS),
             "next": "review the summary; approve_cut(plan_id) or revise_cut(brief_id, edits)",
         }
+        if segment_count > _auto_edit_mod.cut_ir.SUMMARY_MAX_ROWS:
+            out["next"] += (
+                f" — {segment_count} segments total, abbreviated above; full plan and table via "
+                "get_cut_summary(plan_id, format='json'|'markdown')")
+        return out
 
     if action == "revise_cut":
         _r, _proj, project_root, err = _auto_edit_project_context(p, need_resolve=False)
@@ -1597,14 +1607,22 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         plan = revised["plan"]
         _auto_edit_mod.advance_brief(
             project_root, brief["plan_id"], "planned", latest_plan_id=plan["plan_id"])
-        return {
+        # Bounded the same way as plan_cut (#206) — a revision can land on a
+        # plan just as large as the one it revised.
+        segment_count = len((plan.get("segments") or []))
+        out = {
             "success": True,
             "brief_id": brief["plan_id"],
             "plan_id": plan["plan_id"],
             "revision": plan.get("revision"),
-            "plan": plan,
-            "summary": _render_cut_summary_for(plan),
+            "plan": _auto_edit_mod.cut_ir.compact_plan_for_response(plan),
+            "summary": _render_cut_summary_for(plan, max_rows=_auto_edit_mod.cut_ir.SUMMARY_MAX_ROWS),
         }
+        if segment_count > _auto_edit_mod.cut_ir.SUMMARY_MAX_ROWS:
+            out["note"] = (
+                f"{segment_count} segments total, abbreviated above; full plan and table via "
+                "get_cut_summary(plan_id, format='json'|'markdown')")
+        return out
 
     if action == "get_cut_summary":
         _r, _proj, project_root, err = _auto_edit_project_context(p, need_resolve=False)
@@ -1636,6 +1654,9 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         prefer_drt_ducking = False if is_montage else bool(
             p.get("prefer_drt_ducking") or p.get("preferDrtDucking"))
         if "confirm_token" not in p and "confirmToken" not in p and _confirm_token_required():
+            # Same bound as plan_cut/revise_cut (#206) — this preview IS the
+            # confirm-token gate, so an unbounded table here doesn't just
+            # abbreviate a nice-to-have, it can block approval outright.
             preview: Dict[str, Any] = {
                 "operation": "auto_edit.approve_cut",
                 "warning": "THE one human checkpoint: approving authorizes the "
@@ -1643,8 +1664,14 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                 "plan_id": plan["plan_id"],
                 "revision": plan.get("revision"),
                 "estimates": plan.get("estimates"),
-                "summary_markdown": _render_cut_summary_for(plan),
+                "summary_markdown": _render_cut_summary_for(
+                    plan, max_rows=_auto_edit_mod.cut_ir.SUMMARY_MAX_ROWS),
             }
+            segment_count = len((plan.get("segments") or []))
+            if segment_count > _auto_edit_mod.cut_ir.SUMMARY_MAX_ROWS:
+                preview["note"] = (
+                    f"{segment_count} segments total, abbreviated above; full table via "
+                    "get_cut_summary(plan_id, format='markdown')")
             if plan.get("music") and not is_montage:
                 preview["music_bed_consent_requested"] = music_bed_consent
                 preview["prefer_drt_ducking"] = prefer_drt_ducking

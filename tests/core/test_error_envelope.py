@@ -151,6 +151,37 @@ class ErrorEnvelopeContractTest(unittest.TestCase):
         self.assertEqual(body["category"], "invalid_input")
         self.assertIn("remediation", body)
 
+    def test_check_project_manager_parked_detects_none_page(self):
+        """#205: GetCurrentPage() == None means a parked Project Manager — a
+        non-retryable precondition error, not a retryable resolve_api_failed."""
+        from src.core.envelope import _check_project_manager_parked
+
+        class _StubResolve:
+            def GetCurrentPage(self):
+                return None
+
+        err = _check_project_manager_parked(_StubResolve())
+        self.assertIsNotNone(err)
+        body = err["error"]
+        self.assertEqual(body["code"], "PROJECT_MANAGER_PARKED")
+        self.assertEqual(body["category"], "precondition")
+        self.assertFalse(body["retryable"])
+        self.assertIn("remediation", body)
+
+    def test_check_project_manager_parked_passes_when_page_open(self):
+        from src.core.envelope import _check_project_manager_parked
+
+        class _StubResolve:
+            def GetCurrentPage(self):
+                return "edit"
+
+        self.assertIsNone(_check_project_manager_parked(_StubResolve()))
+
+    def test_check_project_manager_parked_none_resolve_is_noop(self):
+        from src.core.envelope import _check_project_manager_parked
+
+        self.assertIsNone(_check_project_manager_parked(None))
+
     def test_get_tl_emits_no_current_timeline(self):
         """Integration smoke: _get_tl emits a precondition error with NO_CURRENT_TIMELINE code."""
         import src.server as compound

@@ -113,6 +113,42 @@ def _unknown(action, valid):
     return _err(f"Unknown action '{action}'. Valid actions: {', '.join(valid)}")
 
 
+def _project_manager_parked_error():
+    return _err(
+        "Resolve is showing the Project Manager, so the media pool is inert — imports and "
+        "folder creation fail silently.",
+        code="PROJECT_MANAGER_PARKED", category="precondition",
+        remediation=(
+            "Open or create a project in Resolve (or call project_manager(action='create', "
+            "params={'name': ...}) / project_manager(action='load', params={'name': ...})), "
+            "then retry. open_page cannot dismiss the Project Manager, and the default "
+            "'Untitled Project' cannot be re-loaded once left."
+        ),
+    )
+
+
+def _check_project_manager_parked(r):
+    """One cheap API call, catching a state that otherwise fails silently (#205).
+
+    GetCurrentPage() returns None only while the Project Manager window is in
+    front. GetCurrentProject() still answers in that state — reporting the
+    placeholder "Untitled Project" — which is what makes a parked Project
+    Manager look like a normal, empty project until the first media-pool
+    mutation fails.
+
+    Returns an error envelope when parked, else None.
+    """
+    if r is None:
+        return None
+    try:
+        page = r.GetCurrentPage()
+    except Exception:
+        return None
+    if page is None:
+        return _project_manager_parked_error()
+    return None
+
+
 def _has_method(obj, method_name):
     # The Python bridge fabricates a callable for ANY attribute name, so
     # getattr/hasattr can never report a method as absent (verified on 21.0.0:

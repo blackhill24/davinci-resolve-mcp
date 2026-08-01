@@ -7,6 +7,7 @@ against hand-built state.
 The state dict shape (all keys optional; absence is itself a signal):
     {
       "project": str | None,
+      "project_manager_parked": bool,         # Resolve parked on the Project Manager (#205)
       "current_timeline": str | None,
       "timelines": [{"name": str, "fps": float|None, "item_count": int}, ...],
       "settings": {<key>: <value>},          # project settings
@@ -67,6 +68,16 @@ def lint_state(state: Dict[str, Any]) -> List[Issue]:
     if not state.get("project"):
         issues.append(Issue("error", "no_project", "No project is open."))
         return issues  # nothing else is meaningful without a project
+
+    if state.get("project_manager_parked"):
+        issues.append(Issue(
+            "error", "project_manager_parked",
+            "Resolve is parked on the Project Manager — the media pool is inert; "
+            "folder creation and imports fail silently.",
+            detail="The reported project name (\"Untitled Project\") is a placeholder, not a "
+                   "real open project. Create or load a project before editing.",
+        ))
+        return issues  # nothing else is meaningful while parked
 
     timelines = state.get("timelines") or []
     if not state.get("current_timeline"):

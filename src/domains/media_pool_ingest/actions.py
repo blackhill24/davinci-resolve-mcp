@@ -141,6 +141,7 @@ from src.core.envelope import (
     _RETRYABLE_UNSET,
     _callable_method_names,
     _check,
+    _check_project_manager_parked,
     _err,
     _has_method,
     _ok,
@@ -998,6 +999,12 @@ def _safe_import_media(mp, p: Dict[str, Any]):
         return _err("; ".join(errors))
     if p.get("dry_run"):
         return _ok(would_import=paths, target_folder=p.get("target_folder"))
+    # A parked Project Manager still hands back a usable `mp` (it belongs to
+    # the placeholder "Untitled Project"), so folder/import calls below fail
+    # silently rather than erroring here — name it before that happens (#205).
+    parked_err = _check_project_manager_parked(get_resolve())
+    if parked_err:
+        return parked_err
     previous, folder_err = _set_current_folder_temporarily(mp, p.get("target_folder"))
     if folder_err:
         return folder_err

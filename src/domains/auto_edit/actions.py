@@ -141,6 +141,7 @@ from src.core.envelope import (
     _RETRYABLE_UNSET,
     _callable_method_names,
     _check,
+    _check_project_manager_parked,
     _err,
     _has_method,
     _ok,
@@ -1312,6 +1313,13 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         r, proj, project_root, err = _auto_edit_project_context(p, need_resolve=True)
         if err:
             return err
+        # Cheap pre-flight before the first media-pool mutation below — a
+        # parked Project Manager still answers project_summary (as the
+        # placeholder "Untitled Project") but fails every folder/import call
+        # silently, and retrying never helps (#205).
+        parked_err = _check_project_manager_parked(r)
+        if parked_err:
+            return parked_err
         files = p.get("files") or []
         music = p.get("music")
         # Fail-fast pre-flight: catch bad inputs before the expensive ffprobe

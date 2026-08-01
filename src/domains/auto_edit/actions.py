@@ -1130,13 +1130,13 @@ def _is_montage_plan(plan: Dict[str, Any]) -> bool:
 @_destructive_op("auto_edit")
 @_missing_param_envelope
 async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Autonomous brief-to-rendered-video pipeline (Phase 1: talking head).
+    """Autonomous brief-to-rendered-video pipeline (talking head + montage).
 
     The user states a brief (files, music, target length); analysis runs; the
     decision layer assembles a CutList; ONE human checkpoint (approve_cut,
     confirm-token gated, includes the music-bed-render consent line) approves
-    it; then the timeline is append-rebuilt and finished (grade/subtitles/
-    render). Revisions rebuild — timelines are stateless artifacts.
+    it; then the timeline is append-rebuilt and finished (grade/motion/
+    subtitles/render/QC). Revisions rebuild — timelines are stateless artifacts.
 
     Actions:
       start_brief(files, music?, target_duration_seconds?, genre?, deliverable?,
@@ -1146,9 +1146,16 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         host completes commit_vision for deep passes).
       brief_status(brief_id) | status(brief_id) -> {brief, analysis?} — brief
         state; polls the analysis job and advances analyzing -> ready.
-      plan_cut(brief_id) -> {plan_id, plan, summary} — build the CutList from
-        evidence (word-level Pass-1, story beats, b-roll similarity) and render
-        the markdown checkpoint summary.
+      plan_cut(brief_id, scout?, scout_confirm_token?) -> {plan_id, plan,
+        summary} — build the CutList from evidence (word-level Pass-1, story
+        beats, b-roll similarity) and render the markdown checkpoint summary.
+        MONTAGE: scout (default true) may return a deep_vision in-point OFFER
+        for one not-yet-scouted clip INSTEAD of a plan — read its frames,
+        commit, call plan_cut again. Cache-aware, never re-offers, never
+        blocks; pass scout=false to skip. Mixed source frame rates are
+        supported: the timeline is cut at the most common footage rate and each
+        shot keeps source frames in its own rate (Resolve conforms off-rate
+        media by preserving its real-time length), so the beat lock holds.
       revise_cut(brief_id, notes?, edits?) -> revision+1 — structured overrides
         (reorder/keep/drop/title), new plan_id, old revisions stay loadable.
         Drop indices refer to the plan as displayed: a drop-only batch removes
@@ -1163,16 +1170,31 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         speech + mirrored audio, V2 b-roll, punch-in zoom, A2 music (ducked bed
         only when consented). Readback-verified.
       polish_timeline(plan_id, options?, confirm_token?) -> {polished_timeline,
-        transitions, lower_thirds, media_link} — Phase-2 pro polish the scripting
-        API can't do. Exports the built timeline as .drt, runs verified drp-format
-        vendor ops (cross-dissolves at flagged cuts via place_transition,
-        lower-thirds on an upper track via place_fusion_title), and reimports as a
-        NEW "(polished)" timeline; export-then-modify keeps media linked. options:
+        transitions, lower_thirds, speed_ramps, media_link} — Phase-2 pro polish
+        the scripting API can't do. Exports the built timeline as .drt, runs
+        verified drp-format vendor ops (cross-dissolves at flagged cuts via
+        place_transition, lower-thirds on an upper track via place_fusion_title,
+        speed ramps via retime_clip), and reimports as a NEW "(polished)"
+        timeline; export-then-modify keeps media linked. options:
         lower_thirds[], dissolve_at_segments[], dissolve_on_beat_change,
-        dissolve_frames, lower_third_frames/track, no_dissolves, no_lower_thirds.
-      finish(plan_id, grade?, subtitles?, render?, confirm_token?) -> {output}
-        — grade (lut_path | cdl | drx_path), optional subtitles, validated
-        render; reports the output path.
+        dissolve_frames, lower_third_frames/track, no_dissolves,
+        no_lower_thirds, no_retime.
+        MONTAGE defaults to no_dissolves (every montage cut is a source change)
+        and authors retime_clip speed ramps for retime-flagged segments.
+      finish(plan_id, grade?, motion?, subtitles?, render?, target?,
+        confirm_token?) -> {output} — grade (lut_path | cdl | drx_path),
+        optional subtitles, validated render; reports the output path.
+        target selects the "built" (default) or "polished" timeline.
+        MONTAGE: grade={"match": {bucket: {"cdl": ...}}} applies per-look-bucket
+        CDLs as stage 1 beneath the uniform look — the plan's own
+        look_buckets ({bucket: <raw CDL>}) is accepted as-is; motion={} applies the
+        beat-locked Fusion motion/flash/shake/fadeout/look pass (motion=
+        {"look": false} drops vignette/grain/letterbox); a visual-QC host-vision
+        request is returned after a successful render unless qc=false.
+      commit_qc(plan_id, qc_report) -> {findings, suggested_edit?} — finishes
+        finish()'s visual-QC handoff: normalizes the host's findings and, for
+        one tied to a specific cut, returns a suggested revise_cut edit.
+        Read-only against the plan; no confirm token.
       list_briefs() -> {briefs}
     """
     from src.domains.timeline_edit.actions import _build_append_clip_info_dict, _unique_timeline_name
@@ -1836,6 +1858,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
 
     _MOTION_TRANSFORM_TOOL = "MCP_BeatPulse"
     _MOTION_FLASH_TOOL = "MCP_Flash"
+    _MOTION_FADEOUT_TOOL = "MCP_Fadeout"
     _VIGNETTE_MASK_TOOL = "MCP_VignetteMask"
     _VIGNETTE_TOOL = "MCP_Vignette"
     _GRAIN_NOISE_TOOL = "MCP_Grain"
@@ -1945,24 +1968,31 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         """Issue #180, phase 5/6 of the montage-quality epic: beat-locked
         Fusion motion (a zoom ramp + a decaying pulse locked to the master
         beat grid, see montage_motion.build_zoom_expression), flash frames on
-        section-opening downbeats, speed ramps on flagged shots, and a
-        vignette/grain look pass (``look``, on by default — see the module's
-        adjustment-layer note above for why this is per-clip, not per-track).
+        section-opening downbeats, a rotational shake on the drop/high
+        sections, a fade to black on the outro's last shot, speed ramps on
+        flagged shots, and a vignette/grain look pass (``look``, on by default
+        — see the module's adjustment-layer note above for why this is
+        per-clip, not per-track).
 
-        Motion/flash/look live on a small per-clip Fusion comp
+        Motion/flash/shake/fadeout/look live on a small per-clip Fusion comp
         (MediaIn1 -> [BeatPulse Transform] -> [Flash BrightnessContrast] ->
-        [Vignette] -> [Grain Merge] -> MediaOut1) — non-destructive,
-        GPU-accelerated, adjustable afterward in the Fusion page. Retime and
-        letterbox are applied via existing per-item SetProperty calls
-        (RetimeProcess / CropTop+CropBottom) — no Fusion node needed for
-        either. Retime's process is set EXPLICITLY (never left at the
-        project default).
+        [Vignette] -> [Grain Merge] -> [Fadeout BrightnessContrast] ->
+        MediaOut1) — non-destructive, GPU-accelerated, adjustable afterward in
+        the Fusion page. Shake rides the BeatPulse Transform's Angle rather
+        than adding a node; fadeout is deliberately LAST so grain does not
+        sparkle over the black. Retime and letterbox are applied via existing
+        per-item SetProperty calls (RetimeProcess / CropTop+CropBottom) — no
+        Fusion node needed for either. Retime's process is set EXPLICITLY
+        (never left at the project default); the speed ramp itself is authored
+        by polish_timeline's retime_clip op, which the scripting API cannot do.
         """
         segments = plan.get("segments") or []
         fps = float(plan.get("fps") or 24.0)
         items = tl.GetItemListInTrack("video", 1) or []
         motion_applied = 0
         flash_applied = 0
+        shake_applied = 0
+        fadeout_applied = 0
         retime_applied = 0
         look_applied = 0
         letterbox_applied = 0
@@ -1971,11 +2001,17 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             motion = seg.get("motion")
             flash = bool(seg.get("flash"))
             retime = bool(seg.get("retime"))
-            if not motion and not flash and not retime and not look:
+            # Shake rides the beat-pulse Transform, so it needs the same beat
+            # directive motion does — in fallback (no grid) mode there is no
+            # beat to lock a jitter to. Fadeout is anchored to the clip's own
+            # tail, so it stands alone.
+            shake = bool(seg.get("shake")) and bool(motion)
+            fadeout = bool(seg.get("fadeout"))
+            if not motion and not flash and not retime and not fadeout and not look:
                 continue
 
             comp = None
-            if motion or flash or look:
+            if motion or flash or fadeout or look:
                 try:
                     comp_count = int(item.GetFusionCompCount() or 0)
                     comp = item.GetFusionCompByIndex(1) if comp_count >= 1 else item.AddFusionComp()
@@ -2012,7 +2048,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                             transform.ConnectInput("Input", media_in)
                         if media_out:
                             media_out.ConnectInput("Input", transform)
-                        record_len = int(seg["source_end_frame"]) - int(seg["source_start_frame"])
+                        record_len = _auto_edit_mod.cut_ir.segment_record_length(seg)
                         expr = _montage_motion_mod.build_zoom_expression(
                             zoom_start=motion["zoom_start"], zoom_end=motion["zoom_end"],
                             amp=motion["amp"], beat_seconds=motion["beat_seconds"], fps=fps,
@@ -2033,6 +2069,28 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                             errors.append(f"segment {seg_idx}: SetExpression(Size) readback empty after set")
                     except Exception as exc:
                         errors.append(f"segment {seg_idx}: motion expression failed: {type(exc).__name__}: {exc}")
+
+                if shake and comp:
+                    # Separate lock cycle from _do_transform deliberately: a
+                    # single Lock/Unlock spanning two mutations of the SAME tool
+                    # returned False live (see the note above _do_transform).
+                    def _do_shake():
+                        transform = comp.FindTool(_MOTION_TRANSFORM_TOOL)
+                        if transform is None:
+                            return None
+                        shake_expr = _montage_motion_mod.build_shake_expression(
+                            beat_seconds=motion["beat_seconds"], fps=fps,
+                            record_start_frame=int(seg.get("record_start_frame", 0)),
+                        )
+                        return _fusion_expression_set_ok(transform["Angle"], shake_expr, time=0)
+                    try:
+                        ok = _fusion_locked(comp, _do_shake)
+                        if ok:
+                            shake_applied += 1
+                        elif ok is False:
+                            errors.append(f"segment {seg_idx}: SetExpression(Angle) readback empty after set")
+                    except Exception as exc:
+                        errors.append(f"segment {seg_idx}: shake expression failed: {type(exc).__name__}: {exc}")
 
                 if flash and comp:
                     def _do_flash():
@@ -2122,6 +2180,41 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                             errors.append(f"segment {seg_idx}: SetProperty(CropTop/CropBottom) returned False")
                     except Exception as exc:
                         errors.append(f"segment {seg_idx}: letterbox crop failed: {type(exc).__name__}: {exc}")
+
+                if fadeout and comp:
+                    # LAST in the chain, and on its OWN BrightnessContrast —
+                    # never MCP_Flash's. Last, because a fade to black has to
+                    # come after grain, or the grain keeps sparkling over the
+                    # black. Its own tool, because the final outro entry can
+                    # carry `flash` and `fadeout` at once (a one-entry outro
+                    # section opens and closes on the same shot) and the two
+                    # would otherwise fight over one Gain input.
+                    def _do_fadeout():
+                        fade_tool, tool_warning = _ensure_fusion_tool_locked(
+                            comp, "BrightnessContrast", _MOTION_FADEOUT_TOOL)
+                        if tool_warning:
+                            errors.append(f"segment {seg_idx}: {tool_warning}")
+                        if fade_tool is None:
+                            return None
+                        upstream = comp.FindTool(upstream_name) or comp.FindTool("MediaIn1")
+                        media_out = comp.FindTool("MediaOut1")
+                        if upstream:
+                            fade_tool.ConnectInput("Input", upstream)
+                        if media_out:
+                            media_out.ConnectInput("Input", fade_tool)
+                        record_len = _auto_edit_mod.cut_ir.segment_record_length(seg)
+                        fade_expr = _montage_motion_mod.build_fadeout_expression(
+                            fps=fps, clip_length_frames=record_len)
+                        return _fusion_expression_set_ok(fade_tool["Gain"], fade_expr, time=0)
+                    try:
+                        ok = _fusion_locked(comp, _do_fadeout)
+                        if ok:
+                            fadeout_applied += 1
+                            upstream_name = _MOTION_FADEOUT_TOOL
+                        elif ok is False:
+                            errors.append(f"segment {seg_idx}: SetExpression(Gain) readback empty after set")
+                    except Exception as exc:
+                        errors.append(f"segment {seg_idx}: fadeout expression failed: {type(exc).__name__}: {exc}")
             finally:
                 if comp_undo_started:
                     try:
@@ -2141,6 +2234,8 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         result = {
             "motion": {"applied": motion_applied},
             "flash": {"applied": flash_applied},
+            "shake": {"applied": shake_applied},
+            "fadeout": {"applied": fadeout_applied},
             "look": {"applied": look_applied, "letterbox_applied": letterbox_applied,
                      "note": "per-clip vignette/grain/letterbox — InsertGeneratorIntoTimeline "
                              "track targeting is unreliable (verified live), see module note"},
@@ -2158,12 +2253,27 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         if not gate.get("success"):
             return _err(gate.get("error") or "plan gate failed")
         plan = gate["plan"]
-        built_name = (plan.get("execution_summary") or {}).get("timeline_name")
+        exec_summary = plan.get("execution_summary") or {}
+        built_name = exec_summary.get("timeline_name")
         if not built_name:
             return _err("plan has no built timeline yet — build_timeline first")
+        # target: which timeline this grades and renders. Default stays "built"
+        # — polish_timeline deliberately leaves the built one intact. But the
+        # polish round-trip is the ONLY place transitions and speed ramps can be
+        # authored (no scripting API for either), so without this selector that
+        # work could never reach a render.
+        target = str(p.get("target") or "built").strip().lower()
+        if target not in ("built", "polished"):
+            return _err(f"target must be 'built' or 'polished' (got {target!r})")
+        if target == "polished":
+            polished_name = (exec_summary.get("polished") or {}).get("timeline_name")
+            if not polished_name:
+                return _err("plan has no polished timeline yet — polish_timeline first, "
+                            "or call finish without target= to use the built one")
+            built_name = polished_name
         tl, _idx = _find_timeline_by_name(proj, built_name)
         if not tl:
-            return _err(f"built timeline {built_name!r} not found in the project")
+            return _err(f"{target} timeline {built_name!r} not found in the project")
         grade = p.get("grade") if isinstance(p.get("grade"), dict) else None
         subtitles = p.get("subtitles") if isinstance(p.get("subtitles"), dict) else None
         render = p.get("render") if isinstance(p.get("render"), dict) else None
@@ -2173,9 +2283,10 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                 action="auto_edit.finish", params=p,
                 preview={
                     "operation": "auto_edit.finish",
-                    "warning": "Applies grade/subtitles to the built timeline and "
+                    "warning": f"Applies grade/subtitles to the {target} timeline and "
                                "renders an output file.",
                     "timeline": built_name,
+                    "target": target,
                     "grade": {k: v for k, v in (grade or {}).items() if k != "cdl"},
                     "subtitles": bool(subtitles),
                     "motion": bool(motion_opts),
@@ -2191,7 +2302,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         if not _set_current_timeline(proj, tl):
             return _err(f"Could not make timeline '{built_name}' current; refusing to "
                         "grade/render, which would target the wrong timeline")
-        result: Dict[str, Any] = {"success": True, "timeline": built_name}
+        result: Dict[str, Any] = {"success": True, "timeline": built_name, "target": target}
 
         if grade:
             graded: Dict[str, Any] = {}
@@ -2221,10 +2332,20 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                         continue
                     bucket = segments[seg_idx].get("look_bucket")
                     bucket_grade = match_map.get(bucket) if bucket else None
-                    if not isinstance(bucket_grade, dict) or not bucket_grade.get("cdl"):
+                    if not isinstance(bucket_grade, dict):
+                        continue
+                    # Accept BOTH the documented {bucket: {"cdl": …}} wrapper and
+                    # the RAW {bucket: <CDL>} shape the plan's own look_buckets
+                    # hands back (montage_edit.compute_match_cdls). Feeding this
+                    # tool its own suggestion is the obvious call, and requiring
+                    # the re-wrap made that a SILENT no-op — applied: 0, no error.
+                    cdl = bucket_grade.get("cdl")
+                    if cdl is None and "Slope" in bucket_grade:
+                        cdl = bucket_grade
+                    if not cdl:
                         continue
                     try:
-                        if item.SetCDL(_normalize_cdl(bucket_grade["cdl"])):
+                        if item.SetCDL(_normalize_cdl(cdl)):
                             ok_count += 1
                             by_bucket[bucket] = by_bucket.get(bucket, 0) + 1
                     except Exception as exc:
@@ -2530,14 +2651,16 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                 "source_timeline": built_name,
                 "transitions": polish["transitions"],
                 "lower_thirds": polish["lower_thirds"],
+                "speed_ramps": polish["speed_ramps"],
                 "ops_applied": len(ops),
                 "media_link": media,  # {total, linked, offline}; offline includes added generators
                 "baseline_media_link": baseline_media,  # built timeline before the round-trip
                 "clips_relinked": real_offline == 0,
                 "notes": polish.get("notes"),
                 "plan_id": plan["plan_id"],
-                "next": "review the (polished) timeline; finish(plan_id) still targets "
-                        "the built timeline for grade/render",
+                "next": "review the (polished) timeline; finish(plan_id) grades/renders the "
+                        "BUILT timeline by default — pass finish(target='polished') to "
+                        "render this one instead",
             }
             if real_offline:
                 out["warning"] = (
@@ -2549,6 +2672,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
                     "timeline_name": out["polished_timeline"],
                     "transitions": polish["transitions"],
                     "lower_thirds": polish["lower_thirds"],
+                    "speed_ramps": polish["speed_ramps"],
                     "media_link": media,
                 },
             })

@@ -16,7 +16,7 @@ from unittest import mock
 
 import src.server as s
 from src.core import timeline_brain_db
-from src.domains.auto_edit.utils import auto_edit, cut_ir, edit_engine
+from src.domains.auto_edit.utils import auto_edit, cut_ir, edit_engine, montage_edit
 
 
 def run(coro):
@@ -200,6 +200,69 @@ class ReviseCutOnMontageTests(unittest.TestCase):
             {"op": "reorder", "order": order},
         ])
         self.assertTrue(out["success"], out)
+
+    def _grid_locked_plan(self):
+        """A grid-locked montage plan whose cuts sit on REAL beat frames.
+
+        Detected beats are not uniformly spaced in frames (108 BPM @ 24fps is
+        13.31 frames/beat, rounded per beat), which is exactly why an
+        accumulate-walk cannot reproduce them once a segment leaves.
+        """
+        beat_frames = [0, 13, 27, 40, 53, 67, 80, 93, 107]
+        segments = []
+        for i in range(0, 8, 2):
+            start, end = beat_frames[i], beat_frames[i + 2]
+            segments.append(cut_ir.make_cut_list_segment(
+                role="montage_hook" if i == 0 else "montage",
+                clip_id=f"clip-{i}", clip_uuid=f"uuid-{i}",
+                source_start_frame=1000 + start, source_end_frame=1000 + end))
+            segments[-1]["record_start_frame"] = start
+        plan = cut_ir.make_cut_list(
+            segments=segments, fps=24.0,
+            music={"path": "/media/track.wav", "track_index": 2})
+        plan["grid_available"] = True
+        plan["problems"] = []
+        plan["record_duration_frames"] = beat_frames[8]
+        return edit_engine.save_plan(self.root, plan), beat_frames
+
+    def test_drop_on_a_grid_locked_montage_reports_the_lost_beat_lock(self):
+        plan, beat_frames = self._grid_locked_plan()
+        out = auto_edit.apply_revision(self.root, plan["plan_id"], notes="drop", edits=[
+            {"op": "drop", "index": 1},
+        ])
+        self.assertTrue(out["success"], out)
+        revised = out["plan"]
+        # The damage is real, not hypothetical: the last cut no longer lands on
+        # a beat once the walk re-packs it.
+        starts = [s["record_start_frame"] for s in revised["segments"]]
+        self.assertFalse(all(f in beat_frames for f in starts), starts)
+        self.assertTrue(revised.get("beat_lock_broken"))
+        self.assertTrue(any("beat lock" in p for p in revised["problems"]), revised["problems"])
+        # and the checkpoint summary the user is shown carries it
+        self.assertIn("beat lock", montage_edit.render_montage_summary(revised))
+
+    def test_title_only_revision_keeps_the_beat_lock(self):
+        plan, beat_frames = self._grid_locked_plan()
+        out = auto_edit.apply_revision(self.root, plan["plan_id"], notes="title", edits=[
+            {"op": "title", "text": "Reel"},
+        ])
+        self.assertTrue(out["success"], out)
+        revised = out["plan"]
+        self.assertNotIn("beat_lock_broken", revised)
+        self.assertEqual([s["record_start_frame"] for s in revised["segments"]],
+                         [beat_frames[i] for i in (0, 2, 4, 6)])
+        self.assertEqual(revised["problems"], [])
+
+    def test_fallback_montage_revision_claims_no_lost_lock(self):
+        # grid_available False — there was never a lock to lose, so a drop must
+        # not manufacture a warning.
+        plan = make_montage_plan(self.root, n_segments=3)
+        out = auto_edit.apply_revision(self.root, plan["plan_id"], notes="drop", edits=[
+            {"op": "drop", "index": 1},
+        ])
+        self.assertTrue(out["success"], out)
+        self.assertNotIn("beat_lock_broken", out["plan"])
+        self.assertEqual(out["plan"]["problems"], [])
 
     def test_revise_cut_tool_action_uses_montage_summary(self):
         plan = make_montage_plan(self.root, n_segments=2)

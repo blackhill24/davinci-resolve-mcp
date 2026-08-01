@@ -11,8 +11,9 @@ decision the offline layer makes on the way there.
 from __future__ import annotations
 
 import unittest
+import unittest.mock
 
-from src.domains.auto_edit.utils import auto_edit, music_analysis
+from src.domains.auto_edit.utils import auto_edit, montage_motion, music_analysis
 
 
 def _seg(clip_uuid, record_start, length=48, **extra):
@@ -347,6 +348,87 @@ class DroppedSourceClipsTest(unittest.TestCase):
             auto_edit.dropped_source_clips(baseline_linked=7, polished_linked=8),
             0,
         )
+
+
+class MontageSpeedRampTest(unittest.TestCase):
+    """The `retime` flag used to reach finish() and set RetimeProcess — the
+    interpolation QUALITY — and nothing else, so no speed change ever happened.
+    The scripting API cannot change speed at all, so the ramp has to be authored
+    here, in the drt round-trip."""
+
+    def _retime_plan(self, **seg_extra):
+        return _plan([
+            _seg("A", 0, role="montage_hook", section="intro"),
+            _seg("B", 48, role="montage", section="build", retime=True, **seg_extra),
+            _seg("C", 96, role="montage", section="mid"),
+        ])
+
+    def _retime_ops(self, out):
+        return [op for op in out["ops"] if op["op"] == "retime_clip"]
+
+    def test_flagged_segment_gets_a_retime_op(self):
+        ops = self._retime_ops(auto_edit.plan_polish_ops(self._retime_plan()))
+        self.assertEqual(len(ops), 1)
+        self.assertEqual(ops[0]["segment_index"], 1)
+        self.assertEqual(ops[0]["kind"], "speed_ramp")
+        self.assertEqual(
+            ops[0]["args"]["speed"], montage_motion.MONTAGE_RETIME_SPEED["build"])
+
+    def test_unflagged_segments_get_nothing(self):
+        plan = _plan([
+            _seg("A", 0, role="montage_hook", section="intro"),
+            _seg("B", 48, role="montage", section="mid"),
+        ])
+        self.assertEqual(self._retime_ops(auto_edit.plan_polish_ops(plan)), [])
+
+    def test_record_duration_is_pinned_so_the_beat_grid_survives(self):
+        # newDuration must equal the segment's own record length: the default
+        # (oldDuration * oldSpeed / speed) would stretch the clip and walk every
+        # downstream cut off its beat frame.
+        plan = self._retime_plan()
+        ops = self._retime_ops(auto_edit.plan_polish_ops(plan))
+        seg = plan["segments"][1]
+        record_len = seg["source_end_frame"] - seg["source_start_frame"]
+        self.assertEqual(ops[0]["args"]["newDuration"], record_len)
+        self.assertIs(ops[0]["args"]["ripple"], False)
+
+    def test_clip_index_accounts_for_the_intro_title(self):
+        plan = self._retime_plan()
+        without = self._retime_ops(auto_edit.plan_polish_ops(plan))
+        with_title = self._retime_ops(auto_edit.plan_polish_ops(plan, record_offset=100))
+        self.assertEqual(without[0]["args"]["clipIndex"], 1)
+        self.assertEqual(with_title[0]["args"]["clipIndex"], 2)
+
+    def test_speed_above_one_is_refused_with_an_honest_note(self):
+        # >1x eats record_len*speed source out of a window that only reserved
+        # record_len, and the CutList carries no clip-length bound to check it
+        # against — so it must skip and say so, never silently run off the media.
+        with unittest.mock.patch.dict(
+            montage_motion.MONTAGE_RETIME_SPEED, {"build": 2.0}, clear=False
+        ):
+            out = auto_edit.plan_polish_ops(self._retime_plan())
+        self.assertEqual(self._retime_ops(out), [])
+        self.assertTrue(any("retime skipped" in n and "2.0x" in n for n in out["notes"]),
+                        f"expected an honest skip note, got {out['notes']}")
+
+    def test_zero_length_segment_is_skipped_not_emitted(self):
+        plan = _plan([
+            _seg("A", 0, role="montage_hook", section="intro"),
+            _seg("B", 48, length=0, role="montage", section="build", retime=True),
+        ])
+        out = auto_edit.plan_polish_ops(plan)
+        self.assertEqual(self._retime_ops(out), [])
+        self.assertTrue(any("non-positive record length" in n for n in out["notes"]))
+
+    def test_talking_head_plans_never_get_speed_ramps(self):
+        # `retime` is a montage arrangement flag; a speech plan carrying one by
+        # accident must not be retimed.
+        plan = _plan([_seg("A", 0), _seg("B", 48, retime=True)])
+        self.assertEqual(self._retime_ops(auto_edit.plan_polish_ops(plan)), [])
+
+    def test_no_retime_option_suppresses_the_family(self):
+        out = auto_edit.plan_polish_ops(self._retime_plan(), options={"no_retime": True})
+        self.assertEqual(self._retime_ops(out), [])
 
 
 if __name__ == "__main__":

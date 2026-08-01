@@ -100,11 +100,11 @@ const DOMAINS = [
   },
   {
     id: 'auto_edit', skill: 'resolve-auto-edit', title: 'Auto Edit (brief → render)', prompt: 'auto_edit_workflow',
-    when: 'the user names source files, optional music, and the kind of video they want and expects a finished cut — autonomous talking-head/interview editing with one approval checkpoint',
+    when: 'the user names source files, optional music, and the kind of video they want and expects a finished cut — autonomous talking-head/interview editing, or montage (B-roll cut to music, genre="montage"), with one approval checkpoint',
     kernel: 'docs/kernels/auto-edit-kernel.md', guide: 'docs/guides/editorial-decision-guide.md',
-    live: 'auto_edit (start_brief, brief_status, plan_cut, revise_cut, get_cut_summary, approve_cut, build_timeline, finish), media_analysis, edit_engine',
+    live: 'auto_edit (start_brief, brief_status, plan_cut, revise_cut, get_cut_summary, approve_cut, build_timeline, polish_timeline, finish, commit_qc), media_analysis, edit_engine',
     offline: 'cut_ir/auto_edit decision layer (pure planning against the analysis DB); Phase 2 adds drt surgery via the advanced server',
-    rule: 'ONE human checkpoint: approve_cut (confirm-token gated; its preview carries the cut summary + the music-bed-render consent line). Timelines are stateless artifacts — revisions rebuild via append-rebuild, never hand-patch. The only permitted derivative is the consent-gated ducked music bed, written under the analysis root.',
+    rule: 'ONE human checkpoint: approve_cut (confirm-token gated; its preview carries the cut summary + the music-bed-render consent line). Timelines are stateless artifacts — revisions rebuild via append-rebuild, never hand-patch. The only permitted derivative is the consent-gated ducked music bed, written under the analysis root. Montage: plan_cut may return a deep_vision in-point scout offer INSTEAD of a plan (normal, not a failure — commit and re-call, or pass scout=false). Transitions and speed ramps are drt surgery, not live API.',
   },
   {
     id: 'media_analysis', skill: 'resolve-media-analysis', title: 'Media Analysis', prompt: 'analyze_media',

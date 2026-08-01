@@ -33,6 +33,14 @@ SECTION_CUT_BEATS: Dict[str, int] = {
     "outro": 6,
 }
 
+# Every flag this module can put on an entry. montage_edit copies exactly these
+# onto each segment and actions.py's finish() reads them back — the loop is
+# closed on purpose. `shake` and `fadeout` shipped here in #177 and were then
+# emitted for two phases with NOTHING reading them; the round trip is now
+# asserted in tests/domains/auto_edit/test_montage_arrangement.py, so adding a
+# flag without a consumer fails offline instead of silently doing nothing.
+ARRANGEMENT_FLAGS = ("flash", "shake", "retime", "fadeout")
+
 DROP_CUT_BEATS = SECTION_CUT_BEATS["drop"]
 BREATHE_CUT_BEATS = SECTION_CUT_BEATS["breathe"]
 ACCELERATE_RUN_BEATS = SECTION_CUT_BEATS["accelerate"]

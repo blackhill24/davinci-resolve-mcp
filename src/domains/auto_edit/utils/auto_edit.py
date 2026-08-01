@@ -20,7 +20,7 @@ import os
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from src.core import timeline_brain_db
-from src.domains.auto_edit.utils import cut_ir, edit_engine, music_analysis
+from src.domains.auto_edit.utils import cut_ir, edit_engine, montage_motion, music_analysis
 from src.domains.media_analysis.utils import strata
 
 BRIEF_KIND = "auto_edit_brief"
@@ -552,7 +552,7 @@ def _assign_record_frames(plan: Dict[str, Any]) -> None:
     cursor = 0
     for seg in plan["segments"]:
         seg["record_start_frame"] = cursor
-        cursor += seg["source_end_frame"] - seg["source_start_frame"]
+        cursor += cut_ir.segment_record_length(seg)
     plan["record_duration_frames"] = cursor
     for overlay in plan["overlays"]:
         idx = overlay.get("over_segment_index")
@@ -760,7 +760,24 @@ def apply_revision(
         "revised_from": plan_id,
         "estimates": cut_ir.compute_cut_list_estimates(segments, float(plan.get("fps") or 24.0)),
     })
+    # A grid-locked montage plan (issue #177) carries beat-quantised
+    # record_start_frames that this accumulate-walk cannot reproduce once the
+    # segment SEQUENCE changes: drop/reorder/keep pull every later cut off the
+    # beat grid and shorten the cut below the music. Re-snapping is impossible
+    # here — the beat frames are not persisted on the plan — so say so rather
+    # than hand back a plan that still reads as beat-locked. A title-only
+    # revision leaves the walk a no-op and stays silent (build_timeline shifts
+    # the music row by the same title record_offset, so the lock survives).
+    starts_before = [seg.get("record_start_frame") for seg in revised["segments"]]
     _assign_record_frames(revised)
+    if plan.get("grid_available") and starts_before != [
+            seg.get("record_start_frame") for seg in revised["segments"]]:
+        revised["beat_lock_broken"] = True
+        revised["problems"] = list(revised.get("problems") or []) + [
+            "beat lock lost: this revision re-packed the cut, so cuts after the first "
+            "change no longer land on the music's beat grid and the montage now runs "
+            "shorter than the track — re-plan (plan_cut) for a beat-locked result, or "
+            "accept the drift knowingly (build_timeline reports the deviations)"]
     errors = cut_ir.validate_cut_list(revised)
     if errors:
         return {"success": False, "error": "revised CutList failed validation",
@@ -895,6 +912,13 @@ def plan_polish_ops(
     (an honest note, no op) when neither source is present — never a fabricated
     caption. Auto lower-thirds land on V3 when b-roll overlays occupy V2, else V2.
 
+    Speed ramps (MONTAGE only): a segment carrying phase 2's ``retime`` flag gets
+    a ``retime_clip`` op at ``montage_motion.MONTAGE_RETIME_SPEED``'s speed for
+    its section, with ``newDuration`` pinned to the segment's own record length
+    and ``ripple`` off so the beat grid survives. This is the only place a speed
+    change can be authored — the scripting API has none. Suppress with
+    ``options["no_retime"]``.
+
     ``record_offset`` is the intro-title footprint that ``build_timeline``
     prepended to V1, so op positions match the exported timeline's record frames.
     Suppress either family with ``options["no_dissolves"]`` / ``no_lower_thirds"]``.
@@ -1012,6 +1036,54 @@ def plan_polish_ops(
                     "no lower-thirds: analysis produced no story beats "
                     "(pass options.lower_thirds to add them explicitly)")
 
+    # Montage speed ramps: the `retime` flag phase 2 sets on build/accelerate
+    # segments. The scripting API cannot change clip speed at all
+    # (SetProperty("Speed") returns False on 21.x — see src/core/api_truth.py),
+    # so this is the only place the ramp can be authored. finish()'s motion pass
+    # only sets the interpolation quality (RetimeProcess=optical_flow) for it.
+    #
+    # newDuration is pinned to the segment's OWN record length so the beat grid
+    # survives, and ripple stays off so nothing downstream drifts — a montage's
+    # every cut is already placed on a beat frame, and a rippling retime would
+    # walk all of them off the grid.
+    if is_montage and not opts.get("no_retime"):
+        item_offset = 1 if offset > 0 else 0
+        for i, seg in enumerate(segments):
+            if not seg.get("retime"):
+                continue
+            record_len = cut_ir.segment_record_length(seg)
+            if record_len <= 0:
+                notes.append(f"segment {i}: retime skipped — non-positive record length")
+                continue
+            speed = float(montage_motion.MONTAGE_RETIME_SPEED.get(
+                seg.get("section") or "", montage_motion.DEFAULT_RETIME_SPEED))
+            if speed <= 0:
+                notes.append(f"segment {i}: retime skipped — non-positive speed {speed}")
+                continue
+            if speed > 1.0:
+                # Holding newDuration means a >1x speed eats record_len*speed
+                # source frames out of a window that only ever reserved
+                # record_len. The CutList carries no clip-length bound to check
+                # that against, so refuse rather than silently run off the end
+                # of the media.
+                notes.append(
+                    f"segment {i}: retime skipped — speed {speed}x > 1 needs source handles "
+                    "the CutList never reserved (record duration is pinned to the beat grid)")
+                continue
+            ops.append({
+                "op": "retime_clip",
+                "args": {
+                    "track": SPEECH_VIDEO_TRACK,
+                    "clipIndex": i + item_offset,
+                    "speed": speed,
+                    "newDuration": record_len,
+                    "ripple": False,
+                },
+                "kind": "speed_ramp",
+                "segment_index": i,
+                "reason": f"segment {i} carries a retime flag in a {seg.get('section')!r} section",
+            })
+
     # Tier-2 ducking (issue #14): when the approved plan chose drt_automation, write
     # the computed bed gain straight into the music clip's .drt volume — no rendered
     # derivative. Same dB the rendered bed would have used; applied in this same
@@ -1039,6 +1111,7 @@ def plan_polish_ops(
         "transitions": sum(1 for o in ops if o["op"] == "place_transition"),
         "lower_thirds": sum(1 for o in ops if o["op"] == "place_fusion_title"),
         "music_ducks": sum(1 for o in ops if o["op"] == "set_audio_level"),
+        "speed_ramps": sum(1 for o in ops if o["op"] == "retime_clip"),
         "record_offset": offset,
         "notes": notes,
     }

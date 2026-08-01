@@ -614,7 +614,7 @@ def _finalize_grid_locked_frames(plan: Dict[str, Any], *, runtime_frames: int) -
     """
     segments = plan["segments"]
     plan["record_duration_frames"] = max(
-        (seg["record_start_frame"] + (seg["source_end_frame"] - seg["source_start_frame"])
+        (seg["record_start_frame"] + cut_ir.segment_record_length(seg)
          for seg in segments), default=0)
     for overlay in plan.get("overlays") or []:
         idx = overlay.get("over_segment_index")
@@ -651,6 +651,15 @@ def build_cut_list_for_brief(
     if not beats.get("available"):
         return {"success": False, "error": f"could not analyze music track: {beats.get('error')}"}
     onsets = beats.get("onsets") or []
+    # Where a cut LANDS must follow the pulse. Onset peaks do not: measured on
+    # the reference track they sit near a beat 0.228 of the time against a
+    # 0.240 chance level, and filtering to the kick band alone does not help
+    # (0.243) — a loud transient is as likely to be a hat or a vocal as the
+    # bass. So snap to the kick-phase-locked pulse whenever detect_beats can
+    # offer one, even the sub-threshold `provisional_beat_grid`, and keep raw
+    # onsets only as the genuine last resort. `onsets` still drives
+    # local_onset_density, where overall activity IS the signal being measured.
+    snap_grid = beats.get("provisional_beat_grid") or []
     music_duration = float(beats.get("duration_seconds") or 0.0)
     if music_duration <= 0:
         return {"success": False, "error": "music track has no measurable duration"}
@@ -684,12 +693,23 @@ def build_cut_list_for_brief(
             "no scouted in-points available for these shots — using best_moment "
             "(where present) or the shot start instead")
 
-    fps_values = {round(c["fps"], 3) for c in candidates}
-    if len(fps_values) > 1:
-        return {"success": False,
-                "error": f"mixed frame rates in brief {sorted(fps_values)} — "
-                         "montage requires a single fps"}
-    fps = candidates[0]["fps"]
+    # TIMELINE rate. Mixed-rate briefs are supported: the beat grid is in
+    # SECONDS, and Resolve resamples off-rate media to preserve its wall-clock
+    # length (live-verified — see cut_ir.segment_record_length), so seconds are
+    # the invariant and every shot can keep its own source numbering. Pick the
+    # most common footage rate (ties -> the higher one) so the majority of the
+    # brief plays natively and only the odd clip out gets conformed.
+    fps_counts: Dict[float, int] = {}
+    for c in candidates:
+        key = round(float(c["fps"]), 3)
+        fps_counts[key] = fps_counts.get(key, 0) + 1
+    fps = max(fps_counts.items(), key=lambda kv: (kv[1], kv[0]))[0]
+    if len(fps_counts) > 1:
+        off_rate = sorted(k for k in fps_counts if k != fps)
+        problems.append(
+            f"mixed frame rates in this brief {sorted(fps_counts)} — cutting a {fps:g}fps "
+            f"timeline (the most common rate); {off_rate} footage is conformed by Resolve, "
+            "which preserves its real-time length, so the beat lock holds")
     tempo = beats.get("tempo_bpm")
 
     # Look buckets (issue #179): cluster source clips by colour signature and
@@ -745,8 +765,13 @@ def build_cut_list_for_brief(
             def _grid_segment(role: str, shot: Dict[str, Any], src_start_seconds: float,
                                record_start_frame: int, record_len: int,
                                arrangement: Dict[str, Any], *, in_point_basis: str = "shot_start") -> Dict[str, Any]:
-                start_frame = int(round(src_start_seconds * fps))
-                end_frame = start_frame + record_len  # derived from record length — never re-rounded
+                # Source frames are in the SHOT'S OWN rate, the record length in
+                # the TIMELINE's — identical for a same-fps brief, and the only
+                # correct split once the brief is mixed (Resolve resamples
+                # off-rate media, so seconds are what carry across).
+                shot_fps = float(shot.get("fps") or fps)
+                start_frame = int(round(src_start_seconds * shot_fps))
+                end_frame = start_frame + max(1, int(round(record_len * shot_fps / fps)))
                 seg = cut_ir.make_cut_list_segment(
                     role=role, clip_id=shot["resolve_clip_id"], clip_uuid=shot["clip_uuid"],
                     source_start_frame=start_frame, source_end_frame=end_frame,
@@ -754,6 +779,7 @@ def build_cut_list_for_brief(
                     evidence=_evidence(shot, "select_potential+pacing+beat_grid", in_point_basis=in_point_basis),
                 )
                 seg["record_start_frame"] = record_start_frame
+                seg["record_length_frames"] = int(record_len)
                 seg["beat_index"] = arrangement["beat_index"]
                 seg["beat_length"] = arrangement["beat_length"]
                 seg["section"] = arrangement["section"]
@@ -765,8 +791,11 @@ def build_cut_list_for_brief(
                     montage_motion.compute_motion_directive(arrangement["section"], beat_seconds=60.0 / tempo)
                     if tempo else None
                 )
-                seg["flash"] = "flash" in arrangement["flags"]
-                seg["retime"] = "retime" in arrangement["flags"]
+                # Copy the arrangement's whole flag vocabulary, not a
+                # hand-picked subset — that is how `shake` and `fadeout` sat
+                # emitted-but-unread for two phases.
+                for flag in montage_arrangement.ARRANGEMENT_FLAGS:
+                    seg[flag] = flag in arrangement["flags"]
                 return seg
 
             pool = _ShotPool(candidates)
@@ -844,6 +873,22 @@ def build_cut_list_for_brief(
             problems.append(
                 "beat grid unavailable (tempo confidence too low, or too few beats for this "
                 "runtime) — falling back to onset-snap cutting rather than inventing a grid")
+        if snap_grid:
+            snap_targets = snap_grid
+            problems.append(
+                f"cuts snap to the provisional {beats.get('provisional_tempo_bpm')} BPM pulse "
+                "(kick-band phase lock) rather than to onset peaks — the tempo was not "
+                "confident enough to schedule an arrangement, but it still beats snapping "
+                "to whichever transient happened to be loudest")
+        else:
+            # No tempo at all. Onsets are a weak target (measurably near chance
+            # against a known grid) but they are the only one left — say so
+            # rather than implying the cut follows the music's pulse.
+            snap_targets = onsets
+            problems.append(
+                "no tempo could be estimated for this track — cuts snap to raw onset peaks, "
+                "which follow the loudest transient rather than the bass pulse; expect the "
+                "edit to feel less locked to the music")
 
         pool_list = [c for c in candidates if c is not hook]
         hook_seconds = (HOOK_BEATS * 60.0 / tempo) if tempo else DEFAULT_HOOK_SECONDS
@@ -851,14 +896,19 @@ def build_cut_list_for_brief(
 
         def _segment(role: str, shot: Dict[str, Any], src_start: float, src_end: float,
                      *, in_point_basis: str = "shot_start") -> Dict[str, Any]:
-            start_frame = int(round(src_start * fps))
-            end_frame = max(start_frame + 1, int(round(src_end * fps)))
+            # Same split as the grid path: source frames in the shot's own rate,
+            # record length in the timeline's, both derived from the SECONDS the
+            # cutter actually decided on.
+            shot_fps = float(shot.get("fps") or fps)
+            start_frame = int(round(src_start * shot_fps))
+            end_frame = max(start_frame + 1, int(round(src_end * shot_fps)))
             seg = cut_ir.make_cut_list_segment(
                 role=role, clip_id=shot["resolve_clip_id"], clip_uuid=shot["clip_uuid"],
                 source_start_frame=start_frame, source_end_frame=end_frame,
                 rationale=_rationale(shot),
                 evidence=_evidence(shot, "select_potential+pacing", in_point_basis=in_point_basis),
             )
+            seg["record_length_frames"] = max(1, int(round((src_end - src_start) * fps)))
             seg["look_bucket"] = shot.get("look_bucket")
             return seg
 
@@ -911,7 +961,8 @@ def build_cut_list_for_brief(
             raw_src_end = min(chosen["time_seconds_end"], src_start + target_dur)
             target_record_end = record_cursor + (raw_src_end - src_start)
             snapped_record_end = min(
-                nearest_onset(onsets, target_record_end, minimum=record_cursor + MIN_CUT_SECONDS),
+                nearest_onset(snap_targets, target_record_end,
+                              minimum=record_cursor + MIN_CUT_SECONDS),
                 total_runtime)
             actual_duration = max(MIN_CUT_SECONDS, snapped_record_end - record_cursor)
             src_end = min(chosen["time_seconds_end"], src_start + actual_duration)

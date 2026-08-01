@@ -179,6 +179,33 @@ class DrpOpIntegrationTest(unittest.TestCase):
         self.assertIn("Sm2TimeMap".encode("utf-16-be").hex(), seq_xml)
         self.assertIn("<Duration>200</Duration>", seq_xml)
 
+    def test_montage_speed_ramp_op_spec_holds_the_record_duration(self):
+        # The exact op spec auto_edit.plan_polish_ops emits for a montage
+        # `retime`-flagged segment, threaded through the real chain. The point
+        # of pinning newDuration is that the record slot must NOT move: the
+        # default (oldDuration * oldSpeed / speed) would double it to 200 and
+        # walk every downstream cut off its beat frame. ripple stays off for
+        # the same reason.
+        ops = [{
+            "op": "retime_clip",
+            "args": {"track": 1, "clipIndex": 0, "speed": 0.5,
+                     "newDuration": 100, "ripple": False},
+            "kind": "speed_ramp",
+        }]
+        out = ab.run_drp_op_chain(
+            ops, self.src, scratch_dir=os.path.join(self.tmp, "montage-ramp"))
+        self.assertTrue(out.get("success"), out)
+        self.assertTrue(all(s["success"] for s in out["steps"]), out["steps"])
+        with zipfile.ZipFile(out["output_path"]) as z:
+            seq_xml = z.read("SeqContainer/s1.xml").decode("utf-8")
+        # Speed really changed (identity map replaced by a keyed Sm2TimeMap)...
+        self.assertIn("Sm2TimeMap".encode("utf-16-be").hex(), seq_xml)
+        # ...but both clips keep their original record footprint, so the grid
+        # is intact: c0 stays [0,100) and c1 still starts at 100.
+        self.assertNotIn("<Duration>200</Duration>", seq_xml)
+        self.assertIn("<Duration>100</Duration>", seq_xml)
+        self.assertIn("<Start>100</Start>", seq_xml)
+
     def test_slip_clip_retreats_the_in_point(self):
         # 3.1.5 (#30): the single-op slip retreat (frames < 0) trim_clip_head
         # could never do — In goes 20 -> 5, Start/Duration untouched.

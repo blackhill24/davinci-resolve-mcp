@@ -58,6 +58,38 @@ DEFAULT_PULSE_AMP = 0.02
 FLASH_GAIN = 1.6          # brightness multiplier at the flash's peak
 FLASH_DECAY_FRAMES = 3.0  # the lift is gone within ~3 frames
 
+# Shake (phase 2's `shake` flag — the drop and `high` sections). Applied to the
+# beat-pulse Transform's ANGLE, not its Center: Center is a Point input, and
+# this codebase's own bridge notes (fusion_composition._fusion_set_point_input)
+# record that Point inputs accept different encodings per platform/version, so
+# an expression on one is not a safe bet. Angle is a plain scalar like Size and
+# Gain — the two inputs whose expressions are already live-verified on 21.0.2.4.
+# A rotational jitter reads as camera shake and costs nothing extra: the
+# Transform tool is already in the chain whenever motion is on.
+SHAKE_MAX_DEGREES = 0.8   # peak rotation at the beat
+SHAKE_DECAY = 6.0         # e-folds per beat — gone well before the next one
+SHAKE_OSCILLATIONS = 2.2  # jitter cycles per frame of phase
+
+FADEOUT_SECONDS = 1.0     # fade-to-black length at the tail of the outro
+
+# Speed for the `retime` flag, by section. Read by auto_edit.plan_polish_ops,
+# which emits the drp-format `retime_clip` op — the scripting API cannot change
+# clip speed at all (SetProperty("Speed") returns False on 21.x), so the ramp is
+# authored in the .drt round trip while finish() only sets the interpolation
+# quality.
+#
+# Both values are BELOW 1 on purpose, and not merely for taste. The op holds the
+# record duration at the segment's beat-locked length, so speed is what decides
+# how much SOURCE the slot consumes: at 0.5 a slot eats half the frames it
+# already owns (always available), while anything above 1 would need handles the
+# CutList never reserved. Slow motion is also the montage move these sections
+# want — shots lingering while the cuts get shorter.
+MONTAGE_RETIME_SPEED: Dict[str, float] = {
+    "build": 0.5,        # tension: holds stretch as the cut length ramps 4 -> 2
+    "accelerate": 0.4,   # the pre-drop 1-beat run reads as frozen moments
+}
+DEFAULT_RETIME_SPEED = 0.5
+
 
 def compute_motion_directive(section: Optional[str], *, beat_seconds: float) -> Dict[str, Any]:
     """The ``{zoom_start, zoom_end, amp, beat_seconds}`` directive for a
@@ -113,3 +145,41 @@ def build_flash_expression() -> str:
     one-shot at the cut itself, not locked to a repeating grid position.
     """
     return f"1.0+{FLASH_GAIN - 1.0:.4f}*exp(-{20.0 / FLASH_DECAY_FRAMES:.4f}*time)"
+
+
+def build_shake_expression(
+    *, beat_seconds: float, fps: float, record_start_frame: int,
+    amp_degrees: float = SHAKE_MAX_DEGREES,
+) -> str:
+    """Fusion expression for a Transform's ``Angle`` input: a rotational
+    jitter that spikes on each beat and decays before the next one (phase 2's
+    ``shake`` flag).
+
+    Locked to the MASTER beat grid the same way ``build_zoom_expression`` is —
+    ``record_start_frame`` is baked into the modulo phase because a clip's comp
+    ``time`` is COMP-LOCAL (see the module docstring's phase trap).
+    """
+    beat_frames = beat_seconds * fps
+    if beat_frames <= 0:
+        beat_frames = 1.0
+    phase = f"(time+{int(record_start_frame)})"
+    return (
+        f"{amp_degrees:.6f}"
+        f"*exp(-{SHAKE_DECAY:.4f}*fmod({phase},{beat_frames:.6f})/{beat_frames:.6f})"
+        f"*sin({phase}*{SHAKE_OSCILLATIONS:.4f})"
+    )
+
+
+def build_fadeout_expression(*, fps: float, clip_length_frames: int) -> str:
+    """BrightnessContrast ``Gain`` expression: a ramp to black over the last
+    ``FADEOUT_SECONDS`` of the clip (phase 2's ``fadeout`` flag, set on the
+    final entry of the outro).
+
+    Comp-local time starts at 0 on the clip's own first frame, so this needs no
+    ``record_start_frame`` offset — the fade is anchored to the clip's tail, not
+    to a grid position. The fade is clamped to the clip's own length so a very
+    short outro shot fades across all of itself rather than starting mid-black.
+    """
+    fade_frames = max(1.0, min(float(FADEOUT_SECONDS * fps), float(max(1, clip_length_frames))))
+    fade_start = max(0.0, float(clip_length_frames) - fade_frames)
+    return f"min(1,max(0,({fade_start + fade_frames:.4f}-time)/{fade_frames:.4f}))"

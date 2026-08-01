@@ -375,6 +375,96 @@ class FinishActionTest(unittest.TestCase):
         self.assertIn("no output file", done["render"]["error"])
 
 
+class FinishTargetTest(unittest.TestCase):
+    """finish(target=...) — polish_timeline is the ONLY place transitions and
+    speed ramps can be authored (the scripting API has neither), and it writes a
+    separate "(polished)" timeline. Without a selector that work could never
+    reach a render."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="auto-edit-target-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def _mock_project(self, names=("TL", "TL (polished)")):
+        from unittest import mock
+        timelines = []
+        for name in names:
+            tl = mock.Mock()
+            tl.GetName.return_value = name
+            tl.GetUniqueId.return_value = f"uid-{name}"
+            tl.GetItemListInTrack.return_value = []
+            timelines.append(tl)
+        proj = mock.Mock()
+        proj.GetTimelineCount.return_value = len(timelines)
+        proj.GetTimelineByIndex.side_effect = lambda i: timelines[i - 1]
+
+        def _switch(target):
+            proj.GetCurrentTimeline.return_value = target
+            return True
+
+        proj.SetCurrentTimeline.side_effect = _switch
+        proj.GetCurrentTimeline.return_value = timelines[0]
+        return proj, timelines
+
+    def _finish(self, proj, params):
+        from unittest import mock
+        with mock.patch.object(_dom_auto_edit, "_destructive_versioning_provider",
+            return_value=(None, proj, self.root, "P"),
+        ):
+            return run(s.auto_edit("finish", params))
+
+    def _approved_built_plan(self, *, polished=None):
+        plan = make_plan(self.root)
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        summary = {"timeline_name": "TL"}
+        if polished:
+            summary["polished"] = {"timeline_name": polished}
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], summary)
+        return plan
+
+    def test_default_target_is_the_built_timeline(self):
+        plan = self._approved_built_plan(polished="TL (polished)")
+        proj, _tls = self._mock_project()
+        gate = self._finish(proj, {"plan_id": plan["plan_id"]})
+        done = self._finish(proj, {"plan_id": plan["plan_id"],
+                                   "confirm_token": gate["confirm_token"]})
+        self.assertEqual(done["timeline"], "TL")
+        self.assertEqual(done["target"], "built")
+
+    def test_polished_target_selects_the_polished_timeline(self):
+        plan = self._approved_built_plan(polished="TL (polished)")
+        proj, timelines = self._mock_project()
+        params = {"plan_id": plan["plan_id"], "target": "polished"}
+        gate = self._finish(proj, params)
+        done = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertEqual(done["timeline"], "TL (polished)")
+        self.assertEqual(done["target"], "polished")
+        # and it actually switched Resolve to that one before grading/rendering
+        proj.SetCurrentTimeline.assert_called_with(timelines[1])
+
+    def test_polished_target_without_a_polish_pass_refuses(self):
+        plan = self._approved_built_plan()  # no polished timeline recorded
+        proj, _tls = self._mock_project()
+        out = self._finish(proj, {"plan_id": plan["plan_id"], "target": "polished"})
+        self.assertIn("no polished timeline",
+                      out.get("error", {}).get("message", str(out)))
+
+    def test_unknown_target_is_rejected(self):
+        plan = self._approved_built_plan(polished="TL (polished)")
+        proj, _tls = self._mock_project()
+        out = self._finish(proj, {"plan_id": plan["plan_id"], "target": "final"})
+        self.assertIn("target must be", out.get("error", {}).get("message", str(out)))
+
+    def test_confirm_preview_names_the_target(self):
+        plan = self._approved_built_plan(polished="TL (polished)")
+        proj, _tls = self._mock_project()
+        gate = self._finish(proj, {"plan_id": plan["plan_id"], "target": "polished"})
+        self.assertEqual(gate.get("status"), "confirmation_required")
+        preview = gate.get("preview") or {}
+        self.assertEqual(preview.get("target"), "polished")
+        self.assertEqual(preview.get("timeline"), "TL (polished)")
+
+
 class GradeActionTest(unittest.TestCase):
     """finish()'s grade branch (issue #179, phase 4/6 of the montage-quality
     epic): the new per-bucket `match` stage is purely additive — the
@@ -500,6 +590,31 @@ class GradeActionTest(unittest.TestCase):
         items[1].SetCDL.assert_called_once()
         items[2].SetCDL.assert_called_once()
         self.assertEqual(out["grade"]["match"]["applied"], 2)
+
+    def test_match_accepts_the_plans_own_look_buckets_verbatim(self):
+        # The plan hands back {bucket: <raw CDL>} (montage_edit.compute_match_cdls)
+        # while the documented param is {bucket: {"cdl": ...}}. Feeding the tool
+        # its own suggestion is the obvious call, so BOTH shapes must apply —
+        # requiring the re-wrap made the obvious call a silent no-op.
+        from src.domains.auto_edit.utils import montage_edit
+        look_buckets = montage_edit.compute_match_cdls(
+            {"uuid-0": {"brightness": 0.7, "tone": "warm"},
+             "uuid-1": {"brightness": 0.2, "tone": "cool"}},
+            {"uuid-0": "warm_bright", "uuid-1": "cool_dark"})
+        self.assertNotIn("cdl", look_buckets["warm_bright"])  # raw, unwrapped
+        plan = self._plan_with_buckets(["warm_bright", "cool_dark"])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items = self._mock_project(item_count=2)
+        params = {"plan_id": plan["plan_id"], "grade": {"match": look_buckets}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["grade"]["match"]["applied"], 2)
+        self.assertEqual(out["grade"]["match"]["by_bucket"],
+                         {"warm_bright": 1, "cool_dark": 1})
+        self.assertNotEqual(items[0].SetCDL.call_args.args[0],
+                            items[1].SetCDL.call_args.args[0])
 
     def test_match_with_no_bucket_data_reports_zero_and_never_blocks(self):
         plan = self._plan_with_buckets([None, None])

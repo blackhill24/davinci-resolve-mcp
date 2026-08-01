@@ -123,5 +123,76 @@ class BuildFlashExpressionTest(unittest.TestCase):
         self.assertTrue(re.match(r"^1\.0\+[\d.]+\*exp\(-[\d.]+\*time\)$", expr))
 
 
+class BuildShakeExpressionTest(unittest.TestCase):
+    """The `shake` flag phase 2 has emitted since #177 but nothing consumed."""
+
+    def _evaluate(self, expr: str, time: float) -> float:
+        return eval(expr, {"__builtins__": {}},
+                    {"time": time, "fmod": math.fmod, "exp": math.exp, "sin": math.sin})
+
+    def test_jitter_is_strongest_at_the_beat_and_decays_before_the_next(self):
+        beat_seconds, fps = 0.5, 24.0
+        beat_frames = beat_seconds * fps
+        expr = mm.build_shake_expression(
+            beat_seconds=beat_seconds, fps=fps, record_start_frame=0)
+        # Sample a whole beat: the largest swing lives in the first third,
+        # and the tail before the next beat is effectively still.
+        on_beat = max(abs(self._evaluate(expr, t))
+                      for t in range(0, int(beat_frames / 3)))
+        pre_next_beat = max(abs(self._evaluate(expr, t))
+                            for t in range(int(beat_frames * 0.8), int(beat_frames)))
+        self.assertGreater(on_beat, pre_next_beat * 3)
+
+    def test_amplitude_never_exceeds_the_configured_ceiling(self):
+        expr = mm.build_shake_expression(
+            beat_seconds=0.5, fps=24.0, record_start_frame=0)
+        peak = max(abs(self._evaluate(expr, t)) for t in range(0, 48))
+        self.assertLessEqual(peak, mm.SHAKE_MAX_DEGREES)
+
+    def test_locked_to_the_master_grid_via_record_start_frame(self):
+        # Same phase trap as the zoom pulse: comp-local time is 0 at the
+        # clip's first frame, so the timeline offset must be baked in.
+        expr = mm.build_shake_expression(
+            beat_seconds=0.5, fps=24.0, record_start_frame=48)
+        self.assertIn("(time+48)", expr)
+
+    def test_zero_beat_seconds_does_not_divide_by_zero(self):
+        expr = mm.build_shake_expression(
+            beat_seconds=0.0, fps=24.0, record_start_frame=0)
+        self._evaluate(expr, 0)
+
+
+class BuildFadeoutExpressionTest(unittest.TestCase):
+    """The `fadeout` flag phase 2 has emitted since #177 but nothing consumed."""
+
+    def _evaluate(self, expr: str, time: float) -> float:
+        return eval(expr, {"__builtins__": {}},
+                    {"time": time, "min": min, "max": max})
+
+    def test_full_gain_until_the_fade_starts_then_reaches_black(self):
+        fps, clip_len = 24.0, 120
+        expr = mm.build_fadeout_expression(fps=fps, clip_length_frames=clip_len)
+        fade_frames = mm.FADEOUT_SECONDS * fps
+        self.assertAlmostEqual(self._evaluate(expr, 0), 1.0)
+        self.assertAlmostEqual(self._evaluate(expr, clip_len - fade_frames), 1.0)
+        self.assertAlmostEqual(self._evaluate(expr, clip_len), 0.0)
+        # monotonically down across the fade, never negative
+        mid = self._evaluate(expr, clip_len - fade_frames / 2)
+        self.assertTrue(0.0 < mid < 1.0)
+
+    def test_clamped_so_it_never_leaves_the_zero_one_range(self):
+        expr = mm.build_fadeout_expression(fps=24.0, clip_length_frames=120)
+        for t in (-10, 0, 60, 119, 120, 500):
+            self.assertGreaterEqual(self._evaluate(expr, t), 0.0)
+            self.assertLessEqual(self._evaluate(expr, t), 1.0)
+
+    def test_short_clip_fades_across_itself_not_from_mid_black(self):
+        # A 6-frame outro shot is shorter than the nominal 1s fade — it must
+        # still start at full gain rather than partway into the ramp.
+        expr = mm.build_fadeout_expression(fps=24.0, clip_length_frames=6)
+        self.assertAlmostEqual(self._evaluate(expr, 0), 1.0)
+        self.assertAlmostEqual(self._evaluate(expr, 6), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

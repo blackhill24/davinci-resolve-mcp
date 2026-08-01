@@ -416,21 +416,77 @@ class BuildCutListMockedBeatsTests(MontageEditBase):
         self.assertTrue(out["success"], out)
         self.assertTrue(any("never-analyzed" in p for p in out["plan"]["problems"]))
 
-    def test_mixed_fps_refuses(self):
+    def test_mixed_fps_cuts_a_majority_rate_timeline(self):
+        # Mixed rates used to be refused outright. They are supported now: the
+        # beat grid is in seconds and Resolve resamples off-rate media to keep
+        # its wall-clock length (live-verified, live_mixed_fps_probe.py), so a
+        # segment's SOURCE frames follow its own clip and its RECORD length
+        # follows the timeline.
         files = self._seed_pool()
         self._ingest_clip(
             clip_id="resolve-oddfps", name="Odd.mp4", path="/media/odd.mp4", clip_dir="odd-dir",
             shots=[_shot(1, 0.0, 3.0, select_potential="high", pacing="kinetic")])
         # Force a different fps on the odd clip directly via the DB row.
         conn = timeline_brain_db.connect(self.root)
-        conn.execute("UPDATE clips SET fps = 30.0 WHERE clip_name = 'Odd.mp4'")
+        conn.execute("UPDATE clips SET fps = 48.0 WHERE clip_name = 'Odd.mp4'")
         conn.commit()
         brief = {"files": files + ["/media/odd.mp4"], "music": "/media/track.wav"}
         with mock.patch.object(montage_edit.music_analysis, "detect_beats",
                                 return_value=self._mock_beats()):
             out = montage_edit.build_cut_list_for_brief(self.root, brief)
-        self.assertFalse(out["success"])
-        self.assertIn("mixed frame rates", out["error"])
+        self.assertTrue(out["success"], out)
+        plan = out["plan"]
+        # the timeline runs at the MAJORITY rate (3 clips @24 vs 1 @48)
+        self.assertEqual(plan["fps"], FPS)
+        self.assertTrue(any("mixed frame rates" in p for p in plan["problems"]), plan["problems"])
+        odd = [s for s in plan["segments"] if s["clip_id"] == "resolve-oddfps"]
+        if odd:
+            # a 48fps shot costs 2 source frames for every timeline frame
+            seg = odd[0]
+            self.assertEqual(
+                seg["source_end_frame"] - seg["source_start_frame"],
+                cut_ir.segment_record_length(seg) * 2)
+        # and the record cursor still adds up in TIMELINE frames
+        expected = 0
+        for seg in plan["segments"]:
+            self.assertEqual(seg["record_start_frame"], expected)
+            expected += cut_ir.segment_record_length(seg)
+
+    def test_cuts_snap_to_the_provisional_pulse_not_onset_peaks(self):
+        # Onset peaks do not follow the pulse — measured near chance against a
+        # known grid, in the full mix and in the kick band alone. When the
+        # tempo was too shaky to schedule an arrangement but a kick-phase-locked
+        # pulse still exists, cuts must ride THAT. Disjoint times prove which
+        # list the cutter used.
+        files = self._seed_pool()
+        beats = self._mock_beats()
+        beats["onsets"] = [round(0.25 + 0.5 * i, 3) for i in range(24)]        # off-pulse
+        beats["provisional_tempo_bpm"] = 120.0
+        beats["provisional_beat_grid"] = [round(0.5 * i, 3) for i in range(25)]  # the pulse
+        brief = {"files": files, "music": "/media/track.wav"}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(self.root, brief)
+        self.assertTrue(out["success"], out)
+        plan = out["plan"]
+        fps = plan["fps"]
+        pulse_frames = {round(t * fps) for t in beats["provisional_beat_grid"]}
+        onset_only = {round(t * fps) for t in beats["onsets"]} - pulse_frames
+        boundaries = [s["record_start_frame"] for s in plan["segments"][1:]]
+        self.assertTrue(boundaries, "expected more than a hook")
+        for b in boundaries:
+            self.assertNotIn(b, onset_only, f"cut at {b} landed on an onset peak, not the pulse")
+        self.assertTrue(any("provisional" in p for p in plan["problems"]), plan["problems"])
+
+    def test_no_tempo_at_all_degrades_to_onsets_and_says_so(self):
+        files = self._seed_pool()
+        beats = self._mock_beats()
+        beats["provisional_beat_grid"] = []  # nothing to lock a pulse to
+        brief = {"files": files, "music": "/media/track.wav"}
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(self.root, brief)
+        self.assertTrue(out["success"], out)
+        self.assertTrue(any("no tempo could be estimated" in p for p in out["plan"]["problems"]),
+                        out["plan"]["problems"])
 
 
 def _scout_window(window_start, window_end, in_point, *, usable=True,

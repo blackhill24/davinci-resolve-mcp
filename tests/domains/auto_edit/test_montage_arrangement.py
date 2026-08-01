@@ -4,6 +4,7 @@ and sections in the test, no ffmpeg, no DB.
 """
 from __future__ import annotations
 
+import pathlib
 import unittest
 
 from src.domains.auto_edit.utils import montage_arrangement as ma
@@ -109,6 +110,57 @@ class OutroTest(unittest.TestCase):
         ]
         schedule = ma.plan_arrangement(grid, sections)
         self.assertIn("fadeout", schedule[-1]["flags"])
+
+
+class FlagsAreConsumedTest(unittest.TestCase):
+    """The guard that was missing: `shake` and `fadeout` were emitted here for
+    two phases with nothing downstream reading them, and every offline test
+    still passed. A flag with no consumer is a silent no-op, so assert the
+    round trip — arrangement emits it, montage_edit copies it, finish() reads
+    it — rather than trusting it."""
+
+    def _every_emitted_flag(self):
+        """Flags plan_arrangement actually produces across the shapes that
+        exercise each branch (drop, high, build+accelerate, breathe, outro)."""
+        bpm, bpb = 120.0, 4
+        grid = _grid(bpm, 96)
+        emitted = set()
+        for sections in (
+            [_section(0, 8, 0, bpb, "build", grid=grid),
+             _section(8, 12, 0, bpb, "high", grid=grid, is_drop=True),
+             _section(12, 20, 0, bpb, "low", grid=grid)],
+            [_section(0, 8, 0, bpb, "high", grid=grid),
+             _section(8, 16, 0, bpb, "mid", grid=grid)],
+            [],
+        ):
+            for entry in ma.plan_arrangement(grid, sections):
+                emitted.update(entry["flags"])
+        return emitted
+
+    def test_emitted_flags_are_all_declared(self):
+        undeclared = self._every_emitted_flag() - set(ma.ARRANGEMENT_FLAGS)
+        self.assertEqual(
+            undeclared, set(),
+            f"plan_arrangement emits flag(s) missing from ARRANGEMENT_FLAGS: {sorted(undeclared)}")
+
+    def test_declared_flags_reach_the_segment(self):
+        # montage_edit copies the whole vocabulary onto each segment, so every
+        # declared flag must be a settable segment key.
+        source = (pathlib.Path(__file__).resolve().parents[3]
+                  / "src" / "domains" / "auto_edit" / "utils" / "montage_edit.py").read_text(encoding="utf-8")
+        self.assertIn("montage_arrangement.ARRANGEMENT_FLAGS", source,
+                      "montage_edit must copy the arrangement's flag vocabulary wholesale")
+
+    def test_every_declared_flag_has_an_executor(self):
+        # finish()'s montage pass must read each flag back off the segment.
+        source = (pathlib.Path(__file__).resolve().parents[3]
+                  / "src" / "domains" / "auto_edit" / "actions.py").read_text(encoding="utf-8")
+        unread = [flag for flag in ma.ARRANGEMENT_FLAGS
+                  if f'seg.get("{flag}")' not in source]
+        self.assertEqual(
+            unread, [],
+            f"arrangement flag(s) emitted but never read by finish(): {unread} — "
+            "either wire an executor in _apply_montage_motion or drop the flag")
 
 
 if __name__ == "__main__":

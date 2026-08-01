@@ -1230,13 +1230,16 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
 
     Actions:
       start_brief(files, music?, target_duration_seconds?, genre?, deliverable?,
-        title_text?, options?) -> {brief_id, analysis_job_id, vision_enabled} —
+        title_text?, options?) -> {brief_id, analysis_job_id, vision_enabled,
+        transcription_enabled} —
         validates files (exist + ffprobe), scaffolds Footage/Music bins (safe
         import), kicks a media_analysis batch job (transcription + visuals per
         defaults; the host completes commit_vision for deep passes).
         options.vision defaults ON for genre="montage" (its shot pool is
         vision-derived and it cannot plan without one) and OFF otherwise;
-        `deliverable` is a stored label with no effect on the render.
+        options.transcription defaults OFF for genre="montage" (its decision
+        layer never reads a transcript) and ON otherwise; `deliverable` is a
+        stored label with no effect on the render.
       brief_status(brief_id) | status(brief_id) -> {brief, analysis?} — brief
         state; polls the analysis job and advances analyzing -> ready.
       plan_cut(brief_id, scout?, scout_confirm_token?) -> {plan_id, plan,
@@ -1379,28 +1382,35 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         brief_id = created["brief_id"]
         analysis_job_id = None
         analysis_warning = None
-        # Transcription is the load-bearing artifact for planning. LLM vision
+        # Transcription is the load-bearing artifact for TALKING-HEAD planning
+        # (speech segmentation, story beats), so it defaults on. LLM vision
         # (host_chat_paths) needs an interactive host to commit frames, which an
         # autonomous brief cannot satisfy, so it is off by default here (opt in
         # via options.vision). An explicit sampling_mode stops start_batch_job
         # from returning its first-run frame-sampling prompt instead of a job.
         #
-        # MONTAGE IS THE EXCEPTION and defaults vision ON — see
-        # auto_edit.resolve_vision_default, which owns that rule and is unit
-        # tested (#193 phase 1). Its entire candidate pool is the `shots`
-        # table, whose one writer is fed by `visual.shot_descriptions`, a
-        # vision-only artifact, so vision-off is a guaranteed plan_cut failure
-        # rather than a conservative default.
+        # MONTAGE IS THE EXCEPTION IN BOTH DIRECTIONS — see
+        # auto_edit.resolve_vision_default / resolve_transcription_default,
+        # which own these rules and are unit tested (#193 phase 1 / #204).
+        # Its candidate pool is the `shots` table, fed only by vision-derived
+        # `visual.shot_descriptions`, so vision-off is a guaranteed plan_cut
+        # failure — vision defaults ON. Its decision layer (montage_edit.py)
+        # never reads a transcript at all, so transcription-on just means a
+        # machine with no Whisper backend can't run a montage batch for a
+        # modality it never uses — transcription defaults OFF.
         brief_options = p.get("options") or {}
+        genre = p.get("genre") or "talking_head"
         _vision_on, vision_warning = _auto_edit_mod.resolve_vision_default(
-            p.get("genre") or "talking_head", brief_options)
+            genre, brief_options)
+        _transcription_on, transcription_warning = _auto_edit_mod.resolve_transcription_default(
+            genre, brief_options)
         try:
             kicked = await media_analysis("start_batch_job", {
                 "target": {"type": "bin", "path": "Footage", "recursive": False},
                 "name": f"auto_edit {brief_id}",
                 "analysis_root": project_root,
                 "sampling_mode": brief_options.get("sampling_mode") or "adaptive_capped",
-                "transcription": {"enabled": True, "allow_model_download": True},
+                "transcription": {"enabled": _transcription_on, "allow_model_download": True},
                 "vision": {"enabled": _vision_on},
             })
             # create_batch_job nests the id under "job"; a first-run sampling
@@ -1421,15 +1431,25 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
             "brief_id": brief_id,
             "analysis_job_id": analysis_job_id,
             "imported": imported,
-            # Reported so the host can SEE whether the shot pool is going to
-            # exist, at the step where it can still be fixed cheaply, instead
-            # of inferring it from a plan_cut error two steps later.
+            # Reported so the host can SEE whether the shot pool / transcript
+            # is going to exist, at the step where it can still be fixed
+            # cheaply, instead of inferring it from a plan_cut error two
+            # steps later (#204).
             "vision_enabled": _vision_on,
+            "transcription_enabled": _transcription_on,
             "next": "poll brief_status until state=ready, then plan_cut",
         }
-        warnings = [w for w in (vision_warning, analysis_warning) if w]
+        warnings = [w for w in (vision_warning, transcription_warning, analysis_warning) if w]
         if analysis_warning:
-            warnings[-1] = analysis_warning + " — run media_analysis manually, then plan_cut."
+            # Naming the actual lever (#204): a bare "run media_analysis
+            # manually" sends a host straight back into the SAME refusal —
+            # media_analysis has no genre concept and defaults transcription
+            # on globally, so a manual retry with no transcription param
+            # inherits that default regardless of what this brief resolved.
+            warnings[-1] = (
+                f"{analysis_warning} — run media_analysis manually with "
+                f'options={{"transcription": {{"enabled": {str(_transcription_on).lower()}}}, '
+                f'"vision": {{"enabled": {str(_vision_on).lower()}}}}}, then plan_cut.')
         if warnings:
             out["warning"] = " | ".join(warnings)
         return out

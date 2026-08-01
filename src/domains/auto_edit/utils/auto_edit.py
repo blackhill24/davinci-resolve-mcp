@@ -39,6 +39,13 @@ GENRES = {"talking_head", "montage"}
 # artifact. Keep this next to GENRES: a new vision-planned genre must be added
 # here or it inherits talking-head's vision-off default and fails in plan_cut.
 VISION_REQUIRED_GENRES = {"montage"}
+# Genres whose decision layer never reads a transcript (#204). Montage's
+# planning (montage_edit.py: select_potential, shot descriptions, pacing,
+# colour) reads none of transcript_words — unlike VISION_REQUIRED_GENRES,
+# this is the OPPOSITE direction: a genre in this set gets transcription
+# defaulted OFF, so a missing Whisper backend never blocks a batch that never
+# needed it. Keep this next to GENRES for the same reason as the set above.
+TRANSCRIPTION_OPTIONAL_GENRES = {"montage"}
 BRIEF_STATES = (
     "created", "analyzing", "ready", "planned", "approved", "built", "finished",
 )
@@ -166,6 +173,41 @@ def resolve_vision_default(
             "pool from vision-derived shot descriptions, so plan_cut will fail with "
             '"no usable shots found for the candidate clips". Re-run start_brief with '
             'options={"vision": true} unless these clips already carry a vision pass.')
+    return enabled, None
+
+
+def resolve_transcription_default(
+    genre: Any, options: Any = None,
+) -> Tuple[bool, Optional[str]]:
+    """Decide whether ``start_brief`` kicks its analysis batch with
+    transcription on, and warn when the caller has asked for something that
+    cannot work.
+
+    Returns ``(enabled, warning_or_None)``.
+
+    Transcription is on by default — talking-head plans FROM the transcript
+    (speech segmentation, story beats), so it genuinely cannot plan without
+    one and a missing backend is a real, surfaced failure there. The genres
+    in ``TRANSCRIPTION_OPTIONAL_GENRES`` are the opposite case: their decision
+    layer never reads a transcript at all, so requiring one just means a
+    machine with no Whisper backend can't run that genre's batch for a
+    modality it never uses (#204). An explicit ``options={"transcription":
+    ...}`` is always honoured — the caller may want captions burned in even
+    though the genre doesn't plan from them — but disabling it on a genre
+    that DOES need it is warned about at the step where it is still cheap
+    to fix, same as ``resolve_vision_default``.
+    """
+    opts = options if isinstance(options, dict) else {}
+    optional = str(genre) in TRANSCRIPTION_OPTIONAL_GENRES
+    if "transcription" not in opts:
+        return not optional, None
+    enabled = bool(opts.get("transcription"))
+    if not optional and not enabled:
+        return False, (
+            f'genre="{genre}" with options={{"transcription": false}}: this genre plans '
+            "from the transcript (speech segmentation, story beats), so plan_cut will "
+            "likely fail or produce a degraded plan without it. Re-run start_brief with "
+            'options={"transcription": true} unless these clips already carry a transcript.')
     return enabled, None
 
 

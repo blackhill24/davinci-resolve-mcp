@@ -26,6 +26,15 @@ class ProjectLintTest(unittest.TestCase):
         self.assertTrue(report["ok"])
         self.assertEqual(report["counts"]["error"], 0)
 
+    def test_project_manager_parked_short_circuits(self):
+        state = {"project": "Untitled Project", "project_manager_parked": True,
+                 "current_timeline": "A", "timelines": [{"name": "A", "fps": 24, "item_count": 1}]}
+        issues = pl.lint_state(state)
+        self.assertEqual([i.code for i in issues], ["project_manager_parked"])
+        self.assertEqual(issues[0].severity, "error")
+        report = pl.lint_report(state)
+        self.assertFalse(report["ok"])
+
     def test_no_current_timeline_warning(self):
         self.assertIn("no_current_timeline", _codes({"project": "S", "timelines": []}))
 

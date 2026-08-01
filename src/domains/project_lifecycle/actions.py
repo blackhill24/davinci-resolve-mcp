@@ -832,6 +832,17 @@ def _project_lint_live(r, pm) -> Dict[str, Any]:
     proj = pm.GetCurrentProject()
     if not proj:
         return _ok(**_project_lint.lint_report({"project": None}))
+    # A parked Project Manager still answers GetCurrentProject() (the
+    # placeholder "Untitled Project"), so this must be checked explicitly
+    # rather than inferred from project-ness (#205).
+    try:
+        parked = r is not None and r.GetCurrentPage() is None
+    except Exception:
+        parked = False
+    if parked:
+        return _ok(**_project_lint.lint_report({
+            "project": proj.GetName(), "project_manager_parked": True,
+        }))
     state: Dict[str, Any] = {"project": proj.GetName()}
     try:
         cur = proj.GetCurrentTimeline()

@@ -630,6 +630,30 @@ class GradeActionTest(unittest.TestCase):
         for item in items:
             item.SetCDL.assert_not_called()
 
+    def test_match_of_is_the_planned_segment_count_not_the_item_count(self):
+        # issue #203: `of` used to read len(items), which silently absorbed
+        # any segment the mapper couldn't find an item for — a polished
+        # timeline missing an item read as "applied: N of N", indistinguishable
+        # from complete. It must read the PLAN's segment count instead.
+        plan = self._plan_with_buckets(["warm_bright", "cool_dark", "warm_bright"])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        # Only 2 items on the timeline for 3 plan segments (positional walk:
+        # item 0 -> segment 0, item 1 -> segment 1; segment 2 unmatched).
+        proj, _tl, items = self._mock_project(item_count=2)
+        match = {
+            "warm_bright": {"cdl": {"Slope": [0.95, 1.0, 1.05]}},
+            "cool_dark": {"cdl": {"Slope": [1.05, 1.0, 0.95]}},
+        }
+        params = {"plan_id": plan["plan_id"], "grade": {"match": match}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        graded = out["grade"]["match"]
+        self.assertEqual(graded["applied"], 2)
+        self.assertEqual(graded["of"], 3)  # planned segments, not the 2 items present
+        self.assertEqual(graded["unmatched_segments"], [2])
+
 
 class MotionActionTest(unittest.TestCase):
     """finish()'s motion branch (issue #180, phase 5/6 of the
@@ -697,6 +721,8 @@ class MotionActionTest(unittest.TestCase):
             seg["motion"] = d.get("motion")
             seg["flash"] = d.get("flash", False)
             seg["retime"] = d.get("retime", False)
+            seg["fadeout"] = d.get("fadeout", False)
+            seg["shake"] = d.get("shake", False)
             segments.append(seg)
         plan = cut_ir.make_cut_list(segments=segments, fps=24.0)
         auto_edit._assign_record_frames(plan)  # sequential accumulate walk: 0, 48, 96, ...
@@ -861,6 +887,54 @@ class MotionActionTest(unittest.TestCase):
         self.assertTrue(out.get("success"), out)
         self.assertEqual(out["motion"]["applied"], 0)
         self.assertTrue(any("SetExpression(Size) readback empty after set" in e for e in out["errors"]))
+
+    def test_applied_counts_carry_a_planned_denominator(self):
+        # issue #203: `of` must be the PLAN's segment count, not however many
+        # items the mapper matched — on the built-timeline path (item count
+        # == segment count) the two happen to coincide, so this only proves
+        # the field exists and is correct in the ordinary case; the shortfall
+        # test below proves it stays correct when they DON'T coincide.
+        plan = self._plan_with_directives([
+            {"motion": self._motion_directive()}, {"flash": True}, {"fadeout": True}])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl, items, _comps = self._mock_project(item_count=3)
+        params = {"plan_id": plan["plan_id"], "motion": {}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["motion"], {"applied": 1, "of": 1})
+        self.assertEqual(out["flash"], {"applied": 1, "of": 1})
+        self.assertEqual(out["fadeout"]["of"], 1)
+        self.assertEqual(out["look"]["of"], 3)
+        self.assertEqual(out["look"]["letterbox_of"], 3)
+        self.assertNotIn("warning", out)
+
+    def test_shortfall_denominator_and_warning_when_the_timeline_has_fewer_items_than_planned(self):
+        # issue #203's exact scenario: the timeline (e.g. after a polish that
+        # dropped items) has fewer V1 items than the plan has segments. The
+        # segment carrying the only fadeout never gets an item — `applied`
+        # must read 0 while `of` still reads 1 (not 0, which would read as
+        # "the plan never asked for a fadeout"), and a top-level warning must
+        # name exactly what was lost.
+        plan = self._plan_with_directives([
+            {"motion": self._motion_directive()}, {"fadeout": True}])
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        # Only ONE item on the timeline for TWO plan segments — segment 1
+        # (the fadeout) has nothing to pair with (positional walk: item 0 ->
+        # segment 0 only).
+        proj, _tl, items, _comps = self._mock_project(item_count=1)
+        params = {"plan_id": plan["plan_id"], "motion": {}}
+        gate = self._finish(proj, params)
+        out = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        self.assertTrue(out.get("success"), out)
+        self.assertEqual(out["fadeout"], {"applied": 0, "of": 1})
+        self.assertEqual(out["motion"], {"applied": 1, "of": 1})  # segment 0 DID get its item
+        self.assertIn("warning", out)
+        self.assertIn("1 plan segment(s) had no matching timeline item", out["warning"])
+        self.assertIn("1 fadeout", out["warning"])
+        self.assertIn("1 V1 items for 2 plan segments", out["warning"])
 
 
 class QCWiringTest(unittest.TestCase):

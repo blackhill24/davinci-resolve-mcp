@@ -258,6 +258,96 @@ class LookBucketingTests(unittest.TestCase):
             montage_edit._ffmpeg_colour_signature("/media/does-not-exist.mp4", 1.0))
         self.assertIsNone(montage_edit._ffmpeg_colour_signature(None, 1.0))
 
+    # ── #193 phase 6.2.3: the match was too coarse to be a match ────────────
+
+    def test_single_bucket_match_is_an_identity(self):
+        # One bucket has nothing to match AGAINST: the exposure correction is
+        # 0 by construction, but the white-balance tilt still fired, shifting
+        # every channel 5% across the whole montage for no benefit.
+        candidates = [
+            _sig_candidate("a", tone="warm", brightness=0.5),
+            _sig_candidate("b", tone="warm", brightness=0.5),
+        ]
+        bucket_of_clip, sigs, _basis = montage_edit.assign_look_buckets(candidates)
+        self.assertEqual(len(set(bucket_of_clip.values())), 1)
+        cdl = next(iter(montage_edit.compute_match_cdls(sigs, bucket_of_clip).values()))
+        self.assertEqual(cdl["Slope"], [1.0, 1.0, 1.0])
+        self.assertEqual(cdl["Offset"], [0.0, 0.0, 0.0])
+        self.assertEqual(cdl["Power"], [1.0, 1.0, 1.0])
+        self.assertEqual(cdl["Saturation"], 1.0)
+
+    def test_exposure_offset_is_clamped(self):
+        # The offset used to be the RAW brightness delta with no clamp, so a
+        # dusk shot against a midday target got an enormous, shot-wrecking lift.
+        candidates = [
+            _sig_candidate("a", tone="neutral", brightness=0.05),
+            _sig_candidate("b", tone="neutral", brightness=0.95),
+        ]
+        bucket_of_clip, sigs, _basis = montage_edit.assign_look_buckets(candidates)
+        for cdl in montage_edit.compute_match_cdls(sigs, bucket_of_clip).values():
+            for value in cdl["Offset"]:
+                self.assertLessEqual(abs(value), montage_edit.MAX_MATCH_OFFSET)
+
+    def test_white_balance_tilt_is_proportional_to_the_measured_cast(self):
+        # A fixed +/-0.05 fired on a 3-way label whether the cast was a hint or
+        # a wash. With a measured `cast` the tilt scales — and stays clamped.
+        gentle = montage_edit._match_cdl(
+            {"tone": "warm", "brightness": 0.5, "cast": 0.03},
+            {"brightness": 0.5})
+        strong = montage_edit._match_cdl(
+            {"tone": "warm", "brightness": 0.5, "cast": 0.20},
+            {"brightness": 0.5})
+        self.assertLess(gentle["Slope"][0], 1.0)          # both cool it down
+        self.assertLess(strong["Slope"][0], gentle["Slope"][0])   # ...strong more so
+        self.assertGreaterEqual(strong["Slope"][0], 1.0 - montage_edit.MAX_MATCH_TILT)
+
+    def test_label_only_signature_keeps_the_old_fixed_tilt(self):
+        # Scout signatures carry the label and no magnitude — the label is all
+        # the evidence there is, so that path must be unchanged.
+        cdl = montage_edit._match_cdl(
+            {"tone": "cool", "brightness": 0.5}, {"brightness": 0.5})
+        self.assertAlmostEqual(cdl["Slope"][0], 1.0 + montage_edit._LOOK_TONE_TILT, places=4)
+        self.assertAlmostEqual(cdl["Slope"][2], 1.0 - montage_edit._LOOK_TONE_TILT, places=4)
+
+    def test_contrast_and_saturation_are_matched_when_measured(self):
+        # Power and Saturation used to be hard-coded to 1.0, so neither axis
+        # was ever matched at all.
+        flat = montage_edit._match_cdl(
+            {"tone": "neutral", "brightness": 0.5, "contrast": 0.08, "saturation": 0.10},
+            {"brightness": 0.5, "contrast": 0.20, "saturation": 0.35})
+        self.assertNotEqual(flat["Power"], [1.0, 1.0, 1.0])
+        self.assertNotEqual(flat["Saturation"], 1.0)
+        # ...and both corrections stay inside their ceilings (1e-9 absorbs the
+        # float representation of an exactly-at-the-clamp value)
+        self.assertLessEqual(abs(flat["Power"][0] - 1.0),
+                             montage_edit.MAX_POWER_CORRECTION + 1e-9)
+        self.assertLessEqual(abs(flat["Saturation"] - 1.0),
+                             montage_edit.MAX_SAT_CORRECTION + 1e-9)
+
+    def test_unmeasured_axes_stay_neutral(self):
+        # Every axis no-ops when its input is missing — a tone+brightness
+        # signature must behave exactly as it did before.
+        cdl = montage_edit._match_cdl(
+            {"tone": "neutral", "brightness": 0.4}, {"brightness": 0.5})
+        self.assertEqual(cdl["Power"], [1.0, 1.0, 1.0])
+        self.assertEqual(cdl["Saturation"], 1.0)
+        self.assertEqual(cdl["Slope"], [1.0, 1.0, 1.0])
+        self.assertAlmostEqual(cdl["Offset"][0], 0.1, places=4)
+
+    # ── #193 phase 6.2.4: log/flat footage ──────────────────────────────────
+
+    def test_flat_footage_is_detected_from_the_measurements(self):
+        self.assertTrue(montage_edit._looks_flat(
+            {"contrast": 0.05, "saturation": 0.08}))
+        self.assertFalse(montage_edit._looks_flat(
+            {"contrast": 0.25, "saturation": 0.40}))
+
+    def test_flat_detection_never_guesses_without_measurements(self):
+        # A scout or default signature carries no contrast/saturation — it
+        # must not be reported as log on no evidence.
+        self.assertFalse(montage_edit._looks_flat({"tone": "neutral", "brightness": 0.5}))
+        self.assertFalse(montage_edit._looks_flat({"contrast": 0.05}))
+
 
 class BuildCutListLookBucketTests(MontageEditBase):
     def _mock_beats(self, *, duration=12.0):

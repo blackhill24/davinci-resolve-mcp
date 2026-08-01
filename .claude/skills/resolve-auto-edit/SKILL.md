@@ -189,7 +189,15 @@ Changing any other parameter invalidates the token and you get a fresh one.
      `finish` still returns `{"applied": 13, "of": 13}`, because that counts
      SetCDL calls that succeeded, not shots that changed. Say "colour matching
      did not actually run" in that case rather than reporting a successful
-     match that changed nothing.
+     match that changed nothing. The same is true whenever the plan produced a
+     **single** look bucket, on any basis — there is nothing to match against,
+     so the CDL is an identity. The checkpoint summary now says so outright.
+   - **Log/flat footage is detected, never converted.** If shots come back very
+     low-contrast and low-saturation, `plan["flat_footage_clips"]` lists them
+     and `problems` names them. They will render flat, and the match makes it
+     worse (flat clips collapse toward one bucket). This pipeline does not do
+     log→Rec709 — a CDL cannot. Apply the camera's own log→Rec709 LUT via
+     `finish(grade={"lut_path": …})`, and remember that composes with `match`.
    - **Montage audio — the deliverable's whole soundtrack.** Two things the
      pipeline does not decide for you:
      - *Camera audio.* Montage segments no longer mirror their production
@@ -248,6 +256,8 @@ knob, say so instead of inventing one.
 | "put a title on it" | `revise_cut({op:"title", text})`; lower-thirds instead → `polish_timeline(lower_thirds=[…])` |
 | "use the best bit of each clip" | let step 3's scout gate run and commit its frames — don't reach for `scout=false` |
 | "leave it clean / no effects" | omit `motion` entirely |
+| "it looks washed out / it's log footage" | check `plan["flat_footage_clips"]` — the planner detects flat shots but never converts them. Apply the camera's log→Rec709 LUT with `grade={"lut_path": …}`; no CDL can do this conversion |
+| "vary the shot sizes" / "it feels samey" | already applied — shot size is a tiebreak in shot selection (wide/medium/close alternate) and the zoom move varies in direction and magnitude per shot. Both are deterministic, so a re-plan gives the same cut; there is no knob to turn them up |
 | "cinematic" | `motion={}` — vignette, grain and letterbox ride along |
 | "lose the letterbox/grain" | `motion={"look": false}` |
 | "make the shots match" | `grade={"match": plan["look_buckets"]}` — the plan already computed them. Check `plan["look_bucket_basis"]` first: on `default` there was no colour data, so the match is an identity CDL that changes nothing (and still reports `applied: N/N`) |

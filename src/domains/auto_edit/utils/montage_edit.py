@@ -411,7 +411,49 @@ def _ffmpeg_colour_signature(path: Optional[str], time_seconds: float) -> Option
     diff = r - b
     tone = "warm" if diff > 0.03 else ("cool" if diff < -0.03 else "neutral")
     exposure = "crushed" if brightness < 0.15 else ("clipped" if brightness > 0.9 else "good")
-    return {"tone": tone, "brightness": round(brightness, 3), "exposure": exposure}
+    # The same 8x8 decode already in hand also gives contrast and saturation,
+    # and the cast MAGNITUDE rather than just its 3-way label (#193 phase
+    # 6.2.3). All three were thrown away: the match hard-coded Power [1,1,1]
+    # and Saturation 1.0 — so contrast and saturation were never matched at
+    # all — and tilted white balance by a fixed +/-0.05 whether the cast was a
+    # hint or a wash. No extra decode, no new dependency.
+    lumas = [(0.2126 * raw[3 * i] + 0.7152 * raw[3 * i + 1] + 0.0722 * raw[3 * i + 2]) / 255.0
+             for i in range(n)]
+    mean_luma = sum(lumas) / n
+    contrast = (sum((x - mean_luma) ** 2 for x in lumas) / n) ** 0.5
+    sat_sum = 0.0
+    for i in range(n):
+        px = (raw[3 * i] / 255.0, raw[3 * i + 1] / 255.0, raw[3 * i + 2] / 255.0)
+        hi, lo = max(px), min(px)
+        sat_sum += (hi - lo) / hi if hi > 0 else 0.0
+    return {"tone": tone, "brightness": round(brightness, 3), "exposure": exposure,
+            "cast": round(diff, 4), "contrast": round(contrast, 4),
+            "saturation": round(sat_sum / n, 4)}
+
+
+# Flat/log detection (#193 phase 6.2.4). ffprobe's `color_transfer` IS captured
+# (media_analysis/utils/technical_probe.py) and has no consumer anywhere, but it
+# is also not on the clips table, so the decision layer cannot read it without a
+# second pass over each clip's report. What the planner DOES have — now that the
+# colour signature carries contrast and saturation — is the measurement that
+# actually characterises log footage: a washed-out mid-brightness image with
+# very little luma spread and very little saturation.
+#
+# Detection only. Deliberately NOT "normalised": log -> Rec709 is a real
+# transform (a camera-specific LUT or a colour-space transform node), and
+# approximating one with a CDL would look worse than leaving it flat while
+# claiming it was handled. So this reports the condition and routes to the
+# tool that can actually fix it.
+FLAT_CONTRAST_MAX = 0.12    # luma stdev, 0..1 — graded footage is well above
+FLAT_SATURATION_MAX = 0.18  # mean per-pixel saturation
+
+
+def _looks_flat(signature: Dict[str, Any]) -> bool:
+    contrast = signature.get("contrast")
+    saturation = signature.get("saturation")
+    if not isinstance(contrast, (int, float)) or not isinstance(saturation, (int, float)):
+        return False  # never guess from a signature that carries no measurement
+    return contrast <= FLAT_CONTRAST_MAX and saturation <= FLAT_SATURATION_MAX
 
 
 def assign_look_buckets(
@@ -465,25 +507,88 @@ def assign_look_buckets(
     return bucket_of_clip, signatures, basis
 
 
-def _match_cdl(tone: str, brightness: float, target_brightness: float) -> Dict[str, Any]:
-    """A slope/offset/power CDL that neutralizes `tone`'s warm/cool bias and
-    pulls `brightness` toward `target_brightness` — stage 1 ("match")."""
-    offset = round(target_brightness - brightness, 4)
-    if tone == "warm":
-        slope = [1.0 - _LOOK_TONE_TILT, 1.0, 1.0 + _LOOK_TONE_TILT]
-    elif tone == "cool":
-        slope = [1.0 + _LOOK_TONE_TILT, 1.0, 1.0 - _LOOK_TONE_TILT]
+IDENTITY_CDL: Dict[str, Any] = {
+    "NodeIndex": 1, "Slope": [1.0, 1.0, 1.0], "Offset": [0.0, 0.0, 0.0],
+    "Power": [1.0, 1.0, 1.0], "Saturation": 1.0,
+}
+
+# Correction ceilings (#193 phase 6.2.3). A "match" is a nudge that lets shots
+# intercut, not a regrade: past these the footage genuinely does not match and
+# a correction big enough to hide that would wreck the shot instead. The
+# exposure Offset in particular used to be the RAW brightness delta with no
+# clamp at all, so a dusk shot against a midday target got an enormous lift.
+MAX_MATCH_OFFSET = 0.10      # CDL Offset, code values
+MAX_MATCH_TILT = 0.08        # per-channel Slope tilt for white balance
+MAX_POWER_CORRECTION = 0.15  # Power away from 1.0 (contrast)
+MAX_SAT_CORRECTION = 0.20    # Saturation away from 1.0
+
+
+def _clamp(value: float, limit: float) -> float:
+    return max(-limit, min(limit, value))
+
+
+def _match_cdl(signature: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
+    """A slope/offset/power/saturation CDL pulling `signature` toward
+    `target` — stage 1 ("match").
+
+    Corrects on four axes, each independently and only when the evidence for
+    it exists (#193 phase 6.2.3 — it used to correct exposure and a fixed
+    white-balance tilt, and hard-code Power [1,1,1] / Saturation 1.0, so
+    contrast and saturation were never matched at all):
+
+    - **Exposure** — Offset toward the target brightness, CLAMPED.
+    - **White balance** — a Slope tilt PROPORTIONAL to the measured cast
+      (`cast`, the r-b difference the ffmpeg pass already computes) instead of
+      a fixed +/-0.05 fired on a 3-way label. Scout signatures carry only the
+      label, so they fall back to the old fixed tilt — the label is all the
+      evidence there is.
+    - **Contrast** — Power from the ratio of this bucket's luma spread to the
+      target's, when both were measured.
+    - **Saturation** — likewise from the measured saturation ratio.
+
+    Every axis no-ops when its input is missing, so a signature with only
+    tone+brightness produces exactly what it produced before, plus the clamp.
+    """
+    brightness = float(signature.get("brightness") or 0.0)
+    target_brightness = float(target.get("brightness") or brightness)
+    offset = round(_clamp(target_brightness - brightness, MAX_MATCH_OFFSET), 4)
+
+    cast = signature.get("cast")
+    if isinstance(cast, (int, float)):
+        # Proportional: a 0.03 cast is the detection threshold, so scale
+        # against it and clamp. Positive cast = warm (red over blue).
+        tilt = _clamp(float(cast) / 0.03 * _LOOK_TONE_TILT, MAX_MATCH_TILT)
     else:
-        slope = [1.0, 1.0, 1.0]
+        tone = str(signature.get("tone") or "neutral")
+        tilt = _LOOK_TONE_TILT if tone == "warm" else (
+            -_LOOK_TONE_TILT if tone == "cool" else 0.0)
+    slope = [1.0 - tilt, 1.0, 1.0 + tilt]
+
+    power = [1.0, 1.0, 1.0]
+    contrast, target_contrast = signature.get("contrast"), target.get("contrast")
+    if (isinstance(contrast, (int, float)) and isinstance(target_contrast, (int, float))
+            and contrast > 0.01 and target_contrast > 0.01):
+        # More spread than the target -> raise Power to compress it, and back.
+        correction = _clamp(float(contrast) / float(target_contrast) - 1.0,
+                            MAX_POWER_CORRECTION)
+        power = [round(1.0 + correction, 4)] * 3
+
+    saturation = 1.0
+    sat, target_sat = signature.get("saturation"), target.get("saturation")
+    if (isinstance(sat, (int, float)) and isinstance(target_sat, (int, float))
+            and sat > 0.01):
+        saturation = round(1.0 + _clamp(float(target_sat) / float(sat) - 1.0,
+                                        MAX_SAT_CORRECTION), 4)
+
     return {
         "NodeIndex": 1,
         "Slope": [round(v, 4) for v in slope],
         "Offset": [offset, offset, offset],
-        "Power": [1.0, 1.0, 1.0],
+        "Power": power,
         # SetCDL was live-verified (tests/live_api_gap_verification.py) only
         # with all five keys present, Saturation included — omitting it is
         # the live, not-mock, cause of a silent False return on every call.
-        "Saturation": 1.0,
+        "Saturation": saturation,
     }
 
 
@@ -497,19 +602,41 @@ def compute_match_cdls(
     per_bucket: Dict[str, List[Dict[str, Any]]] = {}
     for clip_uuid, bucket in bucket_of_clip.items():
         per_bucket.setdefault(bucket, []).append(signatures[clip_uuid])
+    def _avg(sigs: List[Dict[str, Any]], key: str) -> Optional[float]:
+        values = [s[key] for s in sigs if isinstance(s.get(key), (int, float))]
+        return sum(values) / len(values) if values else None
+
     bucket_avg: Dict[str, Dict[str, Any]] = {}
     for bucket, sigs in per_bucket.items():
-        avg_brightness = sum(s["brightness"] for s in sigs) / len(sigs)
         tones = [s["tone"] for s in sigs]
-        dominant_tone = max(set(tones), key=tones.count)
-        bucket_avg[bucket] = {"brightness": avg_brightness, "tone": dominant_tone}
+        bucket_avg[bucket] = {
+            "brightness": sum(s["brightness"] for s in sigs) / len(sigs),
+            "tone": max(set(tones), key=tones.count),
+            "cast": _avg(sigs, "cast"),
+            "contrast": _avg(sigs, "contrast"),
+            "saturation": _avg(sigs, "saturation"),
+        }
     if not bucket_avg:
         return {}
-    target_brightness = statistics.median(v["brightness"] for v in bucket_avg.values())
-    return {
-        bucket: _match_cdl(sig["tone"], sig["brightness"], target_brightness)
-        for bucket, sig in bucket_avg.items()
+    if len(bucket_avg) == 1:
+        # Nothing to match AGAINST (#193 phase 6.2.3). The target is this
+        # bucket's own brightness, so the exposure correction is 0 by
+        # construction — but the white-balance tilt still fired, applying a
+        # global 5% channel shift to the whole montage for no matching
+        # benefit whatsoever. A one-bucket match is an identity, and saying so
+        # is what lets `look_bucket_basis` and the checkpoint be honest.
+        return {bucket: dict(IDENTITY_CDL) for bucket in bucket_avg}
+
+    def _median_of(key: str) -> Optional[float]:
+        values = [v[key] for v in bucket_avg.values() if isinstance(v.get(key), (int, float))]
+        return statistics.median(values) if values else None
+
+    target = {
+        "brightness": statistics.median(v["brightness"] for v in bucket_avg.values()),
+        "contrast": _median_of("contrast"),
+        "saturation": _median_of("saturation"),
     }
+    return {bucket: _match_cdl(sig, target) for bucket, sig in bucket_avg.items()}
 
 
 # ── energy curve (pacing + placement) ────────────────────────────────────────
@@ -864,6 +991,19 @@ def build_cut_list_for_brief(
         problems.append(
             f"look buckets derived from {look_bucket_basis} colour data (not scout) — "
             "grades may be less precise than a scouted pass would give")
+    # Flat/log footage (#193 phase 6.2.4): report, never silently "correct".
+    flat_clips = sorted(
+        uuid for uuid, sig in look_signatures.items() if _looks_flat(sig))
+    if flat_clips:
+        names = {c["clip_uuid"]: c.get("clip_name") for c in candidates}
+        listed = ", ".join(str(names.get(u) or u) for u in flat_clips)
+        problems.append(
+            f"{len(flat_clips)} clip(s) look LOG/FLAT (very low contrast and saturation): "
+            f"{listed}. They will render flat, and the look-bucket match makes it worse — "
+            "flat clips collapse toward one bucket, so the match has little to separate. "
+            "This pipeline does not convert log: apply the camera's own log->Rec709 LUT via "
+            'finish(grade={"lut_path": ...}), or grade a colour-space transform outside it. '
+            "A CDL cannot do this conversion and none is attempted.")
 
     # Hook: single highest-select_potential shot overall, prepended once.
     ranked_all = sorted(candidates, key=lambda c: -c["rank"])
@@ -1172,6 +1312,8 @@ def build_cut_list_for_brief(
     # these as-is or override them before applying.
     plan["look_buckets"] = match_cdls
     plan["look_bucket_basis"] = look_bucket_basis
+    # Machine-readable companion to the problems line above (#193 phase 6.2.4).
+    plan["flat_footage_clips"] = list(flat_clips)
     if grid_available:
         # Grid-locked segments already carry a correct, beat-quantised
         # record_start_frame from the arrangement schedule — re-walking (as
@@ -1239,6 +1381,16 @@ def render_montage_summary(plan: Dict[str, Any]) -> str:
                        "neutral bucket and the match CDL is an identity, so colour "
                        "matching will not actually change anything",
         }
+        if len(buckets) == 1:
+            # One bucket has nothing to match AGAINST, whatever the basis was.
+            lines += [
+                "**Colour match:** all shots fell into ONE look bucket, so there is nothing "
+                "to match against and the CDL is an identity — passing it at finish will not "
+                f"change the picture. (basis `{basis}`)",
+                "",
+            ]
+            buckets = {}
+    if buckets:
         lines += [
             f"**Colour match:** {len(buckets)} look bucket(s), basis `{basis}` "
             f"({_BASIS_NOTE.get(basis, 'basis not recognised')}). Applied only if you "

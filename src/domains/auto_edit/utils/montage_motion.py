@@ -72,16 +72,23 @@ ZOOM_VARIATION_CYCLE: Tuple[Tuple[bool, float], ...] = (
     (True, 1.20),    # pull out, further
 )
 
-# Decaying beat-pulse amplitude per section — bigger on the sections phase 2
-# already reads as high-energy (the same sections that get the `flash`/
-# `shake` flags).
+# Decaying beat-pulse amplitude per section — opt-IN, not opt-out (#209).
+# Ported wholesale from the Claude Desktop ffmpeg baseline, which ran the
+# pulse across its whole build; doing the same here meant every section not
+# listed fell through to a "default" amplitude that was really a permanent
+# throb — 76 of 107 segments on a real 134s/108bpm track pulsed purely
+# because nothing had opted them OUT, which both reads as a tic over 2+
+# minutes and erases the contrast the drop is supposed to have against
+# quieter material. This list is now exhaustive: only `drop` and `high` are
+# genuine peaks. `build`/`accelerate` are deliberately NOT here — they
+# already carry their own energy (MONTAGE_RETIME_SPEED slows them, and the
+# zoom ramp itself already accelerates), so a pulse under a section named
+# for tension read as arriving too early rather than earning the drop.
 MOTION_PULSE_AMP: Dict[str, float] = {
     "drop": 0.06,
     "high": 0.05,
-    "accelerate": 0.04,
-    "build": 0.03,
 }
-DEFAULT_PULSE_AMP = 0.02
+DEFAULT_PULSE_AMP = 0.0
 
 FLASH_GAIN = 1.6          # brightness multiplier at the flash's peak
 FLASH_DECAY_FRAMES = 3.0  # the lift is gone within ~3 frames
@@ -159,19 +166,28 @@ def build_zoom_expression(
     clip_length_frames: int,
 ) -> str:
     """Fusion expression for a Transform's ``Size`` input: a zoom ramp
-    (``zoom_start`` -> ``zoom_end`` across the clip's own length) plus a
-    decaying pulse on the beat, with a lighter offbeat-8th pulse — Desktop's
-    ffmpeg zoompan formula, ported.
+    (``zoom_start`` -> ``zoom_end`` across the clip's own length) plus, when
+    ``amp`` is positive, a decaying pulse on the beat with a lighter
+    offbeat-8th pulse — Desktop's ffmpeg zoompan formula, ported.
 
     The phase is plain comp-local ``time``: a grid-locked segment starts on a
     beat, so ``time`` is already the beat phase (see the module docstring —
     the old ``record_start_frame`` term put every peak a constant ``beat_zero``
     off the beat).
+
+    ``amp <= 0`` (a section not in ``MOTION_PULSE_AMP``, or the ``pulse``
+    host override) omits the pulse term from the expression ENTIRELY (#209)
+    — not a zero-amplitude pulse term left in place, which would still show
+    up in the emitted expression even though it evaluates to nothing. The
+    ramp is unaffected either way: restraint on the pulse costs no life in
+    the image.
     """
     beat_frames = beat_seconds * fps
     if beat_frames <= 0:
         beat_frames = 1.0
     ramp_rate = (zoom_end - zoom_start) / max(1, clip_length_frames)
+    if amp <= 0:
+        return f"{zoom_start:.6f}+{ramp_rate:.8f}*time"
     phase = "time"
     pulse = (
         f"{amp:.6f}*exp(-7*fmod({phase},{beat_frames:.6f})/{beat_frames:.6f})"

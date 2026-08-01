@@ -164,9 +164,13 @@ Changing any other parameter invalidates the token and you get a fresh one.
    timeline; polish-only work needs `target="polished"` to reach a render.
    - `motion={}` (montage) turns on the beat-locked pass: zoom ramp + beat
      pulse, flash frames, shake, fade-out, optical-flow retime process,
-     vignette, grain, letterbox. `look` is its ONLY sub-key —
-     `motion={"look": false}` drops exactly the vignette, grain and letterbox
-     and keeps the rest. Omit `motion` and none of it is applied.
+     vignette, grain, letterbox. The pulse itself is opt-in per SECTION
+     (`drop`/`high` only, since #209) — most segments carry `amp: 0` in the
+     plan and get the ramp with no throb. `look`/`pulse` are its two
+     sub-keys: `motion={"look": false}` drops exactly the vignette, grain and
+     letterbox; `motion={"pulse": false}` forces the pulse off everywhere
+     regardless of what the plan stored, leaving the ramp/flash/shake/
+     fade-out/look intact. Omit `motion` and none of it is applied.
    - `grade={"match": …}` is stage 1 — a per-look-bucket match CDL so shots lit
      differently intercut. Pass the plan's own `look_buckets` straight through;
      `{<bucket>: {"cdl": …}}` is the explicit form.
@@ -260,11 +264,12 @@ knob, say so instead of inventing one.
 | "vary the shot sizes" / "it feels samey" | already applied — shot size is a tiebreak in shot selection (wide/medium/close alternate) and the zoom move varies in direction and magnitude per shot. Both are deterministic, so a re-plan gives the same cut; there is no knob to turn them up |
 | "cinematic" | `motion={}` — vignette, grain and letterbox ride along |
 | "lose the letterbox/grain" | `motion={"look": false}` |
+| "lose the pulsing / the zoom throb" | `motion={"pulse": false}` — the ramp, flash, shake, fade-out and look stay; only the beat pulse is forced off. It's already selective (`drop`/`high` sections only, since #209), so most segments have no pulse to begin with |
 | "make the shots match" | `grade={"match": plan["look_buckets"]}` — the plan already computed them. Check `plan["look_bucket_basis"]` first: on `default` there was no colour data, so the match is an identity CDL that changes nothing (and still reports `applied: N/N`) |
 | "apply my LUT / this look" | `grade={"lut_path": …}` — the only look that composes ON TOP of `match` (SetLUT is a separate node control). A uniform `cdl` or a `drx_path` REPLACES the per-bucket match, so pick one: `match`+`lut_path`, or `cdl`/`drx_path` without `match`. Check `grade.match.overwritten_by` in the result |
 | "add dissolves" | `polish_timeline(options={"no_dissolves": false})` — montage suppresses them by default. Only a cut opening a `breathe` section gets one, and `breathe` is an arrangement section, so this does nothing unless `grid_available` is true |
 | "add some slow-mo" | already planned — but you don't place it: `retime` is raised on `build` and `accelerate` sections only, which exist **only when `grid_available` is true**. `polish_timeline` authors the real ramp, so render it with `finish(target="polished")`. On a non-grid plan there is no slow-mo to render and no parameter that adds one |
-| "flash / shake on that hit" | not addressable either — `flash` fires on every section-opening downbeat, `shake` on `drop`/`high`, `fadeout` on the outro's last shot. Take them or leave them (`motion` omitted). All three are arrangement flags: on a plan with `grid_available: false` none of them exist, and `motion={}` then applies only vignette/grain/letterbox |
+| "flash / shake on that hit" | not addressable either — `flash` fires on every section-opening downbeat, `shake` on `drop`/`high`, `fadeout` on the outro's last shot. Take them or leave them (`motion` omitted; `pulse` only controls the beat pulse, not these). All three are arrangement flags: on a plan with `grid_available: false` none of them exist, and `motion={}` then applies only vignette/grain/letterbox |
 | "check it before you call it done" | let `qc` run, look at the frames, `commit_qc` |
 | "just render it" | `finish(render={target_dir}, qc=false)` |
 | "make it vertical" / "9:16" / "4K" | **not an auto_edit parameter.** Set `timelineResolutionWidth`/`Height` via `project_settings` BEFORE `start_brief` — the built timeline inherits the project's raster and nothing in this pipeline sets it. Reframe the shots after with `timeline_item_color(smart_reframe)` |

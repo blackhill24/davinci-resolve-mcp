@@ -1336,7 +1336,7 @@ def build_cut_list_for_brief(
 # ── checkpoint summary ───────────────────────────────────────────────────────
 
 
-def render_montage_summary(plan: Dict[str, Any]) -> str:
+def render_montage_summary(plan: Dict[str, Any], *, max_rows: Optional[int] = None) -> str:
     """Human-readable cut list for THE approval checkpoint (markdown).
 
     Mirrors auto_edit.render_cut_summary's shape, adapted to montage's
@@ -1348,7 +1348,13 @@ def render_montage_summary(plan: Dict[str, Any]) -> str:
     plan buckets every shot and computes a match CDL per bucket, and the
     approving user could not see any of it — no bucket column, no count, no
     statement of what the buckets were derived from. That decision is exactly
-    as reviewable as the cut, and this is the ONE moment it can be reviewed."""
+    as reviewable as the cut, and this is the ONE moment it can be reviewed.
+
+    max_rows (#206): on a long montage the per-segment table (each row
+    repeating a full editorial description) can alone exceed the MCP host's
+    per-result token limit. When the segment count exceeds max_rows, show
+    the first half and last half with an explicit omission note in between;
+    None (the default, used by get_cut_summary) never truncates."""
     fps = float(plan.get("fps") or 24.0)
 
     def tc(frames: int) -> str:
@@ -1399,16 +1405,17 @@ def render_montage_summary(plan: Dict[str, Any]) -> str:
         ]
     grid_available = bool(plan.get("grid_available"))
     if grid_available:
-        lines += [
+        header = [
             "| # | Record | Source (frames) | Role | Section | Beats | Look | Description | Pacing |",
             "|---|--------|-----------------|------|---------|-------|------|--------------|--------|",
         ]
     else:
-        lines += [
+        header = [
             "| # | Record | Source (frames) | Role | Look | Description | Pacing |",
             "|---|--------|-----------------|------|------|--------------|--------|",
         ]
-    for i, seg in enumerate(plan.get("segments") or []):
+
+    def _row(i: int, seg: Dict[str, Any]) -> str:
         evidence = seg.get("evidence") or {}
         pacing = evidence.get("pacing") or ""
         description = evidence.get("description") or ""
@@ -1420,7 +1427,23 @@ def render_montage_summary(plan: Dict[str, Any]) -> str:
         if grid_available:
             row += f"| {seg.get('section') or '—'} | {seg.get('beat_length', '—')} "
         row += f"| {seg.get('look_bucket') or '—'} | {description} | {pacing or '—'} |"
-        lines.append(row)
+        return row
+
+    segments = plan.get("segments") or []
+    total = len(segments)
+    if max_rows is not None and total > max_rows:
+        head_n = max_rows // 2
+        tail_n = max_rows - head_n
+        lines += header + [_row(i, segments[i]) for i in range(head_n)]
+        lines += [
+            "",
+            f"_… {total - head_n - tail_n} more cut(s) omitted — full table via "
+            f'get_cut_summary(plan_id, format="markdown")…_',
+            "",
+        ]
+        lines += header + [_row(i, segments[i]) for i in range(total - tail_n, total)]
+    else:
+        lines += header + [_row(i, seg) for i, seg in enumerate(segments)]
     problems = plan.get("problems") or []
     if problems:
         lines += ["", "**Notes:**"] + [f"- {p}" for p in problems]

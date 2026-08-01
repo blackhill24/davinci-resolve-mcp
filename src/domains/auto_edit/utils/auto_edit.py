@@ -648,8 +648,14 @@ def _assign_record_frames(plan: Dict[str, Any]) -> None:
 # ── checkpoint summary ───────────────────────────────────────────────────────
 
 
-def render_cut_summary(plan: Dict[str, Any]) -> str:
-    """Human-readable cut list for THE approval checkpoint (markdown)."""
+def render_cut_summary(plan: Dict[str, Any], *, max_rows: Optional[int] = None) -> str:
+    """Human-readable cut list for THE approval checkpoint (markdown).
+
+    max_rows (#206): bounds the per-segment table the same way
+    montage_edit.render_montage_summary does — head/tail split with an
+    omission note — for a talking-head plan long enough to hit the same
+    token-limit wall. None (the default, used by get_cut_summary) never
+    truncates."""
     fps = float(plan.get("fps") or 24.0)
 
     def tc(frames: int) -> str:
@@ -665,16 +671,35 @@ def render_cut_summary(plan: Dict[str, Any]) -> str:
         f"**Segments:** {est.get('segment_count')} · "
         f"**Evidence basis:** {plan.get('basis') or 'words'}",
         "",
+    ]
+    header = [
         "| # | Record | Source (frames) | Excerpt | Smoothing |",
         "|---|--------|-----------------|---------|-----------|",
     ]
-    for i, seg in enumerate(plan.get("segments") or []):
-        lines.append(
+
+    def _row(i: int, seg: Dict[str, Any]) -> str:
+        return (
             f"| {i} | {tc(seg.get('record_start_frame', 0))} "
             f"| {seg['source_start_frame']}–{seg['source_end_frame']} "
             f"| {seg.get('transcript_excerpt') or seg.get('rationale') or ''} "
             f"| {seg.get('jumpcut_smoothing') or '—'} |"
         )
+
+    segments = plan.get("segments") or []
+    total = len(segments)
+    if max_rows is not None and total > max_rows:
+        head_n = max_rows // 2
+        tail_n = max_rows - head_n
+        lines += header + [_row(i, segments[i]) for i in range(head_n)]
+        lines += [
+            "",
+            f"_… {total - head_n - tail_n} more cut(s) omitted — full table via "
+            f'get_cut_summary(plan_id, format="markdown")…_',
+            "",
+        ]
+        lines += header + [_row(i, segments[i]) for i in range(total - tail_n, total)]
+    else:
+        lines += header + [_row(i, seg) for i, seg in enumerate(segments)]
     removed = plan.get("removed") or []
     if removed:
         by_kind: Dict[str, int] = {}

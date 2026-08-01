@@ -17,6 +17,7 @@ from tests._error_envelope_helpers import assert_error_mentions
 
 import src.server as s
 import src.domains.auto_edit.actions as _dom_auto_edit
+import src.domains.audio_fairlight.actions as _dom_audio_fairlight
 from src.domains.auto_edit.utils import auto_edit, cut_ir, edit_engine
 
 
@@ -373,6 +374,58 @@ class FinishActionTest(unittest.TestCase):
         self.assertFalse(done.get("success"))
         self.assertFalse(done["render"]["success"])
         self.assertIn("no output file", done["render"]["error"])
+
+    # #207: motion={} / subtitles={} document "turn the pass on with
+    # defaults" — bool({}) is False, so the confirm-token preview used to
+    # report the headline effect as disabled right before the gate that
+    # authorizes it.
+    def _finish_gate(self, extra_params=None):
+        plan = make_plan(self.root)
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl = self._mock_project()
+        params = {"plan_id": plan["plan_id"], **(extra_params or {})}
+        gate = self._finish(proj, params)
+        self.assertEqual(gate.get("status"), "confirmation_required", gate)
+        return gate
+
+    def test_preview_reports_motion_empty_dict_as_enabled(self):
+        gate = self._finish_gate({"motion": {}})
+        self.assertEqual(gate["preview"]["motion"], {"enabled": True, "look": True})
+
+    def test_preview_reports_motion_look_false(self):
+        gate = self._finish_gate({"motion": {"look": False}})
+        self.assertEqual(gate["preview"]["motion"], {"enabled": True, "look": False})
+
+    def test_preview_reports_motion_absent_as_disabled(self):
+        gate = self._finish_gate()
+        self.assertEqual(gate["preview"]["motion"], {"enabled": False})
+
+    def test_preview_reports_subtitles_empty_dict_as_enabled(self):
+        gate = self._finish_gate({"subtitles": {}})
+        self.assertEqual(gate["preview"]["subtitles"], {"enabled": True})
+
+    def test_preview_reports_subtitles_absent_as_disabled(self):
+        gate = self._finish_gate()
+        self.assertEqual(gate["preview"]["subtitles"], {"enabled": False})
+
+    def test_confirmed_subtitles_empty_dict_actually_runs_the_pass(self):
+        """The same bool({}) coercion existed in the real execution gate
+        (`if subtitles:`), not just the preview — subtitles={} silently
+        created no subtitles at all despite being the documented way to ask
+        for defaults. This checks the confirmed call, not the preview."""
+        from unittest import mock
+        plan = make_plan(self.root)
+        auto_edit.mark_approved(self.root, plan["plan_id"])
+        edit_engine.mark_plan_executed(self.root, plan["plan_id"], {"timeline_name": "TL"})
+        proj, _tl = self._mock_project()
+        params = {"plan_id": plan["plan_id"], "subtitles": {}}
+        gate = self._finish(proj, params)
+        with mock.patch.object(_dom_audio_fairlight, "_safe_create_subtitles",
+                                return_value={"success": True, "created": True}) as mocked:
+            done = self._finish(proj, {**params, "confirm_token": gate["confirm_token"]})
+        mocked.assert_called_once()
+        self.assertEqual(done["subtitles"], {"success": True, "created": True})
 
 
 class FinishTargetTest(unittest.TestCase):

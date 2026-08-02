@@ -742,9 +742,15 @@ class MotionActionTest(unittest.TestCase):
             # name for that verification to mean anything here.
             tool_mock = comp.AddTool.return_value
             input_store = {}
+            # Bind the store as a default arg, not by closure: these lambdas run
+            # long after the loop, and a free `input_store` would resolve to the
+            # LAST iteration's dict — so with item_count > 1 every mocked comp
+            # would silently share one store and per-comp assertions would be
+            # reading another comp's values.
             tool_mock.SetInput.side_effect = (
-                lambda name, value, *a, **kw: input_store.__setitem__(name, value))
-            tool_mock.GetInput.side_effect = lambda name, *a, **kw: input_store.get(name)
+                lambda name, value, *a, _store=input_store, **kw: _store.__setitem__(name, value))
+            tool_mock.GetInput.side_effect = (
+                lambda name, *a, _store=input_store, **kw: _store.get(name))
             comps.append(comp)
             item = mock.Mock()
             item.GetFusionCompCount.return_value = 0

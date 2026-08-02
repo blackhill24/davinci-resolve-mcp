@@ -17,6 +17,7 @@
  */
 
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
@@ -75,6 +76,76 @@ export function checkNativeModules(modules = NATIVE_MODULES, load = loadAndProbe
   return problems;
 }
 
+// ---------------------------------------------------------------------------
+// Approval drift (the second half of the Node-26 incident).
+//
+// npm 12 gates install scripts behind package.json's `allowScripts`, keyed by
+// EXACT version. Two ways that silently rots, both of which cost real time:
+//
+//   1. A version bump (`better-sqlite3@12.11.1` → `12.12.0`) leaves the old key
+//      behind, so the new version is unapproved again.
+//   2. A package that ships a working prebuilt binary today (sharp) never needs
+//      its install script — until the next Node major, when it does.
+//
+// In both cases npm's failure mode is the trap: `npm rebuild` prints "rebuilt
+// dependencies successfully" while building nothing. So the load check alone is
+// too late — by the time it fires, the obvious remediation is already a no-op.
+// This flags the drift on EVERY run, while things still work.
+// ---------------------------------------------------------------------------
+
+/** Does this installed package run an install script npm would gate? */
+export function hasInstallScript(pkgJson) {
+  const s = (pkgJson && pkgJson.scripts) || {};
+  return Boolean(s.preinstall || s.install || s.postinstall);
+}
+
+/**
+ * @returns {Array<{name:string, version:string, enables:string, state:'unapproved'|'denied'}>}
+ *   native modules whose install script npm will refuse to run as installed.
+ */
+export function checkScriptApprovals(modules = NATIVE_MODULES, readPkg = defaultReadPkg) {
+  const root = readPkg(null);
+  const allow = (root && root.allowScripts) || {};
+  const drift = [];
+  for (const mod of modules) {
+    const pkg = readPkg(mod.name);
+    if (!pkg) continue; // optional and absent — nothing to approve
+    if (!hasInstallScript(pkg)) continue; // pure-JS or prebuilt-only: no gate applies
+    const key = `${mod.name}@${pkg.version}`;
+    if (allow[key] === true) continue;
+    drift.push({ name: mod.name, version: pkg.version, enables: mod.enables, state: allow[key] === false ? 'denied' : 'unapproved' });
+  }
+  return drift;
+}
+
+function defaultReadPkg(name) {
+  const url = name
+    ? new URL(`../node_modules/${name}/package.json`, import.meta.url)
+    : new URL('../package.json', import.meta.url);
+  try {
+    return JSON.parse(readFileSync(url, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+export function formatApprovalWarning(drift) {
+  const lines = ['', '  Native dependency preflight — WARNING (not a failure yet).', ''];
+  for (const d of drift) {
+    lines.push(`  • ${d.name}@${d.version} runs an install script that npm will ${d.state === 'denied' ? 'REFUSE (explicitly denied)' : 'NOT run (not in allowScripts)'}.`);
+    lines.push(`      enables: ${d.enables}`);
+    lines.push(`      approve: npm install-scripts approve ${d.name}`);
+    lines.push('');
+  }
+  lines.push('  It works right now on the binary already on disk. It will stop working the');
+  lines.push('  moment that binary needs rebuilding — a Node major bump, or a version bump');
+  lines.push('  (allowScripts is keyed by exact version, so bumps un-approve themselves).');
+  lines.push('  When that happens `npm rebuild` reports success and builds nothing, so fix');
+  lines.push('  this now rather than debugging that later.');
+  lines.push('');
+  return lines.join('\n');
+}
+
 export function formatReport(problems) {
   const lines = ['', '  Native dependency preflight FAILED — this is a stale install, not a code regression.', ''];
   for (const p of problems) {
@@ -103,9 +174,16 @@ export function formatReport(problems) {
 function main() {
   if (process.env.SKIP_NATIVE_PREFLIGHT === '1') return;
   const problems = checkNativeModules();
-  if (problems.length === 0) return;
-  process.stderr.write(formatReport(problems));
-  process.exit(1);
+  if (problems.length > 0) {
+    process.stderr.write(formatReport(problems));
+    process.exit(1);
+  }
+  // Everything loads — but say so now if a rebuild would be blocked when it is
+  // eventually needed. Warn, never fail: a package working off its prebuilt
+  // binary is not broken, and blocking the suite over it would be worse than
+  // the problem. The point is that this is impossible to be surprised by.
+  const drift = checkScriptApprovals();
+  if (drift.length > 0) process.stderr.write(formatApprovalWarning(drift));
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();

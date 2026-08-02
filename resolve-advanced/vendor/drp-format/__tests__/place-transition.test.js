@@ -3,7 +3,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { placeTransition } = require('../place-transition');
+const { placeTransition, TEMPLATES } = require('../place-transition');
 
 // Two abutting Sm2TiVideoClips: c0 [0,100), c1 [100,200) — cut at 100.
 async function synth2() {
@@ -78,6 +78,29 @@ test('placeTransition type="smooth_cut" inserts a Smooth Cut (template captured 
   assert.ok(/<Start>88<\/Start>/.test(body) && /<Duration>24<\/Duration>/.test(body), 'start/duration set');
   const order = [...body.matchAll(/<Sm2Ti(VideoClip|Transition)\b[^>]*DbId="([^"]+)"/g)].map((m) => m[1]);
   assert.deepStrictEqual(order, ['VideoClip', 'Transition', 'VideoClip'], 'transition sits between the clips');
+});
+
+test('placeTransition type="additive_dissolve" inserts an Additive Dissolve (template captured Resolve 21, #208)', async () => {
+  const res = await placeTransition(await synth2(), { track: 1, atFrame: 100, durationFrames: 24, type: 'additive_dissolve' });
+  assert.strictEqual(res.type, 'additive_dissolve');
+  assert.strictEqual(res.start, 88, 'centered: 100 - 24/2');
+  assert.ok(res.transitionDbId, 'fresh DbId assigned');
+
+  const body = await vtv(res.buffer);
+  assert.ok(/<PrettyType>Additive Dissolve<\/PrettyType>/.test(body), 'is an Additive Dissolve');
+  assert.ok(/<Start>88<\/Start>/.test(body) && /<Duration>24<\/Duration>/.test(body), 'start/duration set');
+  const order = [...body.matchAll(/<Sm2Ti(VideoClip|Transition)\b[^>]*DbId="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepStrictEqual(order, ['VideoClip', 'Transition', 'VideoClip'], 'transition sits between the clips');
+});
+
+// Every bundled template must declare centered alignment — placeTransition computes
+// `Start = cut - duration/2` and rewrites Start/Duration but never AlignmentType, so a
+// template captured at Resolve's default start-on-cut alignment would render offset.
+test('every registered template is centered (AlignmentType 2)', () => {
+  for (const [type, file] of Object.entries(TEMPLATES)) {
+    const xml = require('node:fs').readFileSync(file, 'utf8');
+    assert.match(xml, /<AlignmentType>2<\/AlignmentType>/, `${type} must be centered`);
+  }
 });
 
 test('placeTransition rejects an unregistered type rather than silently substituting', async () => {

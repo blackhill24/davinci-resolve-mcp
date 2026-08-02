@@ -93,10 +93,16 @@ MONTAGE_TRANSITION_ENTERING_SECTION: Dict[str, str] = {
 # falls back to "cross_dissolve" instead of erroring the whole op chain — add
 # a key here the same session a new template is captured and it wires through
 # automatically, no change needed to the placement rule above.
-# dip_to_colour, smooth_cut: templates captured #208 (Resolve 21,
-# computer-use GUI authoring), live round-trip verified (Resolve reads a
-# placeTransition-built instance back with the matching PrettyType name).
-MONTAGE_TRANSITION_AVAILABLE_TYPES = frozenset({"cross_dissolve", "dip_to_colour", "smooth_cut"})
+# dip_to_colour, smooth_cut, additive_dissolve: templates captured #208
+# (Resolve 21, GUI-authored via computer-use), each live round-trip verified —
+# Resolve reads a placeTransition-built instance back with the matching
+# PrettyType name. smooth_cut and additive_dissolve are registered but not
+# mapped to a section above: they stay reachable through the `drp` tool's
+# `place_transition` type param for hand-directed work, while the automatic
+# placement rule deliberately sticks to the two looks it has verified on a
+# real montage render.
+MONTAGE_TRANSITION_AVAILABLE_TYPES = frozenset(
+    {"cross_dissolve", "dip_to_colour", "smooth_cut", "additive_dissolve"})
 MONTAGE_HARD_CUT_SECTIONS = frozenset({"accelerate", "high"})
 # "never two within N beats" (#208) — keeps transitions as punctuation
 # instead of a style, even on an arrangement with several close boundaries.

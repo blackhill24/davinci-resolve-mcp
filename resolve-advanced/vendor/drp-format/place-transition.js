@@ -36,14 +36,16 @@ function splitItems(itemsInner) {
 
 // Template registry, keyed by the same `type` string the auto-edit planner's
 // `intended_type` uses (see auto_edit.py's MONTAGE_TRANSITION_ENTERING_SECTION).
-// Only "cross_dissolve" is captured today (#208 item A) — the other intended
-// types documented there fall back to this one at op-build time until their
-// templates land; this registry is what lets that follow-up be additive (drop
-// a new template file in and register it, nothing else changes).
+// Every key here was GUI-authored in Resolve 21 and captured whole (#208).
+// An intended type with no template yet falls back to cross_dissolve at
+// op-build time; adding one is purely additive — drop the captured template
+// file in, register it here, mirror the key in auto_edit.py's
+// MONTAGE_TRANSITION_AVAILABLE_TYPES, and nothing else changes.
 const TEMPLATES = {
   cross_dissolve: path.join(__dirname, 'templates', 'transition-cross-dissolve.xml'),
   dip_to_colour: path.join(__dirname, 'templates', 'transition-dip-to-colour.xml'),
   smooth_cut: path.join(__dirname, 'templates', 'transition-smooth-cut.xml'),
+  additive_dissolve: path.join(__dirname, 'templates', 'transition-additive-dissolve.xml'),
 };
 
 // Back-compat: some callers/tests reference the old single-template constant.

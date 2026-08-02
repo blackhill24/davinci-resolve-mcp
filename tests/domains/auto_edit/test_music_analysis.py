@@ -282,11 +282,17 @@ class SectionsTest(unittest.TestCase):
         self.assertEqual(drops[0]["start_bar"], 16)
 
 
-# Decoding this costs ffmpeg. The gate below names both halves: the track is
-# only on the machine the measurement was made on, and even there the test is a
-# no-op without ffmpeg on PATH — which used to surface as a bare KeyError rather
-# than a skip (#224).
-_REFERENCE_TRACK = "/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3"
+# Decoding this costs ffmpeg. The gate below names both halves: the track has to
+# be present, and even then the test is a no-op without ffmpeg on PATH — which
+# used to surface as a bare KeyError rather than a skip (#224).
+#
+# The default is the path on the box where the 108 BPM measurement was made, so
+# it keeps reproducing there untouched; DAVINCI_MCP_REFERENCE_TRACK points these
+# at the same track anywhere else, instead of the measurement being unrepeatable
+# off one machine.
+_REFERENCE_TRACK = os.environ.get(
+    "DAVINCI_MCP_REFERENCE_TRACK",
+    "/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3")
 
 
 class BeatDetectionGridTest(unittest.TestCase):
@@ -344,7 +350,7 @@ class BeatDetectionGridTest(unittest.TestCase):
         # the fallback path. The provisional pulse must recover the SAME tempo
         # the confident path finds — that is what makes it a better snap target
         # than onset peaks, which measure at chance against this grid.
-        path = "/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3"
+        path = _REFERENCE_TRACK
         confident = music_analysis.detect_beats(path)
         with mock.patch.object(music_analysis, "MIN_TEMPO_CONFIDENCE", 99.0):
             degraded = music_analysis.detect_beats(path)
@@ -365,7 +371,7 @@ class BeatDetectionGridTest(unittest.TestCase):
         # The measurement that decided the snap target. If a future change makes
         # onset peaks genuinely pulse-following, this test says so out loud
         # rather than leaving the grid-snap rationale as folklore.
-        path = "/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3"
+        path = _REFERENCE_TRACK
         out = music_analysis.detect_beats(path)
         period, bz, tol = 60.0 / out["tempo_bpm"], out["beat_zero"], 0.12
 
@@ -383,8 +389,7 @@ class BeatDetectionGridTest(unittest.TestCase):
         os.path.isfile(_REFERENCE_TRACK) and shutil.which("ffmpeg"),
         "needs the reference track and ffmpeg to decode it")
     def test_real_track_locks_a_confident_108bpm_grid(self):
-        out = music_analysis.detect_beats(
-            "/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3")
+        out = music_analysis.detect_beats(_REFERENCE_TRACK)
         self.assertTrue(out["success"], out)
         self.assertTrue(out["grid_available"])
         self.assertAlmostEqual(out["tempo_bpm"], 108.0, delta=1.0)

@@ -40,6 +40,7 @@ scan result (`assertGreater(len(files), N)`) and earns a mutation here.
 | `test_locale_guard.py` | a `scriptapp()` call site with no `locale_guard.restore()` within three lines |
 | `test_text_encoding_guard.py` | a `subprocess(text=True)` / `open()` / `read_text()` under `src/` that names no `encoding=`, so its decoding follows the process locale — ASCII once a native library resets that locale mid-process, as `scriptapp()` did (#124; a C/POSIX *startup* locale is harmless, it turns UTF-8 mode on — #127). Keys on a literal `text=True`, never on a `text=` kwarg. `_ALLOWLIST` is empty by design |
 | `test_granular_guard_drift.py` | a destructive or AI/render tool on the granular (`--full`) surface that skips the confirm-token gate or the AI-ops ledger — #138/#139, where the same Resolve call was guarded through the compound tool and unguarded through `--full`. Registries live in `src/granular/guards.py`; `test_granular_guards.py` is the behavioural half |
+| `test_mcp_sdk_pin.py` | an install site that omits the MCP SDK upper bound. SDK 2.0.0 dropped `mcp.server.fastmcp`, which `src/server.py` imports at module scope, so an uncapped `pip install "mcp[cli]"` kills every entry point at import and reaches users as a bare "Server disconnected". The repo's own venv had a 1.x resolved months earlier and stayed green throughout |
 | `test_*_drift.py` set | action list, agent rules, destructive registry, discarded mutator returns |
 
 ## Assert on the reason, not the shape
@@ -70,6 +71,23 @@ will miss the variants.** Do not relax the rule to unblock a new writer; give th
 unique name (`f"{path}.tmp-{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"`) and
 reclaim it on the failure path — a unique name is never pre-cleaned by a later run, so
 whatever creates it must also remove it.
+
+## The offline suite cannot reach — or start — Resolve
+
+`conftest.py` pins `_try_connect` on both bootstraps (`src/core/live_connection.py`,
+`src/granular/common.py`) to "not running", and sets `DAVINCI_MCP_NO_AUTOLAUNCH=1` (#224).
+Before this the suite *launched* Resolve: a `/opt/resolve/bin/resolve` process appeared ~83s
+into a plain `pytest tests/`, and tests that patched `get_resolve` on the wrong module then
+connected to it and passed while asserting nothing — red on CI, green here, honest on neither.
+
+Patch one layer **below** `get_resolve`: it reaches its helper as a module global, so a single
+patch covers every domain module's own `from ... import get_resolve` binding, which patching
+`get_resolve` itself does not (the #138/#139 trap). Deliberately a pin, not a raised error —
+the disconnected-smoke suites *want* "not running", and impossible beats detected.
+
+`_launch_resolve` is left alone: `test_spawn_env_sanitization` calls it directly on purpose
+with `Popen` patched. Not in force under `python -m unittest` (the CI drift-guard step loads no
+conftest), nor for `live_*.py`, which pytest never collects.
 
 ## Test isolation
 

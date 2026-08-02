@@ -330,7 +330,13 @@ class DispatchTest(unittest.TestCase):
     def test_actions_are_listed_for_unknown_action_errors(self):
         import src.server as compound
 
-        out = compound.resolve_control("no_such_action_at_all")
+        # resolve_control connects before it reaches the unknown-action branch,
+        # so without a stub handle this asserted on "Could not connect ..." —
+        # green wherever Resolve happened to be running, red on a clean runner,
+        # and never actually checking the action list either way (#224). The
+        # dispatch lives in src.server itself, so this is the owning module.
+        with mock.patch.object(compound, "get_resolve", return_value=mock.Mock()):
+            out = compound.resolve_control("no_such_action_at_all")
         available = str(out)
         for action in ("install_launch_shim", "uninstall_launch_shim", "launch_shim_status"):
             self.assertIn(action, available)

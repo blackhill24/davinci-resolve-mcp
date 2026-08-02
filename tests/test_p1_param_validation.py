@@ -7,6 +7,7 @@ from unittest import mock
 
 import src.server as s
 import src.domains.timeline_edit.actions as _dom_timeline_edit
+import src.domains.project_lifecycle.actions as _dom_project_lifecycle
 
 
 class TimelineParamValidationTest(unittest.TestCase):
@@ -44,18 +45,29 @@ class ProjectManagerParamValidationTest(unittest.TestCase):
         r.GetProjectManager.return_value = mock.Mock()
         return r
 
+    def _patched_resolve(self):
+        # Patch the module that actually owns the dispatch, for the same reason
+        # spelled out in TimelineParamValidationTest above: since the #52
+        # restructure `project_manager` lives in the project_lifecycle domain
+        # and holds its own `get_resolve` binding, so patching src.server did
+        # nothing. These three reached the developer's RUNNING Resolve and
+        # passed on whatever came back; on a Resolve-less runner the connection
+        # error masked the validation error they exist to assert (#224).
+        return mock.patch.object(
+            _dom_project_lifecycle, "get_resolve", return_value=self._fake_resolve())
+
     def test_create_missing_name_errors(self):
-        with mock.patch.object(s, "get_resolve", return_value=self._fake_resolve()):
+        with self._patched_resolve():
             out = s.project_manager("create", {})
         assert_error_mentions(self, out, 'create requires name')
 
     def test_export_project_missing_path_errors(self):
-        with mock.patch.object(s, "get_resolve", return_value=self._fake_resolve()):
+        with self._patched_resolve():
             out = s.project_manager("export_project", {"name": "X"})
         assert_error_mentions(self, out, 'path', 'required')
 
     def test_archive_missing_both_errors(self):
-        with mock.patch.object(s, "get_resolve", return_value=self._fake_resolve()):
+        with self._patched_resolve():
             out = s.project_manager("archive", {})
         assert_error_mentions(self, out, 'name', 'required')
 

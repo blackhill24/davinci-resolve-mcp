@@ -2,12 +2,12 @@
   "version": 2,
   "layers": 3,
   "root_nav": "CLAUDE.md",
-  "synced": "2026-08-01",
+  "synced": "2026-08-02",
   "_root_structure": "4c31c2025e3cd06d",
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "9aef40b276808a09",
+      "fingerprint": "03b8be3e08250820",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -183,7 +183,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "6efd71694515a137",
+      "fingerprint": "d4a34ef090eb1317",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -537,7 +537,10 @@
         "resolve-advanced/vendor/drp-format/templates/fusion-title.xml",
         "resolve-advanced/vendor/drp-format/templates/generator-solid-color.xml",
         "resolve-advanced/vendor/drp-format/templates/media-clip-h264.drp",
+        "resolve-advanced/vendor/drp-format/templates/transition-additive-dissolve.xml",
         "resolve-advanced/vendor/drp-format/templates/transition-cross-dissolve.xml",
+        "resolve-advanced/vendor/drp-format/templates/transition-dip-to-colour.xml",
+        "resolve-advanced/vendor/drp-format/templates/transition-smooth-cut.xml",
         "resolve-advanced/vendor/drp-format/tool-registry.descriptor.js",
         "resolve-advanced/vendor/drp-format/utils/safe-archive.js",
         "resolve-advanced/vendor/drp-format/xml-builder.js",
@@ -622,7 +625,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "fb8a1bb955cbf599",
+      "fingerprint": "ff2962d32a4c4215",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -695,7 +698,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "4788501fe23a16b7",
+      "fingerprint": "f9745e48114122b2",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -801,6 +804,7 @@
         "tests/domains/auto_edit/test_montage_motion.py",
         "tests/domains/auto_edit/test_montage_wiring.py",
         "tests/domains/auto_edit/test_music_analysis.py",
+        "tests/domains/auto_edit/test_response_payload_budget.py",
         "tests/domains/color_grade/live_color_grade_validation.py",
         "tests/domains/color_grade/live_drx_grade_authoring_probe.py",
         "tests/domains/color_grade/live_folder_rename_probe.py",
@@ -863,6 +867,7 @@
         "tests/domains/media_pool_ingest/test_media_pool_ingest_probe.py",
         "tests/domains/media_pool_ingest/test_media_pool_walk.py",
         "tests/domains/media_pool_ingest/test_multicam_setup.py",
+        "tests/domains/media_pool_ingest/test_project_manager_parked_guard.py",
         "tests/domains/media_pool_ingest/test_reel_name_writeback.py",
         "tests/domains/media_pool_ingest/test_transcript_read.py",
         "tests/domains/orchestration/live_orchestrate_probe.py",

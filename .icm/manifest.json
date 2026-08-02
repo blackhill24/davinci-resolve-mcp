@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "03b8be3e08250820",
+      "fingerprint": "dbffc839a3a57c8c",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -183,7 +183,7 @@
     },
     "advanced-server": {
       "path": "resolve-advanced",
-      "fingerprint": "d4a34ef090eb1317",
+      "fingerprint": "ec94c409264cd979",
       "files": [
         "resolve-advanced/.prettierrc.json",
         "resolve-advanced/README.md",
@@ -625,7 +625,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "ff2962d32a4c4215",
+      "fingerprint": "c0e30f3a5e536e82",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -698,7 +698,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "f9745e48114122b2",
+      "fingerprint": "7a89882c81cd4771",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",

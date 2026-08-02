@@ -73,6 +73,14 @@ api_truth ledger, and **tool counts across the docs vs reality** —
 `v*` tag, so a stale doc or drifted action list fails the publish — fix the drift
 rather than bypassing the gate.
 
+They also run in the `CI` workflow (`.github/workflows/ci.yml`) on every pull
+request and every push to `main`, alongside ruff, the offline suite, both
+mutation gates and the Node matrix. That is the gate you should expect to catch
+drift; the publish run is a backstop. Before CI existed the gates fired *only*
+on a `v*` tag, and ruff had been failing on `main` for long enough that the next
+release would have died at the lint step. If a gate is red on a PR, fix it
+there — do not wait for the tag.
+
 `test_doc_tool_counts` statically counts the compound (`src/server.py`), granular
 (`src/granular/`), and Node advanced (`resolve-advanced/server/index.mjs`) tools and
 asserts the numbers quoted in README, `resolve-advanced/README.md`, `docs/contributing.md`,

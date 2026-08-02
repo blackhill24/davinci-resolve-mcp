@@ -1,0 +1,22 @@
+<Element>
+      <Sm2TiTransition DbId="e024c5be-472a-48ea-9c89-a4c116121dcc">
+       <FieldsBlob>000000020000001b8012180000002c789c6366606400018dad6913180800003f5501d8</FieldsBlob>
+       <PrettyType>Smooth Cut</PrettyType>
+       <Name>Transition</Name>
+       <Start>86468</Start>
+       <Duration>24</Duration>
+       <LinkedItemSync/>
+       <WasDisbanded>false</WasDisbanded>
+       <MarkersBA/>
+       <UiMemento>0</UiMemento>
+       <Flags>0</Flags>
+       <PriorityIndex>0</PriorityIndex>
+       <EffectFiltersBA>0000000200000040800a3d084e38024a08085a1a040a0220014a004a004a29088b015224ffffffe00000000000000c0000000000000000001800000000000c00000000000000f03f</EffectFiltersBA>
+       <ImportExportMetadataBA/>
+       <RenderTextEnabled>true</RenderTextEnabled>
+       <RenderTextGanged>true</RenderTextGanged>
+       <RenderTextPrefixed>true</RenderTextPrefixed>
+       <AlignmentType>2</AlignmentType>
+       <Position>2</Position>
+      </Sm2TiTransition>
+     </Element>

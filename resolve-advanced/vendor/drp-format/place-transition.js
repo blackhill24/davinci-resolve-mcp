@@ -43,6 +43,7 @@ function splitItems(itemsInner) {
 const TEMPLATES = {
   cross_dissolve: path.join(__dirname, 'templates', 'transition-cross-dissolve.xml'),
   dip_to_colour: path.join(__dirname, 'templates', 'transition-dip-to-colour.xml'),
+  smooth_cut: path.join(__dirname, 'templates', 'transition-smooth-cut.xml'),
 };
 
 // Back-compat: some callers/tests reference the old single-template constant.

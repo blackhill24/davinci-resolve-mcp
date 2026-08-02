@@ -41,7 +41,7 @@ jobs:
       - name: Install dependencies
         # The same set install.py provisions, so CI exercises the real import
         # graph rather than a reduced one.
-        run: pip install "mcp[cli]" -r requirements.txt pytest pyflakes ruff
+        run: pip install "mcp[cli]<2" -r requirements.txt pytest pyflakes ruff
 
       - name: Lint with ruff
         # ruff.toml is a narrow, defect-only rule set (pyflakes + mutable
@@ -83,7 +83,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install "mcp[cli]" -r requirements.txt pytest
+        run: pip install "mcp[cli]<2" -r requirements.txt pytest
 
       - name: Run the bridge-helper mutation gate
         # #119: a green suite proved nothing about the code that kept
@@ -93,14 +93,21 @@ jobs:
         # means the suite has gone blind to that defect class again.
         run: python scripts/mutation_gate.py
 
-  node:
-    name: Node ${{ matrix.node }} (advanced suite)
+  node-suite:
+    name: Advanced suite — Node ${{ matrix.node }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false # one version failing should not hide the others
       matrix:
-        node: ["20", "22", "24"]
+        # 22 is the floor for the DEV suite, not for the shipped package.
+        # package.json's test script passes quoted globs to `node --test`, so
+        # the shell leaves them intact and node must expand them itself — and
+        # built-in glob support for --test only arrived in Node 22. On 20 the
+        # run dies with "Could not find '.../*.test.js'" before a single test
+        # executes. What users actually install is covered by cli-smoke below,
+        # which does run on 18.
+        node: ["22", "24"]
     steps:
       - uses: actions/checkout@v5
 
@@ -124,6 +131,25 @@ jobs:
         # regression corrupts a user's project rather than throwing. This
         # re-introduces known codec defects and fails if the suite stays green.
         run: npm run mutation-gate --prefix resolve-advanced
+
+  cli-smoke:
+    name: CLI — Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # This is the published package's own support claim (package.json
+        # engines: >=18.17), so it is tested at the floor rather than assumed.
+        # No npm install: the CLI has no runtime dependencies, which is exactly
+        # what makes running it on the oldest supported Node meaningful.
+        node: ["18", "20", "22", "24"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
 
       - name: Run Node CLI smoke tests
         run: |

@@ -111,10 +111,17 @@ class RestartWaitsForExit(unittest.TestCase):
         # subprocess *module*: the real `pactl` probe inside resolve_spawn_env()
         # would otherwise run through that mock. This test is about restart
         # sequencing, not device selection (#131).
+        #
+        # os.path.exists is stubbed for the same reason the sibling launch tests
+        # in test_spawn_env_sanitization stub it: spawn_resolve() refuses to
+        # spawn an app path that isn't on disk, so without this the assertion
+        # measured "is Resolve installed on this machine", not the sequencing it
+        # names — passing on a developer box and failing on CI (#224).
         with mock.patch.object(app_control.platform, "system", return_value="Linux"), \
              mock.patch.object(app_control, "quit_resolve_app", return_value=True), \
              mock.patch.object(app_control, "resolve_process_running", side_effect=[True, False]), \
              mock.patch.object(proc, "_audio_server_devices", return_value=frozenset()), \
+             mock.patch("os.path.exists", return_value=True), \
              mock.patch.object(app_control.time, "sleep"), \
              mock.patch.object(app_control.subprocess, "Popen") as popen:
             self.assertTrue(

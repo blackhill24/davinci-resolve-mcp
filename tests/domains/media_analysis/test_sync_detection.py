@@ -129,6 +129,14 @@ class SyncDetectionTests(unittest.TestCase):
         self.assertIn("two_pop", caps["event_types"])
         self.assertIn("slate_clap", caps["event_types"])
 
+    # Skipped rather than doubled, unlike the other #224 fixes: this drives the
+    # real ffmpeg decode end to end, so a double would replace the very thing
+    # under test. `test_sample_detector_classifies_two_pop_and_slate_clap`
+    # already covers the detection logic itself with no external tools, so the
+    # skip costs coverage of the wiring only. Same gate as
+    # `test_file_detector_returns_alignment_offsets` below.
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "needs the ffmpeg suite: decodes a real wav through ffmpeg")
     def test_events_include_marker_suggestions_requiring_confirmation(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "camera_a.wav")

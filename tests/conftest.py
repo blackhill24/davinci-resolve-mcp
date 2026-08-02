@@ -32,6 +32,13 @@ if str(_REPO_ROOT) not in sys.path:
 # os.environ snapshot, so it is not seen as a leak (#129).
 os.environ.setdefault("RESOLVE_MCP_NO_AUDIO_RESTORE", "1")
 
+# Belt to the guard below's braces: even if a connection bootstrap is reached
+# through a path the guard does not cover, it must fail fast with NOT_CONNECTED
+# rather than *starting* Resolve. Before #224 the offline suite really did spawn
+# /opt/resolve/bin/resolve on a developer box mid-run. Set before the per-test
+# os.environ snapshot so it is not seen as a leak.
+os.environ.setdefault("DAVINCI_MCP_NO_AUTOLAUNCH", "1")
+
 from tests.bridge_double import (  # noqa: E402
     RESOLVE_EXPORT_CONSTANTS,
     ResolveBridgeDouble,
@@ -153,3 +160,68 @@ def resolve_double():
 def export_constants():
     """The EXPORT_* name -> value mapping the ``resolve`` double exposes."""
     return dict(RESOLVE_EXPORT_CONSTANTS)
+
+
+# ── the offline suite must not reach a real Resolve (#224) ──────────────────
+#
+# Every "green for the wrong reason" failure in #224 has the same shape: a test
+# patches `get_resolve` on the wrong module, the real bootstrap runs instead,
+# and on the developer's box — where Resolve is running — the call *succeeds*,
+# so the assertion passes without ever exercising the code it names. On a clean
+# CI runner the same test fails with a connection error. The test was never
+# testing what it claimed, on either machine; only one of the two was honest
+# about it.
+#
+# The fix is to make the outcome impossible to depend on: in the offline suite
+# `_try_connect()` always reports "not running", whatever is on the box. A test
+# that needs a connected Resolve now fails identically everywhere instead of
+# passing on one machine and failing on another.
+#
+# The patch target is deliberate, and one layer lower than it looks like it
+# should be. `get_resolve()` reaches its helper as a module global:
+#
+#     if _try_connect(): return resolve
+#
+# so replacing the *module attribute* is honoured no matter how many domain
+# modules hold their own `from ... import get_resolve` binding — the trap that
+# makes patching `get_resolve` itself unreliable (#138/#139). One patch here
+# covers every binding; a patch on `get_resolve` covers only one module.
+#
+# Not stubbed: `_launch_resolve`. `DAVINCI_MCP_NO_AUTOLAUNCH=1` above already
+# stops `get_resolve()` from ever reaching it, and the two launch-path tests
+# (`test_spawn_env_sanitization`) call it directly on purpose with `Popen`
+# patched — replacing it would break the tests that cover the spawn.
+#
+# Tests deliberately exercising the disconnected path (the disconnected-smoke
+# suites) are unaffected: "not running" is precisely what they want, and now
+# they get it on a developer box too.
+_LIVE_CONNECTION_MODULES = ("src.core.live_connection", "src.granular.common")
+
+
+def _install_connection_guard() -> None:
+    """Pin both connection bootstraps to "Resolve is not running".
+
+    Session-scoped and never undone: nothing in an *offline* suite may connect,
+    so there is no window in which the real helper should be reachable. Tests
+    that patch `_try_connect` themselves still work — ``mock.patch`` restores
+    this stub, not the real function.
+    """
+    import importlib
+
+    def _not_running():
+        """No-op stub installed by tests/conftest.py (#224)."""
+        return None
+
+    for module_name in _LIVE_CONNECTION_MODULES:
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:
+            # An import failure here is not this guard's business to report —
+            # the tests that need the module fail on their own terms.
+            continue
+        if hasattr(module, "_try_connect"):
+            module._try_connect = _not_running
+            module.resolve = None
+
+
+_install_connection_guard()

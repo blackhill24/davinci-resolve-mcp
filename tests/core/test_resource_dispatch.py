@@ -15,13 +15,32 @@ are registered on a different manager, so `FunctionResource.read()` called
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
 import threading
 import unittest
+from unittest import mock
 
 from mcp.server.fastmcp import FastMCP
 
 from src import server
 from src.core.resolve_autolaunch import autolaunch_suppressed, passive_resolve_probe
+
+
+@contextlib.contextmanager
+def _without_the_global_optout():
+    """Hide ``DAVINCI_MCP_NO_AUTOLAUNCH`` for the duration of the block.
+
+    ``tests/conftest.py`` sets that variable for the whole offline run (#224),
+    so the suite can never start Resolve. These tests are about the *other*
+    input to ``autolaunch_suppressed()`` — the per-thread passive-probe flag —
+    and cannot observe it while the global opt-out pins the answer to True.
+    ``patch.dict`` restores the variable on exit, so the run-wide guarantee is
+    untouched outside the block.
+    """
+    with mock.patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("DAVINCI_MCP_NO_AUTOLAUNCH", None)
+        yield
 
 
 class ThreadedResourceDispatchTest(unittest.TestCase):
@@ -77,11 +96,12 @@ class ThreadedResourceDispatchTest(unittest.TestCase):
         app, seen = self._fastmcp_with_resources()
         server._install_threaded_resource_dispatch(app)
         resource = app._resource_manager._resources["status://plain"]
-        asyncio.run(resource.read())
-        self.assertTrue(seen["passive"],
-                        "a passive host poll must not be allowed to launch Resolve")
-        self.assertFalse(autolaunch_suppressed(),
-                         "the flag must not leak past the handler")
+        with _without_the_global_optout():
+            asyncio.run(resource.read())
+            self.assertTrue(seen["passive"],
+                            "a passive host poll must not be allowed to launch Resolve")
+            self.assertFalse(autolaunch_suppressed(),
+                             "the flag must not leak past the handler")
 
     def test_a_template_resource_is_offloaded_and_keeps_its_params(self):
         app, seen = self._fastmcp_with_resources()
@@ -116,13 +136,14 @@ class ThreadedResourceDispatchTest(unittest.TestCase):
 
 class PassiveProbeFlagTest(unittest.TestCase):
     def test_the_flag_nests_and_restores(self):
-        self.assertFalse(autolaunch_suppressed())
-        with passive_resolve_probe():
-            self.assertTrue(autolaunch_suppressed())
+        with _without_the_global_optout():
+            self.assertFalse(autolaunch_suppressed())
             with passive_resolve_probe():
                 self.assertTrue(autolaunch_suppressed())
-            self.assertTrue(autolaunch_suppressed(), "inner exit must not clear the outer")
-        self.assertFalse(autolaunch_suppressed())
+                with passive_resolve_probe():
+                    self.assertTrue(autolaunch_suppressed())
+                self.assertTrue(autolaunch_suppressed(), "inner exit must not clear the outer")
+            self.assertFalse(autolaunch_suppressed())
 
     def test_the_flag_is_per_thread(self):
         observed = {}
@@ -130,7 +151,7 @@ class PassiveProbeFlagTest(unittest.TestCase):
         def worker():
             observed["other_thread"] = autolaunch_suppressed()
 
-        with passive_resolve_probe():
+        with _without_the_global_optout(), passive_resolve_probe():
             thread = threading.Thread(target=worker)
             thread.start()
             thread.join()

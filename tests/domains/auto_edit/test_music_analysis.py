@@ -282,6 +282,13 @@ class SectionsTest(unittest.TestCase):
         self.assertEqual(drops[0]["start_bar"], 16)
 
 
+# Decoding this costs ffmpeg. The gate below names both halves: the track is
+# only on the machine the measurement was made on, and even there the test is a
+# no-op without ffmpeg on PATH — which used to surface as a bare KeyError rather
+# than a skip (#224).
+_REFERENCE_TRACK = "/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3"
+
+
 class BeatDetectionGridTest(unittest.TestCase):
     """detect_beats' grid extension (issue #176) — real track + honest degradation."""
 
@@ -330,8 +337,8 @@ class BeatDetectionGridTest(unittest.TestCase):
         self.assertIsNone(out["tempo_bpm"])
 
     @unittest.skipUnless(
-        os.path.isfile("/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3"),
-        "reference track not present in this environment")
+        os.path.isfile(_REFERENCE_TRACK) and shutil.which("ffmpeg"),
+        "needs the reference track and ffmpeg to decode it")
     def test_sub_threshold_tempo_still_offers_a_phase_locked_pulse(self):
         # Forcing the gate above the reference track's own confidence puts it on
         # the fallback path. The provisional pulse must recover the SAME tempo
@@ -352,8 +359,8 @@ class BeatDetectionGridTest(unittest.TestCase):
             self.assertAlmostEqual(b - a, period, delta=1e-6)
 
     @unittest.skipUnless(
-        os.path.isfile("/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3"),
-        "reference track not present in this environment")
+        os.path.isfile(_REFERENCE_TRACK) and shutil.which("ffmpeg"),
+        "needs the reference track and ffmpeg to decode it")
     def test_onset_peaks_do_not_follow_the_pulse(self):
         # The measurement that decided the snap target. If a future change makes
         # onset peaks genuinely pulse-following, this test says so out loud
@@ -373,8 +380,8 @@ class BeatDetectionGridTest(unittest.TestCase):
                              "onset peaks now beat chance — revisit the snap target")
 
     @unittest.skipUnless(
-        os.path.isfile("/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3"),
-        "reference track not present in this environment")
+        os.path.isfile(_REFERENCE_TRACK) and shutil.which("ffmpeg"),
+        "needs the reference track and ffmpeg to decode it")
     def test_real_track_locks_a_confident_108bpm_grid(self):
         out = music_analysis.detect_beats(
             "/home/jon/Downloads/visdeo/More oomph Perfect soul 1.mp3")

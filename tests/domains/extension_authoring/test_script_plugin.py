@@ -27,6 +27,9 @@ if PROJECT_ROOT not in sys.path:
 
 from src.domains.extension_authoring.utils import script_templates  # noqa: E402
 from src.server import script_plugin  # noqa: E402
+# After src.server: the domain module and the entry point import each other,
+# so importing the domain first raises a partially-initialized ImportError.
+from src.domains.extension_authoring import actions as _actions  # noqa: E402
 from tests._error_envelope_helpers import assert_error_mentions  # noqa: E402
 
 
@@ -679,12 +682,10 @@ class TestScriptExecution(unittest.TestCase):
         r = script_plugin('run_inline', {
             'source': "print('inline says hi')\n", 'language': 'py',
         })
-        # Note: subprocess will fail to import DaVinciResolveScript without
-        # Resolve env, but our test patch makes get_resolve a no-op. The
-        # boilerplate at the top of inline scripts handles a missing handle
-        # gracefully, but DaVinciResolveScript import itself will succeed if
-        # the env var is set. We just check that the subprocess produced
-        # output OR an importable error — the framework works either way.
+        # The snippet's own output must survive whether or not this machine has
+        # Resolve installed. It did not before #224: the boilerplate's hard
+        # `import DaVinciResolveScript` raised on a Resolve-less box and killed
+        # the script before its first line, leaving stdout empty.
         self.assertIn('inline says hi', r.get('stdout', ''))
 
     def test_run_inline_python_can_compute(self):
@@ -692,6 +693,23 @@ class TestScriptExecution(unittest.TestCase):
             'source': "print(2 + 3)\n", 'language': 'py',
         })
         self.assertIn('5', r.get('stdout', ''))
+
+    def test_run_inline_survives_a_missing_resolve_module(self):
+        """A snippet that needs no Resolve must run on a box without Resolve.
+
+        Doubling the dependency rather than skipping: this asserts our own
+        degrade path, not ffmpeg's or Resolve's behavior, so it must run
+        everywhere. Pointing RESOLVE_MODULES_PATH at nothing reproduces a clean
+        CI runner on a developer box that has Resolve installed (#224).
+        """
+        with patch.object(_actions, 'RESOLVE_MODULES_PATH', '/nonexistent/resolve/Modules'):
+            r = script_plugin('run_inline', {
+                'source': "print('still ran')\n", 'language': 'py',
+            })
+        self.assertTrue(r.get('success'), r)
+        self.assertIn('still ran', r.get('stdout', ''))
+        # and the reason the handle is None is reported, not swallowed
+        self.assertIn('DaVinciResolveScript unavailable', r.get('stderr', ''))
 
     def test_run_inline_empty_source_errors(self):
         r = script_plugin('run_inline', {'source': '', 'language': 'py'})

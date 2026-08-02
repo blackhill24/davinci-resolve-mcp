@@ -171,6 +171,7 @@ class MontageDissolveTest(unittest.TestCase):
         self.assertIn("breathe", op["reason"])
         self.assertEqual(op["args"]["durationFrames"], auto_edit.DEFAULT_DISSOLVE_FRAMES)
         self.assertEqual(op["intended_type"], "cross_dissolve")
+        self.assertEqual(op["args"]["type"], "cross_dissolve")
 
     def test_montage_hard_cut_sections_never_get_a_transition(self):
         # Even with generous handle margin, entering accelerate/high stays a
@@ -209,7 +210,10 @@ class MontageDissolveTest(unittest.TestCase):
     def test_montage_drop_boundary_reports_its_intended_type(self):
         # Only cross_dissolve is captured today (#208 leaves new template
         # capture open), but the placement rule still records the INTENDED
-        # type so a future capture only needs to change the type lookup.
+        # type so a future capture only needs to add it to
+        # MONTAGE_TRANSITION_AVAILABLE_TYPES — the actually-REQUESTED type
+        # (args["type"], what Resolve is asked for) falls back to
+        # cross_dissolve until then, with a note explaining the substitution.
         plan = _plan([
             _seg("A", 0, role="montage_hook", section="build", source_limit_frame=200),
             _seg("B", 48, role="montage", section="drop", source_floor_frame=-200),
@@ -218,6 +222,9 @@ class MontageDissolveTest(unittest.TestCase):
         op = next(o for o in out["ops"] if o["op"] == "place_transition")
         self.assertEqual(op["kind"], "cross_dissolve")
         self.assertEqual(op["intended_type"], "dip_to_colour")
+        self.assertEqual(op["args"]["type"], "cross_dissolve")
+        self.assertTrue(any(
+            "dip_to_colour" in n and "not yet captured" in n for n in out["notes"]))
 
     def test_montage_transitions_are_spaced_apart(self):
         # Two boundaries a single beat apart — well inside

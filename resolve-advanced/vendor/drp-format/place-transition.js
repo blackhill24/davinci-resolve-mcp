@@ -32,30 +32,46 @@ function splitItems(itemsInner) {
   return itemsInner.match(/<Element>\s*<Sm2Ti(?:VideoClip|AudioClip|Generator)\b[\s\S]*?<\/Sm2Ti(?:VideoClip|AudioClip|Generator)>\s*<\/Element>/g) || [];
 }
 
-const TEMPLATE_PATH = path.join(__dirname, 'templates', 'transition-cross-dissolve.xml');
+// Template registry, keyed by the same `type` string the auto-edit planner's
+// `intended_type` uses (see auto_edit.py's MONTAGE_TRANSITION_ENTERING_SECTION).
+// Only "cross_dissolve" is captured today (#208 item A) — the other intended
+// types documented there fall back to this one at op-build time until their
+// templates land; this registry is what lets that follow-up be additive (drop
+// a new template file in and register it, nothing else changes).
+const TEMPLATES = {
+  cross_dissolve: path.join(__dirname, 'templates', 'transition-cross-dissolve.xml'),
+};
+
+// Back-compat: some callers/tests reference the old single-template constant.
+const TEMPLATE_PATH = TEMPLATES.cross_dissolve;
 
 const clipStart = (c) => { const m = c.match(/<Start>(\d+)<\/Start>/); return m ? parseInt(m[1], 10) : null; };
 const clipDuration = (c) => { const m = c.match(/<Duration>(\d+)<\/Duration>/); return m ? parseInt(m[1], 10) : null; };
 
 /**
- * Insert a cross-dissolve at an abutting clip boundary.
+ * Insert a transition at an abutting clip boundary.
  *
  * @param {Buffer|string} drpInput
  * @param {object} opts
  * @param {number} opts.track             - 1-based video track.
  * @param {number} opts.atFrame           - the cut frame (where one clip ends and the next begins).
  * @param {number} [opts.durationFrames=24] - transition length (even number recommended; centered).
+ * @param {string} [opts.type='cross_dissolve'] - a key in TEMPLATES; unknown keys are rejected
+ *   (never silently substituted — a caller asking for a specific look should know when it wasn't built).
  * @param {'video'} [opts.trackType='video'] - audio cross-fade uses a different template (not bundled).
  * @param {string} [opts.timelineUuid]
  * @returns {Promise<{buffer:Buffer, entry:string, timelineUuid:string, track:number,
- *   atFrame:number, start:number, durationFrames:number, transitionDbId:string|null}>}
+ *   atFrame:number, start:number, durationFrames:number, type:string, transitionDbId:string|null}>}
  */
 async function placeTransition(drpInput, opts = {}) {
-  const { track, atFrame, durationFrames = 24, trackType = 'video', timelineUuid } = opts;
+  const { track, atFrame, durationFrames = 24, type = 'cross_dissolve', trackType = 'video', timelineUuid } = opts;
   if (!Number.isInteger(track) || track < 1) throw new TypeError('placeTransition: track must be a positive integer');
   if (!Number.isInteger(atFrame)) throw new TypeError('placeTransition: atFrame must be an integer');
   if (!Number.isInteger(durationFrames) || durationFrames < 2) throw new TypeError('placeTransition: durationFrames must be an integer >= 2');
   if (trackType !== 'video') throw new Error('placeTransition: only video cross-dissolve is supported (no bundled audio template)');
+  if (!Object.prototype.hasOwnProperty.call(TEMPLATES, type)) {
+    throw new Error(`placeTransition: unknown type ${JSON.stringify(type)} (have: ${Object.keys(TEMPLATES).join(', ')})`);
+  }
 
   const zip = await loadDrpZip(drpInput);
   const { entry, xml: seqXml, seqId } = await selectTargetSeq(zip, timelineUuid);
@@ -71,7 +87,7 @@ async function placeTransition(drpInput, opts = {}) {
   }
   if (leftIdx < 0) throw new Error(`placeTransition: no abutting clip boundary at frame ${atFrame} on track ${track}`);
 
-  let trans = fs.readFileSync(TEMPLATE_PATH, 'utf8').trim();
+  let trans = fs.readFileSync(TEMPLATES[type], 'utf8').trim();
   trans = freshDbIds(trans);
   const start = atFrame - Math.floor(durationFrames / 2); // centered (AlignmentType 2)
   trans = trans.replace(/<Start>\d+<\/Start>/, `<Start>${start}</Start>`);
@@ -85,7 +101,7 @@ async function placeTransition(drpInput, opts = {}) {
   const xml = replaceTrackVec(seqXml, trackType, vec, tracks);
   zip.file(entry, xml);
   const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-  return { buffer, entry, timelineUuid: seqId, track, atFrame, start, durationFrames, transitionDbId };
+  return { buffer, entry, timelineUuid: seqId, track, atFrame, start, durationFrames, type, transitionDbId };
 }
 
-module.exports = { placeTransition, TEMPLATE_PATH };
+module.exports = { placeTransition, TEMPLATE_PATH, TEMPLATES };

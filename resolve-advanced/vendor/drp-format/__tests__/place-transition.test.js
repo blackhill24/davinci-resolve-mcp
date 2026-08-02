@@ -46,3 +46,18 @@ test('placeTransition validates args', async () => {
   await assert.rejects(() => placeTransition(buf, { track: 1, atFrame: 100, durationFrames: 1 }), /durationFrames/);
   await assert.rejects(() => placeTransition(buf, { track: 1, atFrame: 100, trackType: 'audio' }), /only video/);
 });
+
+test('placeTransition accepts an explicit type= "cross_dissolve" (default, still works named)', async () => {
+  const res = await placeTransition(await synth2(), { track: 1, atFrame: 100, durationFrames: 24, type: 'cross_dissolve' });
+  assert.strictEqual(res.type, 'cross_dissolve');
+  const body = await vtv(res.buffer);
+  assert.ok(/<PrettyType>Cross Dissolve<\/PrettyType>/.test(body));
+});
+
+test('placeTransition rejects an unregistered type rather than silently substituting', async () => {
+  const buf = await synth2();
+  await assert.rejects(
+    () => placeTransition(buf, { track: 1, atFrame: 100, type: 'dip_to_colour' }),
+    /unknown type "dip_to_colour"/,
+  );
+});

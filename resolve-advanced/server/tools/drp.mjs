@@ -74,6 +74,7 @@ const S = {
     track: z.number().int().positive(),
     atFrame: z.number().int(),
     durationFrames: z.number().int().positive().optional(),
+    type: z.string().optional().describe('template registry key; default "cross_dissolve" (see drp-format/place-transition.js TEMPLATES)'),
     timelineUuid: sel.timelineUuid,
   }),
   set_audio_level: z.object({

@@ -80,17 +80,20 @@ DEFAULT_MUSIC_AUDIO_TRACK = 2      # A2 carries the music bed (build_timeline)
 # transition when the ENTERING section is one of these; every other cut
 # (including entering accelerate/high) stays a hard cut — "a 1-beat cut with
 # a transition on it is mush" on those runs, per the issue's own acceptance
-# criteria. The value is the INTENDED transition type; only "cross_dissolve"
-# is actually captured today (place-transition.js has no other bundled
-# template), so every op still requests "cross_dissolve" from Resolve — the
-# intended label is carried through so a future template capture (still open
-# on #208) only has to change the type lookup, not this placement rule.
+# criteria. The value is the INTENDED transition type.
 MONTAGE_TRANSITION_ENTERING_SECTION: Dict[str, str] = {
     "drop": "dip_to_colour",
     "breathe": "cross_dissolve",
     "low": "cross_dissolve",
     "outro": "cross_dissolve",
 }
+# Mirrors place-transition.js's TEMPLATES registry keys. Only types listed
+# here are actually requested from Resolve (as `args["type"]`); an intended
+# type not yet captured (place-transition.js has no bundled template for it)
+# falls back to "cross_dissolve" instead of erroring the whole op chain — add
+# a key here the same session a new template is captured and it wires through
+# automatically, no change needed to the placement rule above.
+MONTAGE_TRANSITION_AVAILABLE_TYPES = frozenset({"cross_dissolve"})
 MONTAGE_HARD_CUT_SECTIONS = frozenset({"accelerate", "high"})
 # "never two within N beats" (#208) — keeps transitions as punctuation
 # instead of a style, even on an arrangement with several close boundaries.
@@ -1160,11 +1163,20 @@ def plan_polish_ops(
                         f"{head_margin}f head)")
                     continue
                 rec = int(seg.get("record_start_frame", 0)) + offset
+                intended_type = MONTAGE_TRANSITION_ENTERING_SECTION[entering]
+                requested_type = (
+                    intended_type if intended_type in MONTAGE_TRANSITION_AVAILABLE_TYPES
+                    else "cross_dissolve")
+                if requested_type != intended_type:
+                    notes.append(
+                        f"segment {i}: requested cross_dissolve in place of {intended_type} "
+                        "— template not yet captured (#208)")
                 ops.append({
                     "op": "place_transition",
-                    "args": {"track": SPEECH_VIDEO_TRACK, "atFrame": rec, "durationFrames": dur},
+                    "args": {"track": SPEECH_VIDEO_TRACK, "atFrame": rec, "durationFrames": dur,
+                              "type": requested_type},
                     "kind": "cross_dissolve",
-                    "intended_type": MONTAGE_TRANSITION_ENTERING_SECTION[entering],
+                    "intended_type": intended_type,
                     "segment_index": i,
                     "reason": f"segment {i} opens a {entering} section",
                 })

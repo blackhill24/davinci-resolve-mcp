@@ -1,0 +1,165 @@
+name: CI
+
+# Runs the same gates the publish workflow enforces, but on every PR and every
+# push to main — so a regression is caught at review time rather than at
+# `git tag`. Before this existed the gates were real but only ever ran on a tag
+# push, which meant a broken lint or a failing suite could sit on main
+# indefinitely and only surface while cutting a release.
+#
+# Deliberately NOT here: anything needing a running DaVinci Resolve. The live
+# harnesses (live_*.py) are not collected by pytest and cannot run on a
+# Resolve-less runner — see tests/test_live_harness_naming.py, which keeps them
+# named so they stay uncollectable.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A new push supersedes the previous run for the same ref. Never cancel main:
+# its runs are the record of what landed.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  python:
+    name: Python (lint, guards, offline suite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        # The same set install.py provisions, so CI exercises the real import
+        # graph rather than a reduced one.
+        run: pip install "mcp[cli]<2" -r requirements.txt pytest pyflakes ruff
+
+      - name: Lint with ruff
+        # ruff.toml is a narrow, defect-only rule set (pyflakes + mutable
+        # defaults + loop-variable closures), not a style gate.
+        run: ruff check src scripts tests
+
+      - name: Run static drift guards
+        # Cheap and high-signal, so they run before the full suite: undefined
+        # names, tool-action lists in sync with dispatch, docs in sync with the
+        # code they describe, live harnesses named so pytest cannot collect
+        # them, and no discarded mutator return values (Resolve reports failure
+        # by return value, so a dropped return reads as unconditional success).
+        run: |
+          python -m unittest \
+            tests.test_static_undefined_names \
+            tests.test_action_list_drift \
+            tests.dashboard.test_panel_docs_drift \
+            tests.core.test_api_limitations_doc \
+            tests.test_doc_tool_counts \
+            tests.test_live_harness_naming \
+            tests.test_discarded_mutator_returns
+
+      - name: Run the offline test suite
+        run: python -m pytest tests/ -q
+
+  python-mutation:
+    name: Python mutation gate
+    runs-on: ubuntu-latest
+    # Its own job because it re-runs the suite once per mutation and takes far
+    # longer than everything else combined — bolting it onto the python job
+    # would triple that job's feedback time for every PR.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install "mcp[cli]<2" -r requirements.txt pytest
+
+      - name: Run the bridge-helper mutation gate
+        # #119: a green suite proved nothing about the code that kept
+        # regressing — breaking _api_constant or _has_method outright still
+        # left the suite fully green. This re-introduces defects that have
+        # actually shipped and fails if the suite does not notice. A survivor
+        # means the suite has gone blind to that defect class again.
+        run: python scripts/mutation_gate.py
+
+  node-suite:
+    name: Advanced suite — Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false # one version failing should not hide the others
+      matrix:
+        # 22 is the floor for the DEV suite, not for the shipped package.
+        # package.json's test script passes quoted globs to `node --test`, so
+        # the shell leaves them intact and node must expand them itself — and
+        # built-in glob support for --test only arrived in Node 22. On 20 the
+        # run dies with "Could not find '.../*.test.js'" before a single test
+        # executes. What users actually install is covered by cli-smoke below,
+        # which does run on 18.
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: resolve-advanced/package-lock.json
+
+      - name: Install advanced-server dependencies
+        run: npm ci --prefix resolve-advanced
+
+      - name: Run the advanced Node test suite
+        # `pretest` runs scripts/preflight-native.mjs first: it hard-fails on a
+        # native module built for the wrong ABI (which otherwise reads as ~32
+        # unrelated test failures) and warns on install-script approval drift.
+        run: npm test --prefix resolve-advanced
+
+      - name: Run the vendor-codec mutation gate
+        # The .drp/.drt/.drx codecs author real project files; a silent codec
+        # regression corrupts a user's project rather than throwing. This
+        # re-introduces known codec defects and fails if the suite stays green.
+        run: npm run mutation-gate --prefix resolve-advanced
+
+  cli-smoke:
+    name: CLI — Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # This is the published package's own support claim (package.json
+        # engines: >=18.17), so it is tested at the floor rather than assumed.
+        # No npm install: the CLI has no runtime dependencies, which is exactly
+        # what makes running it on the oldest supported Node meaningful.
+        node: ["18", "20", "22", "24"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Run Node CLI smoke tests
+        run: |
+          node bin/davinci-resolve-mcp.mjs --help
+          node bin/davinci-resolve-mcp.mjs --version
+
+      - name: Run setup dry run
+        run: |
+          export DAVINCI_RESOLVE_MCP_INSTALL_ROOT="$(mktemp -d)"
+          node bin/davinci-resolve-mcp.mjs setup --dry-run --no-venv --clients manual --update-policy never
+
+      - name: Check npm package contents
+        run: npm pack --dry-run

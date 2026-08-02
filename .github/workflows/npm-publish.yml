@@ -70,7 +70,7 @@ jobs:
         # Both are now live_api_probe.py / live_resolve20_api.py and are not
         # collected; tests.test_live_harness_naming above keeps it that way.
         run: |
-          pip install "mcp[cli]" -r requirements.txt pytest
+          pip install "mcp[cli]<2" -r requirements.txt pytest
           python -m pytest tests/ -q
 
       - name: Run the bridge-helper mutation gate

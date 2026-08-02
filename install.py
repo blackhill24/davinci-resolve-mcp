@@ -42,6 +42,12 @@ VERSION = "2.62.3"
 # may fail to connect on 3.13+, but the connection check is the real signal,
 # so we proceed with a heads-up rather than refusing to run.
 SUPPORTED_PYTHON_MIN = (3, 10)
+# The MCP SDK pin, in one place. 2.0.0 removed `mcp.server.fastmcp` (imported at
+# module scope by src/server.py), so an uncapped install breaks every entry
+# point at import time. tests/test_mcp_sdk_pin.py asserts this literal and the
+# CI/publish workflows agree — the failure mode is silent enough that a
+# one-site fix would rot unnoticed.
+MCP_SDK_REQUIREMENT = "mcp[cli]<2"
 PYTHON_ABI_RISK_MIN = (3, 13)
 
 # ─── Colors (disabled on Windows cmd without ANSI support) ────────────────────
@@ -831,7 +837,14 @@ def install_dependencies(venv_path, project_dir):
         # error in captured stdout/stderr but never printed it, leaving a bare
         # traceback. Bound the wait and surface pip's message on failure.
         subprocess.run(
-            [str(pip), "install", "-q", "mcp[cli]"],
+            # Cap below 2.0: the MCP SDK 2.0.0 removed `mcp.server.fastmcp`,
+            # which src/server.py imports at module scope. Uncapped, a fresh
+            # install resolves to 2.x and every entry point dies at import with
+            # "No module named 'mcp.server.fastmcp'" — which surfaces to users
+            # as an unexplained "Server disconnected". Keep this pin and
+            # tests/test_mcp_sdk_pin.py in sync; that guard is what stops the
+            # cap being dropped from one install site and not the others.
+            [str(pip), "install", "-q", MCP_SDK_REQUIREMENT],
             check=True, capture_output=True, text=True, timeout=PIP_INSTALL_TIMEOUT,
         )
     except subprocess.CalledProcessError as exc:

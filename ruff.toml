@@ -39,3 +39,13 @@ ignore = [
 # namespace (and tests mock.patch.object() names on them) — imports that look
 # unused are the dispatch surface.
 "src/domains/*/actions.py" = ["F401"]
+# B023 here is the immediate-invocation idiom, not a deferred closure: the
+# per-segment `_do_transform` / `_do_shake` / `_do_flash` / `_do_vignette` /
+# `_do_grain` / `_do_fadeout` helpers exist only to hand ONE callable to
+# `_fusion_locked(comp, _do_x)` on the very next line, inside the same
+# iteration (Resolve 21 only honours per-mutation Lock/Unlock cycles, so each
+# mutation must be its own callable). None is stored, returned or deferred —
+# every call site was checked before this ignore was added. Scoped to this one
+# file rather than the whole B023 rule, because the rule caught a REAL bug in
+# tests/domains/auto_edit/test_auto_edit_tool.py the same day this was written.
+"src/domains/auto_edit/actions.py" = ["F401", "B023"]

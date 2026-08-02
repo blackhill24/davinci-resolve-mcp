@@ -2148,7 +2148,7 @@ async def auto_edit(action: str, params: Optional[Dict[str, Any]] = None) -> Dic
         try:
             tool.SetAttrs({"TOOLS_Name": name})
             renamed = tool.GetAttrs().get("TOOLS_Name") == name
-        except Exception as exc:
+        except Exception:
             renamed = False
         if not renamed:
             # Not fatal — the tool is usable unnamed — but comp.FindTool(name)

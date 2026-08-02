@@ -7,7 +7,7 @@
   "workspaces": {
     "live-server": {
       "path": "src",
-      "fingerprint": "dbffc839a3a57c8c",
+      "fingerprint": "5cfc09bcc61b9394",
       "files": [
         "src/__init__.py",
         "src/batch_cli.py",
@@ -625,7 +625,7 @@
     },
     "docs": {
       "path": "docs",
-      "fingerprint": "c0e30f3a5e536e82",
+      "fingerprint": "7904621b75b4f55d",
       "files": [
         "docs/README.md",
         "docs/SKILL.md",
@@ -698,7 +698,7 @@
     },
     "tests": {
       "path": "tests",
-      "fingerprint": "7a89882c81cd4771",
+      "fingerprint": "5e2b109db517123e",
       "files": [
         "tests/GUARDS.md",
         "tests/_error_envelope_helpers.py",
@@ -973,6 +973,7 @@
         "tests/test_locale_guard.py",
         "tests/test_mcp_prompts.py",
         "tests/test_mcp_resources.py",
+        "tests/test_mcp_sdk_pin.py",
         "tests/test_missing_param_envelope.py",
         "tests/test_mutation_gate.py",
         "tests/test_no_shared_temp_writers.py",

@@ -885,6 +885,22 @@ class BuildCutListGridLockedTests(MontageEditBase):
             if isinstance(limit, int):
                 self.assertLessEqual(seg["source_end_frame"], limit)
 
+    def test_source_floor_frame_never_exceeds_the_shots_own_start(self):
+        # #208: source_floor_frame is source_limit_frame's symmetric
+        # counterpart — the handle-safety check in plan_polish_ops relies on
+        # source_start_frame never sitting BEFORE it (that would mean the
+        # segment's own chosen in-point reaches earlier than the shot it came
+        # from, which should be structurally impossible).
+        files = self._seed_pool()
+        beats = _grid_beats(beat_zero=0.37)
+        with mock.patch.object(montage_edit.music_analysis, "detect_beats", return_value=beats):
+            out = montage_edit.build_cut_list_for_brief(
+                self.root, {"files": files, "music": "/media/track.wav"})
+        for seg in out["plan"]["segments"]:
+            floor = seg.get("source_floor_frame")
+            if isinstance(floor, int):
+                self.assertGreaterEqual(seg["source_start_frame"], floor)
+
     def test_grid_invariant_every_record_start_is_a_beat(self):
         files = self._seed_pool()
         beats = _grid_beats()

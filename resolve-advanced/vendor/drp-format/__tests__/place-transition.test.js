@@ -3,7 +3,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { placeTransition } = require('../place-transition');
+const { placeTransition, TEMPLATES } = require('../place-transition');
 
 // Two abutting Sm2TiVideoClips: c0 [0,100), c1 [100,200) — cut at 100.
 async function synth2() {
@@ -45,4 +45,68 @@ test('placeTransition validates args', async () => {
   const buf = await synth2();
   await assert.rejects(() => placeTransition(buf, { track: 1, atFrame: 100, durationFrames: 1 }), /durationFrames/);
   await assert.rejects(() => placeTransition(buf, { track: 1, atFrame: 100, trackType: 'audio' }), /only video/);
+});
+
+test('placeTransition accepts an explicit type= "cross_dissolve" (default, still works named)', async () => {
+  const res = await placeTransition(await synth2(), { track: 1, atFrame: 100, durationFrames: 24, type: 'cross_dissolve' });
+  assert.strictEqual(res.type, 'cross_dissolve');
+  const body = await vtv(res.buffer);
+  assert.ok(/<PrettyType>Cross Dissolve<\/PrettyType>/.test(body));
+});
+
+test('placeTransition type="dip_to_colour" inserts a Dip To Color Dissolve (template captured Resolve 21, #208)', async () => {
+  const res = await placeTransition(await synth2(), { track: 1, atFrame: 100, durationFrames: 24, type: 'dip_to_colour' });
+  assert.strictEqual(res.type, 'dip_to_colour');
+  assert.strictEqual(res.start, 88, 'centered: 100 - 24/2');
+  assert.ok(res.transitionDbId, 'fresh DbId assigned');
+
+  const body = await vtv(res.buffer);
+  assert.ok(/<PrettyType>Dip To Color Dissolve<\/PrettyType>/.test(body), 'is a Dip To Color Dissolve');
+  assert.ok(/<Start>88<\/Start>/.test(body) && /<Duration>24<\/Duration>/.test(body), 'start/duration set');
+  const order = [...body.matchAll(/<Sm2Ti(VideoClip|Transition)\b[^>]*DbId="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepStrictEqual(order, ['VideoClip', 'Transition', 'VideoClip'], 'transition sits between the clips');
+});
+
+test('placeTransition type="smooth_cut" inserts a Smooth Cut (template captured Resolve 21, #208)', async () => {
+  const res = await placeTransition(await synth2(), { track: 1, atFrame: 100, durationFrames: 24, type: 'smooth_cut' });
+  assert.strictEqual(res.type, 'smooth_cut');
+  assert.strictEqual(res.start, 88, 'centered: 100 - 24/2');
+  assert.ok(res.transitionDbId, 'fresh DbId assigned');
+
+  const body = await vtv(res.buffer);
+  assert.ok(/<PrettyType>Smooth Cut<\/PrettyType>/.test(body), 'is a Smooth Cut');
+  assert.ok(/<Start>88<\/Start>/.test(body) && /<Duration>24<\/Duration>/.test(body), 'start/duration set');
+  const order = [...body.matchAll(/<Sm2Ti(VideoClip|Transition)\b[^>]*DbId="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepStrictEqual(order, ['VideoClip', 'Transition', 'VideoClip'], 'transition sits between the clips');
+});
+
+test('placeTransition type="additive_dissolve" inserts an Additive Dissolve (template captured Resolve 21, #208)', async () => {
+  const res = await placeTransition(await synth2(), { track: 1, atFrame: 100, durationFrames: 24, type: 'additive_dissolve' });
+  assert.strictEqual(res.type, 'additive_dissolve');
+  assert.strictEqual(res.start, 88, 'centered: 100 - 24/2');
+  assert.ok(res.transitionDbId, 'fresh DbId assigned');
+
+  const body = await vtv(res.buffer);
+  assert.ok(/<PrettyType>Additive Dissolve<\/PrettyType>/.test(body), 'is an Additive Dissolve');
+  assert.ok(/<Start>88<\/Start>/.test(body) && /<Duration>24<\/Duration>/.test(body), 'start/duration set');
+  const order = [...body.matchAll(/<Sm2Ti(VideoClip|Transition)\b[^>]*DbId="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepStrictEqual(order, ['VideoClip', 'Transition', 'VideoClip'], 'transition sits between the clips');
+});
+
+// Every bundled template must declare centered alignment — placeTransition computes
+// `Start = cut - duration/2` and rewrites Start/Duration but never AlignmentType, so a
+// template captured at Resolve's default start-on-cut alignment would render offset.
+test('every registered template is centered (AlignmentType 2)', () => {
+  for (const [type, file] of Object.entries(TEMPLATES)) {
+    const xml = require('node:fs').readFileSync(file, 'utf8');
+    assert.match(xml, /<AlignmentType>2<\/AlignmentType>/, `${type} must be centered`);
+  }
+});
+
+test('placeTransition rejects an unregistered type rather than silently substituting', async () => {
+  const buf = await synth2();
+  await assert.rejects(
+    () => placeTransition(buf, { track: 1, atFrame: 100, type: 'push' }),
+    /unknown type "push"/,
+  );
 });

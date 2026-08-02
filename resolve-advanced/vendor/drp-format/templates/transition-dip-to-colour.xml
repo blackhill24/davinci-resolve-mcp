@@ -1,0 +1,22 @@
+<Element>
+      <Sm2TiTransition DbId="6b8804d8-9df5-49e0-9879-00ffe264d674">
+       <FieldsBlob>000000020000001b8012180000002c789c636660640001d10b27ed1808000042ee01f1</FieldsBlob>
+       <PrettyType>Dip To Color Dissolve</PrettyType>
+       <Name>Dip To Color Dissolve</Name>
+       <Start>86548</Start>
+       <Duration>24</Duration>
+       <LinkedItemSync/>
+       <WasDisbanded>false</WasDisbanded>
+       <MarkersBA/>
+       <UiMemento>0</UiMemento>
+       <Flags>0</Flags>
+       <PriorityIndex>0</PriorityIndex>
+       <EffectFiltersBA>000000020000003a800a37081638024a004a004a004a29088b015224ffffffe00000000000000c0000000000000000001800000000000c00000000000000f03f4a00</EffectFiltersBA>
+       <ImportExportMetadataBA/>
+       <RenderTextEnabled>true</RenderTextEnabled>
+       <RenderTextGanged>true</RenderTextGanged>
+       <RenderTextPrefixed>true</RenderTextPrefixed>
+       <AlignmentType>2</AlignmentType>
+       <Position>3</Position>
+      </Sm2TiTransition>
+     </Element>

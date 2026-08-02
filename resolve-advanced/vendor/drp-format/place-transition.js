@@ -1,13 +1,15 @@
 /**
- * place-transition — insert a cross-dissolve between two abutting clips in a real .drp,
+ * place-transition — insert a transition between two abutting clips in a real .drp,
  * offline. Transitions are the one thing the Resolve scripting API can't add (GUI only),
  * so this is the only programmatic path.
  *
- * Ground truth (captured via computer-use authoring a Cross Dissolve in Resolve 21):
- * a transition is an `<Sm2TiTransition>` element that lives in the track's `<Items>`
- * BETWEEN the two clip `<Element>`s — `<PrettyType>Cross Dissolve</PrettyType>`,
- * `<Start>`/`<Duration>`, `<AlignmentType>2` (centered on the cut), plus `FieldsBlob` +
- * `EffectFiltersBA` (the dissolve params). For a centered transition, Start = cut - Duration/2.
+ * Ground truth (captured via computer-use authoring each type in Resolve 21 — Cross
+ * Dissolve first, Dip To Color Dissolve added #208): a transition is an
+ * `<Sm2TiTransition>` element that lives in the track's `<Items>` BETWEEN the two clip
+ * `<Element>`s — `<PrettyType>` names the effect, `<Start>`/`<Duration>`,
+ * `<AlignmentType>2` (centered on the cut), plus `FieldsBlob` + `EffectFiltersBA` (the
+ * effect's own params — undocumented protobuf, captured whole per type, not decoded).
+ * For a centered transition, Start = cut - Duration/2.
  *
  * The two clips must have HANDLE media across the cut (e.g. razored from continuous media),
  * or Resolve will render the dissolve edges as freeze/black.
@@ -40,6 +42,7 @@ function splitItems(itemsInner) {
 // a new template file in and register it, nothing else changes).
 const TEMPLATES = {
   cross_dissolve: path.join(__dirname, 'templates', 'transition-cross-dissolve.xml'),
+  dip_to_colour: path.join(__dirname, 'templates', 'transition-dip-to-colour.xml'),
 };
 
 // Back-compat: some callers/tests reference the old single-template constant.

@@ -54,10 +54,23 @@ test('placeTransition accepts an explicit type= "cross_dissolve" (default, still
   assert.ok(/<PrettyType>Cross Dissolve<\/PrettyType>/.test(body));
 });
 
+test('placeTransition type="dip_to_colour" inserts a Dip To Color Dissolve (template captured Resolve 21, #208)', async () => {
+  const res = await placeTransition(await synth2(), { track: 1, atFrame: 100, durationFrames: 24, type: 'dip_to_colour' });
+  assert.strictEqual(res.type, 'dip_to_colour');
+  assert.strictEqual(res.start, 88, 'centered: 100 - 24/2');
+  assert.ok(res.transitionDbId, 'fresh DbId assigned');
+
+  const body = await vtv(res.buffer);
+  assert.ok(/<PrettyType>Dip To Color Dissolve<\/PrettyType>/.test(body), 'is a Dip To Color Dissolve');
+  assert.ok(/<Start>88<\/Start>/.test(body) && /<Duration>24<\/Duration>/.test(body), 'start/duration set');
+  const order = [...body.matchAll(/<Sm2Ti(VideoClip|Transition)\b[^>]*DbId="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepStrictEqual(order, ['VideoClip', 'Transition', 'VideoClip'], 'transition sits between the clips');
+});
+
 test('placeTransition rejects an unregistered type rather than silently substituting', async () => {
   const buf = await synth2();
   await assert.rejects(
-    () => placeTransition(buf, { track: 1, atFrame: 100, type: 'dip_to_colour' }),
-    /unknown type "dip_to_colour"/,
+    () => placeTransition(buf, { track: 1, atFrame: 100, type: 'smooth_cut' }),
+    /unknown type "smooth_cut"/,
   );
 });

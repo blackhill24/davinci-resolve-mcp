@@ -84,6 +84,16 @@ export function formatReport(problems) {
     lines.push(`      fix:     npm rebuild ${p.name}`);
     lines.push('');
   }
+  // npm 12 gates install scripts behind package.json's `allowScripts`. An
+  // unapproved package makes `npm rebuild` print "rebuilt dependencies
+  // successfully" while building nothing, so the rebuild above looks like it
+  // worked and the suite fails identically on the next run. Name that trap
+  // here — it cost a session once.
+  lines.push('  If `npm rebuild` reports success but this still fails, the install script is');
+  lines.push('  blocked: `npm install-scripts ls`, then `npm install-scripts approve <pkg>`.');
+  lines.push('  If the build then fails on missing V8 symbols, the pinned version predates');
+  lines.push('  this Node major — bump it rather than rebuilding it.');
+  lines.push('');
   lines.push(`  Running Node ${process.version} (ABI ${process.versions.modules}).`);
   lines.push('  Set SKIP_NATIVE_PREFLIGHT=1 to run the suite anyway.');
   lines.push('');

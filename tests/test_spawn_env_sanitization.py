@@ -490,8 +490,14 @@ class LaunchSitesUseSanitizedEnvTest(unittest.TestCase):
         # #110 finding 12: restart must delegate to resolve_launch.spawn_resolve,
         # not reimplement the spawn — so the sanitized app/env guarding the
         # dedicated launch path also covers the relaunch.
+        #
+        # os.path.exists is the one seam this was missing next to its siblings
+        # in _launch_patches(): spawn_resolve() bails before Popen when the app
+        # path isn't on disk, so the assertion silently measured "is Resolve
+        # installed here" and went red on a clean runner (#224).
         with mock.patch.dict("os.environ", {"LD_PRELOAD": NXEGL}, clear=False), \
              mock.patch.object(resolve_launch.subprocess, "Popen") as popen, \
+             mock.patch("os.path.exists", return_value=True), \
              mock.patch.object(app_control.platform, "system", return_value="Linux"), \
              mock.patch.object(app_control.time, "sleep"), \
              mock.patch.object(app_control, "resolve_process_running", return_value=False), \

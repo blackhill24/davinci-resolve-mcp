@@ -68,6 +68,7 @@ from src.domains.media_analysis.utils.capabilities_and_planning import (
     visual_analysis_completed,
     vision_is_pending_host_analysis,
 )
+from src.domains.media_analysis.utils import capabilities_and_planning as _caps_planning
 from src.domains.media_analysis.utils.technical_probe import (
     _cut_boundary_analysis,
 )
@@ -108,6 +109,29 @@ from src.domains.media_analysis.utils.media_analysis_jobs import (
     resume_batch_job,
     run_batch_job_slice,
 )
+
+
+@contextlib.contextmanager
+def _pretend_ffmpeg_suite_is_installed():
+    """Report ffmpeg/ffprobe as present to capability detection, nothing more.
+
+    For tests whose subject is *our* bookkeeping rather than ffmpeg's behavior,
+    but which sit behind the capability gate that refuses to plan or queue work
+    when the suite is missing (#224). Deliberately selective: only the two
+    ffmpeg-suite lookups are answered, so whisper/opencv detection — and the
+    plan branches that depend on them — stay honest.
+
+    Nothing here executes analysis, so no ffmpeg binary is ever needed.
+    """
+    real_which = _caps_planning.shutil.which
+
+    def which(name, *args, **kwargs):
+        if name in ("ffmpeg", "ffprobe"):
+            return real_which(name, *args, **kwargs) or f"/usr/bin/{name}"
+        return real_which(name, *args, **kwargs)
+
+    with unittest.mock.patch.object(_caps_planning.shutil, "which", which):
+        yield
 
 
 def _prefs_env(tmp_dir, filename="prefs.json", **extra):
@@ -4057,7 +4081,14 @@ class MediaAnalysisPlanningTests(unittest.TestCase):
             self.assertGreaterEqual(search["result_count"], 1)
 
     def test_batch_job_cancel_and_resume(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        # Doubled rather than skipped (#224). This is about job bookkeeping —
+        # cancel flips the status, resume re-queues the pending clip — and none
+        # of that is ffprobe's behavior. But create_batch_job refuses outright
+        # when a required capability is missing, so on a runner without the
+        # ffmpeg suite the test died at the first assertion having exercised no
+        # bookkeeping at all. Reporting the suite as present keeps the whole
+        # real path running everywhere; no analysis is ever executed here.
+        with _pretend_ffmpeg_suite_is_installed(), tempfile.TemporaryDirectory() as tmp:
             source_dir = os.path.join(tmp, "source")
             analysis_dir = os.path.join(tmp, "analysis")
             os.makedirs(source_dir)

@@ -887,10 +887,22 @@ def _run_inline_python(source: str, timeout: int) -> Dict[str, Any]:
     `resolve`, `project`, `mp`, `timeline` as globals — same shape as the
     scaffold template, so inline snippets feel like a REPL.
     """
+    # The connect step degrades instead of raising. A hard
+    # `import DaVinciResolveScript` at the top killed every inline snippet on a
+    # machine where Resolve isn't installed — including snippets that never
+    # touch Resolve — before the user's first line ran, and reported it as empty
+    # stdout rather than as an error anyone could read (#224). `resolve` is
+    # already documented as possibly-None below; None on a missing module is the
+    # same contract, one cause earlier.
     boilerplate = (
         "import sys\n"
-        "import DaVinciResolveScript as dvr_script\n"
-        "resolve = dvr_script.scriptapp('Resolve')\n"
+        "try:\n"
+        "    import DaVinciResolveScript as dvr_script\n"
+        "    resolve = dvr_script.scriptapp('Resolve')\n"
+        "except Exception as _dvr_exc:\n"
+        "    dvr_script = None\n"
+        "    resolve = None\n"
+        "    print('DaVinciResolveScript unavailable: %s' % _dvr_exc, file=sys.stderr)\n"
         "project = (resolve.GetProjectManager().GetCurrentProject()\n"
         "           if resolve else None)\n"
         "mp = project.GetMediaPool() if project else None\n"
